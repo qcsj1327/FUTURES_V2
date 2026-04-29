@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from app.replay import ReplayRunner
 from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
+from research.replay import ReplayRunner
 
 
 def make_decision(signal_id: str) -> SignalDecision:

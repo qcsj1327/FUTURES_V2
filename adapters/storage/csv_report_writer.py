@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from app.run_report import RunReport
+from research.run_report import RunReport
 
 
 class CSVReportWriter:

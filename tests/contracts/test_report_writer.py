@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.replay import ReplayRunner
+from research.replay import ReplayRunner
 
 
 def test_replay_writes_csv(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.batch_replay import BatchReplayRunner
+from research.batch_replay import BatchReplayRunner
 
 
 def test_batch_replay(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import is_dataclass
 
-from app.run_report import RunReport
+from research.run_report import RunReport
 
 
 def test_run_report_contract() -> None:

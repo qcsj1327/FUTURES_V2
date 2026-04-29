@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from collections.abc import Mapping
+from pathlib import Path
 
-from app.replay import ReplayRunner
-from app.run_report import RunReport
+from research.replay import ReplayRunner
+from research.run_report import RunReport
 
 
 class BatchReplayRunner:
