@@ -8,9 +8,6 @@ from research.run_report import RunReport
 
 
 class BatchReplayRunner:
-    def __init__(self) -> None:
-        self.runner = ReplayRunner()
-
     def run(
         self,
         jobs: Mapping[str, str | Path],
@@ -24,7 +21,8 @@ class BatchReplayRunner:
             if output_dir is not None:
                 output_path = Path(output_dir) / f"{name}_report.csv"
 
-            report = self.runner.run_csv(path, output_path)
+            runner = ReplayRunner()
+            report = runner.run_csv(path, output_path)
 
             results[name] = report
 
