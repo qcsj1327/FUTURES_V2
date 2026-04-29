@@ -6,9 +6,9 @@ from app.runtime_config import RuntimeConfig
 from core.execution.execution_engine import ExecutionEngine
 from core.risk.risk_engine import RiskEngine
 from core.state.state_engine import StateEngine
-from core.strategy_engine.strategy_engine import StrategyEngine
 from core.trigger.trigger_engine import TriggerEngine
 from domain.signal import SignalDecision
+from strategies.base.simple_strategy import StrategyEngine
 
 
 class Runtime:

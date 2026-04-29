@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from core.strategy_engine.strategy_engine import StrategyEngine
 from domain.enums import Decision
+from strategies.base.simple_strategy import StrategyEngine
 
 
 def test_strategy_generates_signal() -> None:
