@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from adapters.broker.base import BrokerAdapter
 from domain.enums import ExecutionStatus, PositionSide
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.risk import RiskDecision
 
 
 class ExecutionEngine:
+    def __init__(self, broker: BrokerAdapter) -> None:
+        self.broker = broker
+
     def execute(self, decision: RiskDecision) -> tuple[ExecutionOrder | None, ExecutionResult]:
         if not decision.allowed:
             return None, ExecutionResult(
@@ -23,9 +27,6 @@ class ExecutionEngine:
             order_type="market",
         )
 
-        result = ExecutionResult(
-            success=True,
-            status=ExecutionStatus.SUBMITTED,
-        )
+        result = self.broker.submit_order(order)
 
         return order, result

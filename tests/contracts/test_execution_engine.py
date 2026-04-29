@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from adapters.broker.fake_broker import FakeBroker
 from core.execution.execution_engine import ExecutionEngine
 from domain.enums import Decision, PositionSide, Side, TriggerLifecycle
 from domain.risk import RiskDecision
@@ -17,12 +18,13 @@ def test_execution_engine_success() -> None:
         quantity=3.0,
     )
 
-    order, result = ExecutionEngine().execute(decision)
+    order, result = ExecutionEngine(FakeBroker()).execute(decision)
 
     assert order is not None
     assert result.success is True
     assert order.quantity == 3.0
     assert order.instrument_id == "au"
+    assert result.order_id == "fake_order_1"
 
 
 def test_execution_engine_rejected() -> None:
@@ -36,7 +38,7 @@ def test_execution_engine_rejected() -> None:
         lifecycle=None,
     )
 
-    order, result = ExecutionEngine().execute(decision)
+    order, result = ExecutionEngine(FakeBroker()).execute(decision)
 
     assert order is None
     assert result.success is False

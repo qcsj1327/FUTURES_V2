@@ -11,7 +11,8 @@ class Runtime:
     def __init__(self) -> None:
         self.trigger = TriggerEngine()
         self.risk = RiskEngine()
-        self.execution = ExecutionEngine()
+        from adapters.broker.fake_broker import FakeBroker
+        self.execution = ExecutionEngine(FakeBroker())
         self.state = StateEngine()
 
     def run(self, decision: SignalDecision) -> None:
