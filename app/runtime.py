@@ -6,6 +6,7 @@ from app.runtime_config import RuntimeConfig
 from core.execution.execution_engine import ExecutionEngine
 from core.risk.risk_engine import RiskEngine
 from core.state.state_engine import StateEngine
+from core.strategy_engine.strategy_engine import StrategyEngine
 from core.trigger.trigger_engine import TriggerEngine
 from domain.signal import SignalDecision
 
@@ -19,9 +20,14 @@ class Runtime:
         self.risk = RiskEngine()
         self.execution = ExecutionEngine(SimulatedBroker(market_data))
         self.state = StateEngine()
+        self.strategy = StrategyEngine()
+        self.market_data = market_data
         self.orders_submitted = 0
 
     def run(self, decision: SignalDecision) -> None:
+        self._run_decision(decision)
+
+    def _run_decision(self, decision: SignalDecision) -> None:
         trigger_result = self.trigger.process(decision, runtime_id=self.config.runtime_id)
         risk_decision = self.risk.evaluate(
             trigger_result,
