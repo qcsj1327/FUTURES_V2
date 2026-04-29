@@ -25,4 +25,5 @@ class ExecutionResult:
     status: ExecutionStatus
     order_id: str | None = None
     ts: int | None = None
+    fill_price: float | None = None
     reason: str | None = None

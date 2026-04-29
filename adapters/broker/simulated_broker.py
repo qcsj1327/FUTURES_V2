@@ -20,5 +20,6 @@ class SimulatedBroker(BrokerAdapter):
             success=True,
             status=ExecutionStatus.SUBMITTED,
             order_id=f"sim_order_{self._counter}",
-            reason=f"filled_at={fill_price}",
+            fill_price=fill_price,
+            reason="simulated_fill",
         )

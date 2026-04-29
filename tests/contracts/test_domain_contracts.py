@@ -200,6 +200,7 @@ def test_execution_fields() -> None:
         "status",
         "order_id",
         "ts",
+        "fill_price",
         "reason",
     }
 

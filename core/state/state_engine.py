@@ -35,9 +35,7 @@ class StateEngine:
         )
 
         if result.success:
-            fill_price = order.price or 0.0
-            if result.reason and result.reason.startswith("filled_at="):
-                fill_price = float(result.reason.removeprefix("filled_at="))
+            fill_price = result.fill_price or order.price or 0.0
 
             self.position = PositionState(
                 instrument_id=order.instrument_id,

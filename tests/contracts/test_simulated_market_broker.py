@@ -23,5 +23,6 @@ def test_simulated_broker_uses_market_price() -> None:
 
     assert result.success is True
     assert result.order_id == "sim_order_1"
-    assert result.reason is not None
-    assert result.reason.startswith("filled_at=")
+    assert result.fill_price is not None
+    assert result.fill_price > 0
+    assert result.reason == "simulated_fill"
