@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from app.run_report import RunReport
 from app.runtime import Runtime
 from domain.signal import SignalDecision
 
@@ -15,6 +16,14 @@ class Scheduler:
         self.runtime.run(decision)
         self.cycles_run += 1
 
-    def run_many(self, decisions: Iterable[SignalDecision]) -> None:
+    def run_many(self, decisions: Iterable[SignalDecision]) -> RunReport:
+        orders_before = self.runtime.orders_submitted
+
         for decision in decisions:
             self.run_once(decision)
+
+        return RunReport(
+            cycles_run=self.cycles_run,
+            orders_submitted=self.runtime.orders_submitted - orders_before,
+            final_position_qty=self.runtime.state.position.quantity,
+        )

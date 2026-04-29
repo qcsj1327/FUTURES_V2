@@ -40,7 +40,7 @@ def test_scheduler_run_many() -> None:
     runtime = Runtime()
     scheduler = Scheduler(runtime)
 
-    scheduler.run_many(
+    report = scheduler.run_many(
         [
             make_decision("s1"),
             make_decision("s2"),
@@ -49,4 +49,7 @@ def test_scheduler_run_many() -> None:
     )
 
     assert scheduler.cycles_run == 3
+    assert report.cycles_run == 3
+    assert report.orders_submitted == 3
+    assert report.final_position_qty > 0
     assert runtime.state.position.quantity > 0

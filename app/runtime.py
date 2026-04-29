@@ -17,9 +17,12 @@ class Runtime:
         self.risk = RiskEngine()
         self.execution = ExecutionEngine(SimulatedBroker(market_data))
         self.state = StateEngine()
+        self.orders_submitted = 0
 
     def run(self, decision: SignalDecision) -> None:
         trigger_result = self.trigger.process(decision, runtime_id="r1")
         risk_decision = self.risk.evaluate(trigger_result)
         order, exec_result = self.execution.execute(risk_decision)
+        if order is not None and exec_result.success:
+            self.orders_submitted += 1
         self.state.apply(order, exec_result)
