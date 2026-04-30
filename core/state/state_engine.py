@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from core.state.capital_model import CapitalModel
+from core.state.exit_order_factory import ExitOrderFactory
+from core.state.exit_rules import ExitRules
 from core.state.position_lifecycle import PositionLifecycle
 from domain.enums import OrderStatus
 from domain.event import OrderEvent
@@ -17,6 +19,8 @@ class StateEngine:
         )
         self.portfolio = PortfolioState(runtime_id=runtime_id)
         self.position_lifecycle = PositionLifecycle()
+        self.exit_rules = ExitRules()
+        self.exit_order_factory = ExitOrderFactory()
         self.capital_model = CapitalModel()
 
     def apply(
@@ -93,6 +97,26 @@ class StateEngine:
         self.position = position
 
         return event, position
+
+    def create_exit_order(
+        self,
+        *,
+        position: PositionState,
+        current_price: float,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
+    ) -> ExecutionOrder | None:
+        signal = self.exit_rules.evaluate(
+            position=position,
+            current_price=current_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
+
+        return self.exit_order_factory.create(
+            position=position,
+            signal=signal,
+        )
 
     def _resolve_order_id(self, result: ExecutionResult) -> str:
         if result.order_id is None:
