@@ -36,15 +36,15 @@ class StateEngine:
         )
 
         if result.success:
-            fill_price = result.fill_price or order.price or 0.0
+            if result.fill_price is None:
+                return event, self.position
 
-            # TODO: replace with multi-position portfolio model
-        self.position = PositionState(
+            self.position = PositionState(
                 instrument_id=order.instrument_id,
                 trade_instrument_id=order.trade_instrument_id or "",
                 position_side=order.position_side,
                 quantity=order.quantity,
-                avg_price=fill_price,
+                avg_price=result.fill_price,
             )
 
         return event, self.position
