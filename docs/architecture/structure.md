@@ -1091,3 +1091,69 @@ PortfolioState 容器身份不可变，但内部 positions 承载真实状态映
 - 不再修改 PositionKey 语义
 - 不再修改 PositionState 字段语义
 - 如必须继续改 state domain，必须新开 Domain Migration
+
+---
+
+## StateEngine 与 PositionLifecycle 职责分离（v0.3）
+
+### StateEngine（编排层）
+
+职责：
+
+- 接收 ExecutionOrder / ExecutionResult
+- 生成 OrderEvent
+- 管理 PortfolioState 容器
+- 维护 positions 映射（PositionKey → PositionState）
+
+禁止：
+
+- 不允许写交易逻辑（加仓 / 平仓 / pnl）
+- 不允许直接修改 PositionState 计算字段
+- 不允许实现价格 / 数量计算
+
+---
+
+### PositionLifecycle（业务语义层）
+
+职责：
+
+- 定义持仓演化规则：
+  - 开仓
+  - 加仓
+  - 减仓
+  - 清仓
+- 计算：
+  - avg_price
+  - realized_pnl
+- 校验：
+  - 数量合法性
+  - 平仓边界
+  - 无仓平仓
+
+禁止：
+
+- 不允许访问 PortfolioState
+- 不允许生成 Event
+- 不允许管理多个 position（只处理单 key）
+
+---
+
+### 分层原则
+
+StateEngine = orchestration（控制流）
+PositionLifecycle = business semantics（交易语义）
+
+禁止回退为：
+
+StateEngine 同时负责：
+- orchestration
+- business logic ❌
+
+---
+
+### 未来扩展位置
+
+- capital model → 新模块（不放入 lifecycle）
+- fee / slippage → execution 层
+- risk limit → risk 层
+
