@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+from domain.signal import SignalDecision
+from strategies.registry import StrategyRegistry
+
+
+class StrategyRunner:
+    def __init__(self, registry: StrategyRegistry) -> None:
+        self.registry = registry
+
+    def run(self, symbol: str, price: float) -> list[SignalDecision]:
+        signals: list[SignalDecision] = []
+
+        for strategy in self.registry.all().values():
+            signal = strategy.generate(symbol, price)
+            signals.append(signal)
+
+        return signals
