@@ -24,3 +24,18 @@ no_implicit_optional = true
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.setuptools]
+packages = [
+  "app",
+  "web",
+  "core",
+  "config",
+  "domain",
+  "research",
+  "optimize",
+  "adapters",
+  "bootstrap",
+  "strategies",
+  "utils"
+]
