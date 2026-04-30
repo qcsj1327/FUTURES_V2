@@ -1157,3 +1157,140 @@ StateEngine 同时负责：
 - fee / slippage → execution 层
 - risk limit → risk 层
 
+
+---
+
+## Risk / State / Capital / Exit 职责边界审计结论
+
+### RiskEngine
+
+职责：
+
+- 编排风险规则
+- 调用 PositionLimit
+- 调用 RiskBudget
+- 输出 RiskDecision
+
+禁止：
+
+- 修改 PortfolioState
+- 修改 cash / equity
+- 直接计算持仓 PnL
+- 生成 ExecutionOrder
+
+### RiskBudget
+
+职责：
+
+- 读取 portfolio.cash / equity
+- 根据 risk_budget、price、stop_loss_distance 调整 quantity
+
+允许：
+
+- 读取 cash
+- 下调 quantity
+
+禁止：
+
+- 增加 quantity
+- 修改 cash
+- 修改 PortfolioState
+
+### PositionLimit
+
+职责：
+
+- 基于 PortfolioState.positions 判断是否超过最大持仓
+
+允许：
+
+- 读取 PositionKey / PositionState
+
+禁止：
+
+- 修改 position
+- 修改 portfolio
+- 修改 quantity
+
+### CapitalModel
+
+职责：
+
+- 维护 cash
+- 维护基础 equity
+- 判断 insufficient_cash
+
+禁止：
+
+- 判断交易方向是否允许
+- 修改 position lifecycle
+- 生成风险决策
+
+说明：
+
+当前 equity 为简化模型：
+
+equity = cash + position.quantity * position.avg_price
+
+后续如需 mark-to-market，必须引入 current_price，并单独提交。
+
+### StateEngine
+
+职责：
+
+- 编排 State 更新
+- 维护 PortfolioState
+- 写入 PositionKey → PositionState
+- 调用 PositionLifecycle
+- 调用 CapitalModel
+- 提供 create_exit_order 接口
+
+禁止：
+
+- 直接计算 avg_price
+- 直接计算 realized_pnl
+- 直接计算 cash_delta
+- 递归执行 exit order
+
+### PositionLifecycle
+
+职责：
+
+- 开仓
+- 加仓
+- 减仓
+- 清仓
+- 计算 avg_price
+- 计算 realized_pnl
+
+禁止：
+
+- 访问 PortfolioState
+- 修改 cash
+- 生成 OrderEvent
+- 生成 ExitOrder
+
+### ExitRules
+
+职责：
+
+- 判断 stop_loss / take_profit 是否触发
+
+禁止：
+
+- 生成订单
+- 修改 position
+- 修改 portfolio
+
+### ExitOrderFactory
+
+职责：
+
+- 把 ExitSignal + PositionState 转换为平仓 ExecutionOrder
+
+禁止：
+
+- 执行订单
+- 修改 State
+- 判断价格条件
+
