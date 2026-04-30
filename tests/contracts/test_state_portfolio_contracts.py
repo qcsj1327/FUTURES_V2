@@ -77,10 +77,13 @@ def test_state_engine_separates_positions_by_position_key() -> None:
         make_result(),
     )
     state.apply(
-        make_order(
+        ExecutionOrder(
             instrument_id="ag",
             trade_instrument_id="ag2506",
+            side=Side.SELL,
             position_side=PositionSide.SHORT,
+            quantity=1.0,
+            order_type="market",
         ),
         ExecutionResult(
             success=True,
