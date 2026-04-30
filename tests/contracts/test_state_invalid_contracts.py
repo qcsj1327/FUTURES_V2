@@ -23,6 +23,7 @@ def test_state_does_not_update_on_rejected_execution() -> None:
     result = ExecutionResult(
         success=False,
         status=ExecutionStatus.REJECTED,
+        ts=1,
         reason="rejected",
     )
 
@@ -42,6 +43,7 @@ def test_state_requires_fill_price_when_success() -> None:
     result = ExecutionResult(
         success=True,
         status=ExecutionStatus.SUBMITTED,
+        ts=1,
         fill_price=None,  # 非法
     )
 
@@ -58,6 +60,7 @@ def test_state_updates_position_only_on_valid_fill() -> None:
     result = ExecutionResult(
         success=True,
         status=ExecutionStatus.SUBMITTED,
+        ts=1,
         fill_price=100.0,
     )
 

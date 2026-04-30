@@ -30,4 +30,4 @@ def test_orchestrator_main_chain_wiring() -> None:
     assert orch.registry is registry
     assert orch.runner.registry is registry
     assert orch.router is not None
-    assert orch.portfolio is not None
+    assert runtime.portfolio is not None

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from core.portfolio.portfolio_engine import PortfolioEngine
 from core.risk.risk_engine import RiskEngine
 from core.trigger.trigger_engine import TriggerEngine
 from domain.enums import Decision, PositionSide, Side, SignalStrength, TriggerLifecycle
@@ -97,7 +98,7 @@ def test_risk_preserves_untriggered_reason() -> None:
         reason="blocked_by_trigger",
     )
 
-    result = RiskEngine().evaluate(trigger)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.quantity is None
@@ -116,7 +117,7 @@ def test_risk_rejects_triggered_missing_instrument_id() -> None:
         position_side=PositionSide.LONG,
     )
 
-    result = RiskEngine().evaluate(trigger)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.quantity is None
@@ -137,7 +138,7 @@ def test_risk_rejects_triggered_missing_trade_instrument_id() -> None:
         position_side=PositionSide.LONG,
     )
 
-    result = RiskEngine().evaluate(trigger)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.quantity is None
@@ -158,7 +159,7 @@ def test_risk_rejects_invalid_quantity_zero() -> None:
         position_side=PositionSide.LONG,
     )
 
-    result = RiskEngine().evaluate(trigger, quantity=0.0)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=0.0))
 
     assert result.allowed is False
     assert result.quantity is None
@@ -177,7 +178,7 @@ def test_risk_rejects_invalid_quantity_negative() -> None:
         position_side=PositionSide.LONG,
     )
 
-    result = RiskEngine().evaluate(trigger, quantity=-1.0)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=-1.0))
 
     assert result.allowed is False
     assert result.quantity is None
@@ -196,7 +197,7 @@ def test_risk_rejects_triggered_hold() -> None:
         position_side=PositionSide.FLAT,
     )
 
-    result = RiskEngine().evaluate(trigger, quantity=1.0)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.quantity is None
@@ -215,7 +216,7 @@ def test_risk_rejects_triggered_none_side_for_trade() -> None:
         position_side=PositionSide.LONG,
     )
 
-    result = RiskEngine().evaluate(trigger, quantity=1.0)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.quantity is None

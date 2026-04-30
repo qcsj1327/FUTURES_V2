@@ -17,8 +17,8 @@ class Runtime:
         self.config = config or RuntimeConfig()
         market_data = SimulatedMarketData()
 
-        self.portfolio = PortfolioEngine()
         self.trigger = TriggerEngine()
+        self.portfolio = PortfolioEngine()
         self.risk = RiskEngine()
         self.execution = ExecutionEngine(SimulatedBroker(market_data))
         self.state = StateEngine()
@@ -30,17 +30,17 @@ class Runtime:
         self._run_decision(decision)
 
     def _run_decision(self, decision: SignalDecision) -> None:
-        decision = self.portfolio.allocate(decision)
-
-        trigger_result = self.trigger.process(decision, runtime_id=self.config.runtime_id)
-
-        risk_decision = self.risk.evaluate(
-            trigger_result,
-            quantity=self.config.default_quantity,
+        trigger_result = self.trigger.process(
+            decision,
+            runtime_id=self.config.runtime_id,
         )
+        allocation = self.portfolio.allocate(
+            trigger_result,
+            default_quantity=self.config.default_quantity,
+        )
+        risk_decision = self.risk.evaluate(allocation)
 
         order, exec_result = self.execution.execute(risk_decision)
-
         if order is not None and exec_result.success:
             self.orders_submitted += 1
 

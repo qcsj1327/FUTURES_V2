@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from core.portfolio.portfolio_engine import PortfolioEngine
 from core.risk.risk_engine import RiskEngine
 from domain.enums import Decision, PositionSide, Side, TriggerLifecycle
 from domain.trigger import TriggerResult
@@ -18,7 +19,7 @@ def test_risk_engine_allows_triggered_result() -> None:
         reason="ok",
     )
 
-    result = RiskEngine().evaluate(trigger, quantity=2.0)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=2.0))
 
     assert result.allowed is True
     assert result.quantity == 2.0
@@ -41,7 +42,7 @@ def test_risk_engine_blocks_untriggered_result() -> None:
         reason="blocked",
     )
 
-    result = RiskEngine().evaluate(trigger)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.quantity is None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.execution.execution_engine import ExecutionEngine
+from core.portfolio.portfolio_engine import PortfolioEngine
 from core.risk.risk_engine import RiskEngine
 from domain.enums import Decision, ExecutionStatus, PositionSide, Side, TriggerLifecycle
 from domain.execution import ExecutionOrder, ExecutionResult
@@ -33,7 +34,7 @@ def test_risk_rejects_missing_instrument_without_fallback() -> None:
         trade_instrument_id="au2506",
     )
 
-    result = RiskEngine().evaluate(trigger)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.instrument_id == ""
@@ -52,7 +53,7 @@ def test_risk_rejects_missing_trade_instrument_without_fallback() -> None:
         trade_instrument_id=None,
     )
 
-    result = RiskEngine().evaluate(trigger)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.instrument_id == "au"
@@ -70,7 +71,7 @@ def test_risk_keeps_original_reason_when_not_triggered() -> None:
         reason="blocked",
     )
 
-    result = RiskEngine().evaluate(trigger)
+    result = RiskEngine().evaluate(PortfolioEngine().allocate(trigger, default_quantity=1.0))
 
     assert result.allowed is False
     assert result.quantity is None

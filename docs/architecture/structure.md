@@ -945,3 +945,39 @@ reason = "unknown"
 
 所有问题必须在源头解决。
 
+
+---
+
+## Orchestrator / Runtime 边界规则
+
+Orchestrator 只负责策略侧编排：
+
+\`\`\`text
+MarketData
+→ StrategyRunner
+→ SignalRouter
+→ Runtime.run(decision)
+\`\`\`
+
+Runtime 负责交易主链执行：
+
+\`\`\`text
+TriggerEngine
+→ PortfolioEngine
+→ RiskEngine
+→ ExecutionEngine
+→ StateEngine
+\`\`\`
+
+强约束：
+
+- Orchestrator 不直接持有 PortfolioEngine
+- Orchestrator 不直接调用 Risk / Execution / State
+- PortfolioEngine 必须挂在 Runtime 内
+- Runtime 是唯一合法的交易主链执行入口
+
+禁止：
+
+- 在 Orchestrator 中绕过 Runtime 调用 Portfolio / Risk / Execution / State
+- 在 Orchestrator 中注入 quantity
+- 在 Orchestrator 中修复 signal 字段

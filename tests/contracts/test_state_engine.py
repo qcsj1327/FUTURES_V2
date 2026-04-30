@@ -17,7 +17,7 @@ def test_state_engine_updates_position() -> None:
         order_type="market",
     )
 
-    result = ExecutionResult(success=True, status=ExecutionStatus.SUBMITTED, fill_price=100.0)
+    result = ExecutionResult(success=True, status=ExecutionStatus.SUBMITTED, ts=1, fill_price=100.0)
 
     event, position = engine.apply(order, result)
 

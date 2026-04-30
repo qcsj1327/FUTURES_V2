@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from adapters.broker.base import BrokerAdapter
 from adapters.marketdata.base import MarketDataAdapter
 from domain.enums import ExecutionStatus
@@ -19,6 +21,7 @@ class SimulatedBroker(BrokerAdapter):
         return ExecutionResult(
             success=True,
             status=ExecutionStatus.SUBMITTED,
+            ts=int(time.time()),
             order_id=f"sim_order_{self._counter}",
             fill_price=fill_price,
             reason="simulated_fill",
