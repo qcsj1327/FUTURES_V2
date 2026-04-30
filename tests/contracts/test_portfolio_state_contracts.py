@@ -97,3 +97,57 @@ def test_portfolio_state_is_frozen() -> None:
 
     with pytest.raises(FrozenInstanceError):
         portfolio.runtime_id = "r2"  # type: ignore[misc]
+
+
+def test_position_key_is_frozen() -> None:
+    key = PositionKey(
+        instrument_id="au",
+        trade_instrument_id="au2506",
+        position_side=PositionSide.LONG,
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        key.instrument_id = "ag"  # type: ignore[misc]
+
+
+def test_position_state_is_intentionally_mutable() -> None:
+    position = PositionState(
+        instrument_id="au",
+        trade_instrument_id="au2506",
+    )
+
+    position.quantity = 10.0
+
+    assert position.quantity == 10.0
+
+
+def test_portfolio_state_positions_are_keyed_by_position_key() -> None:
+    key = PositionKey(
+        instrument_id="au",
+        trade_instrument_id="au2506",
+        position_side=PositionSide.LONG,
+    )
+    position = PositionState(
+        instrument_id="au",
+        trade_instrument_id="au2506",
+        position_side=PositionSide.LONG,
+        quantity=1.0,
+    )
+
+    portfolio = PortfolioState(
+        runtime_id="r1",
+        positions={key: position},
+    )
+
+    assert list(portfolio.positions.keys()) == [key]
+    assert portfolio.positions[key] is position
+
+
+def test_legacy_state_domain_types_remain_available() -> None:
+    from domain.state import OrderState, PnLSnapshot, StateSnapshot, StrategyState, SystemState
+
+    assert OrderState is not None
+    assert StrategyState is not None
+    assert SystemState is not None
+    assert PnLSnapshot is not None
+    assert StateSnapshot is not None

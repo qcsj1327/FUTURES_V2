@@ -713,3 +713,54 @@ domain 是上线前冻结契约。
 实现。
 
 如确实必须修改 domain，必须走 Domain Migration。
+### PositionKey
+
+v0.2 State Domain Migration 新增。
+
+冻结字段：
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| instrument_id | str | 行情合约 |
+| trade_instrument_id | str | 交易合约 |
+| position_side | PositionSide | 持仓方向 |
+
+---
+
+### PortfolioState
+
+v0.2 State Domain Migration 新增。
+
+冻结字段：
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| runtime_id | str | Runtime ID |
+| positions | dict[PositionKey, PositionState] | 多持仓映射 |
+| cash | float \| None | 现金 |
+| equity | float \| None | 权益 |
+| realized_pnl | float | 已实现盈亏 |
+| unrealized_pnl | float | 未实现盈亏 |
+| updated_ts | int \| None | 更新时间 |
+| metadata | dict[str, object] | 扩展信息 |
+
+---
+
+### State 模型升级说明（v0.2）
+
+从本版本开始：
+
+PortfolioState 是持仓状态唯一真实来源（source of truth）。
+
+StateSnapshot 仅用于：
+
+- 导出
+- 报表
+- 回测输出
+
+禁止：
+
+- 使用 list[PositionState] 作为真实持仓
+- 绕过 PositionKey 查找持仓
+- 构建第二套持仓状态系统
+

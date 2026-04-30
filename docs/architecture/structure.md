@@ -1017,3 +1017,77 @@ PortfolioState
 - 本阶段不允许引入加仓 / 平仓逻辑
 
 - 本阶段不允许改主链执行顺序
+
+---
+
+## Domain Freeze 修正规则：v0.2 State Domain Migration
+
+v0.1-core-locked 冻结的是主链 Domain：
+
+- SignalDecision
+- TriggerResult
+- RiskDecision
+- ExecutionOrder
+- ExecutionResult
+
+这些结构不允许顺手新增字段、不允许改字段语义、不允许改 enum value。
+
+本阶段新增：
+
+- PositionKey
+- PortfolioState
+
+属于显式状态层 Domain Migration，不是主链 Domain 修改。
+
+### 新增状态层 Domain
+
+PositionKey
+= instrument_id + trade_instrument_id + position_side
+
+PortfolioState
+= runtime_id + dict[PositionKey, PositionState]
+
+### Source of Truth
+
+从本阶段开始：
+
+PortfolioState 是持仓状态唯一真实来源。
+StateSnapshot 仅用于导出、报表、回测输出。
+
+禁止：
+
+- StateSnapshot 参与主链状态更新
+- list[PositionState] 作为真实持仓存储
+- 绕过 PositionKey 直接查找持仓
+- 新增第二套持仓状态模型
+
+### Frozen / Mutable 边界
+
+不可变：
+
+- PositionKey
+- PortfolioState
+
+可变：
+
+- OrderState
+- PositionState
+- StrategyState
+- SystemState
+- StateSnapshot
+
+原因：
+
+事件 / 决策对象应不可变。
+状态对象允许被 StateEngine 更新。
+PortfolioState 容器身份不可变，但内部 positions 承载真实状态映射。
+
+### 后续规则
+
+从本次 migration 提交后：
+
+- 不再新增 state domain 字段
+- 不再新增 PortfolioState 字段
+- 不再修改 PositionKey 语义
+- 不再修改 PositionState 字段语义
+- 如必须继续改 state domain，必须新开 Domain Migration
