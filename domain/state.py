@@ -74,3 +74,22 @@ class StateSnapshot:
     strategies: list[StrategyState] = field(default_factory=list)
     system: SystemState | None = None
     pnl: PnLSnapshot = field(default_factory=PnLSnapshot)
+
+
+@dataclass(frozen=True)
+class PositionKey:
+    instrument_id: str
+    trade_instrument_id: str
+    position_side: PositionSide
+
+
+@dataclass(frozen=True)
+class PortfolioState:
+    runtime_id: str
+    positions: dict[PositionKey, PositionState] = field(default_factory=dict)
+    cash: float | None = None
+    equity: float | None = None
+    realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
+    updated_ts: int | None = None
+    metadata: dict[str, object] = field(default_factory=dict)

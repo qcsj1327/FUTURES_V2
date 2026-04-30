@@ -981,3 +981,39 @@ TriggerEngine
 - 在 Orchestrator 中绕过 Runtime 调用 Portfolio / Risk / Execution / State
 - 在 Orchestrator 中注入 quantity
 - 在 Orchestrator 中修复 signal 字段
+
+---
+
+## PortfolioState 多仓位状态模型
+
+从 v0.1-core-locked 之后，状态层开始支持多仓位结构。
+
+### 状态对象职责
+
+PositionKey
+
+= instrument_id + trade_instrument_id + position_side
+
+PositionState
+
+= 单个持仓快照
+
+PortfolioState
+
+= 多持仓容器
+
+### 强约束
+
+- PositionKey 是唯一持仓身份
+
+- 多空方向必须由 position_side 区分
+
+- PositionState 只表示单个持仓
+
+- PortfolioState 只负责容纳多持仓状态
+
+- 本阶段不允许引入 PnL 计算逻辑
+
+- 本阶段不允许引入加仓 / 平仓逻辑
+
+- 本阶段不允许改主链执行顺序
