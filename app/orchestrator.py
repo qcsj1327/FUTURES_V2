@@ -20,7 +20,7 @@ class Orchestrator:
         price = self.runtime.market_data.get_last_price(self.runtime.config.symbol)
 
         signals = self.runner.run(self.runtime.config.symbol, price)
-        decision = self.router.select(signals)
-        allocated_decision = self.portfolio.allocate(decision)
+        routed_decision = self.router.select(signals)
+        portfolio_decision = self.portfolio.allocate(routed_decision)
 
-        self.runtime.run(allocated_decision)
+        self.runtime.run(portfolio_decision)

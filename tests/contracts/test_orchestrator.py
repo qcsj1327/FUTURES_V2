@@ -17,3 +17,17 @@ def test_orchestrator_runs() -> None:
     orch.run_once()
 
     assert runtime.orders_submitted >= 0
+
+
+def test_orchestrator_main_chain_wiring() -> None:
+    registry = StrategyRegistry()
+    registry.register("simple", StrategyEngine())
+
+    runtime = Runtime(RuntimeConfig(symbol="au", default_quantity=1.0))
+    orch = Orchestrator(runtime, registry)
+
+    assert orch.runtime is runtime
+    assert orch.registry is registry
+    assert orch.runner.registry is registry
+    assert orch.router is not None
+    assert orch.portfolio is not None
