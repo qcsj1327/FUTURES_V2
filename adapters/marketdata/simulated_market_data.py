@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import random
-
 from adapters.marketdata.base import MarketDataAdapter
 
 
@@ -13,8 +11,7 @@ class SimulatedMarketData(MarketDataAdapter):
         previous = self._prices.get(symbol, 100.0)
 
         drift = 0.03
-        noise = random.uniform(-0.2, 0.2)
-        price = max(previous + drift + noise, 0.01)
+        price = max(previous + drift, 0.01)
 
         self._prices[symbol] = price
         return float(price)

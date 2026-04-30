@@ -26,6 +26,32 @@ class Runtime:
         self.market_data = market_data
         self.orders_submitted = 0
 
+
+    def run_market_once(
+        self,
+        *,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
+    ) -> None:
+        price = self.market_data.get_last_price(self.config.symbol)
+        decision = self.strategy.generate(self.config.symbol, price)
+        self.run(decision)
+
+        for position in list(self.state.portfolio.positions.values()):
+            exit_order = self.state.create_exit_order(
+                position=position,
+                current_price=price,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            )
+            if exit_order is None:
+                continue
+
+            exit_result = self.execution.broker.submit_order(exit_order)
+            if exit_result.success:
+                self.orders_submitted += 1
+            self.state.apply(exit_order, exit_result, strategy_name="exit")
+
     def run(self, decision: SignalDecision) -> None:
         self._run_decision(decision)
 
