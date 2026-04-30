@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from core.portfolio.portfolio_engine import PortfolioAllocation
+from core.risk.position_limit import PositionLimit
 from domain.enums import Decision, Side
 from domain.risk import RiskDecision
-from domain.state import PortfolioState, PositionKey
+from domain.state import PortfolioState
 
 
 class RiskEngine:
     def __init__(self, max_position_qty: float | None = None) -> None:
-        self.max_position_qty = max_position_qty
+        self.position_limit = PositionLimit(max_position_qty=max_position_qty)
 
     def evaluate(
         self,
@@ -74,31 +75,7 @@ class RiskEngine:
         allocation: PortfolioAllocation,
         portfolio: PortfolioState | None,
     ) -> bool:
-        if self.max_position_qty is None:
-            return False
-
-        if allocation.quantity is None:
-            return False
-
-        trigger = allocation.trigger
-
-        if (
-            portfolio is None
-            or trigger.instrument_id is None
-            or trigger.trade_instrument_id is None
-            or trigger.position_side is None
-        ):
-            return allocation.quantity > self.max_position_qty
-
-        key = PositionKey(
-            instrument_id=trigger.instrument_id,
-            trade_instrument_id=trigger.trade_instrument_id,
-            position_side=trigger.position_side,
-        )
-        existing = portfolio.positions.get(key)
-        existing_quantity = 0.0 if existing is None else existing.quantity
-
-        return existing_quantity + allocation.quantity > self.max_position_qty
+        return self.position_limit.exceeded(allocation, portfolio)
 
     def _reject(self, allocation: PortfolioAllocation, reason: str) -> RiskDecision:
         trigger = allocation.trigger
