@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from core.state.state_engine import StateEngine
-from domain.enums import ExecutionStatus, OrderStatus, PositionSide, Side
+from domain.enums import ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder, ExecutionResult
 
 
@@ -23,6 +25,7 @@ def test_state_does_not_update_on_rejected_execution() -> None:
     result = ExecutionResult(
         success=False,
         status=ExecutionStatus.REJECTED,
+        order_id="order_1",
         ts=1,
         reason="rejected",
     )
@@ -30,10 +33,8 @@ def test_state_does_not_update_on_rejected_execution() -> None:
     event, position = state.apply(order, result)
 
     assert event is not None
-    assert event.status == OrderStatus.REJECTED
-
-    # ❗关键：不允许更新持仓
-    assert position.quantity == 0.0
+    assert position is state.position
+    assert state.portfolio.positions == {}
 
 
 def test_state_requires_fill_price_when_success() -> None:
@@ -43,14 +44,16 @@ def test_state_requires_fill_price_when_success() -> None:
     result = ExecutionResult(
         success=True,
         status=ExecutionStatus.SUBMITTED,
+        order_id="order_1",
         ts=1,
-        fill_price=None,  # 非法
+        fill_price=None,
     )
 
-    event, position = state.apply(order, result)
-
-    # ❗必须拒绝不完整成交
-    assert position.quantity == 0.0
+    with pytest.raises(
+        ValueError,
+        match="ExecutionResult.fill_price is required for successful execution",
+    ):
+        state.apply(order, result)
 
 
 def test_state_updates_position_only_on_valid_fill() -> None:
@@ -60,11 +63,14 @@ def test_state_updates_position_only_on_valid_fill() -> None:
     result = ExecutionResult(
         success=True,
         status=ExecutionStatus.SUBMITTED,
+        order_id="order_1",
         ts=1,
         fill_price=100.0,
     )
 
     event, position = state.apply(order, result)
 
+    assert event is not None
     assert position.quantity == 1.0
     assert position.avg_price == 100.0
+    assert len(state.portfolio.positions) == 1

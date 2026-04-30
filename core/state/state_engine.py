@@ -3,15 +3,17 @@ from __future__ import annotations
 from domain.enums import OrderStatus
 from domain.event import OrderEvent
 from domain.execution import ExecutionOrder, ExecutionResult
-from domain.state import PositionState
+from domain.state import PortfolioState, PositionKey, PositionState
 
 
 class StateEngine:
-    def __init__(self) -> None:
+    def __init__(self, runtime_id: str = "default") -> None:
+        self.runtime_id = runtime_id
         self.position = PositionState(
             instrument_id="",
             trade_instrument_id="",
         )
+        self.portfolio = PortfolioState(runtime_id=runtime_id)
 
     def apply(
         self,
@@ -32,30 +34,56 @@ class StateEngine:
             strategy_name=strategy_name,
             instrument_id=order.instrument_id,
             trade_instrument_id=order.trade_instrument_id,
-            order_id=result.order_id if result.order_id is not None else "order_1",
+            order_id=self._resolve_order_id(result),
             side=order.side,
             position_side=order.position_side,
             quantity=order.quantity,
             status=OrderStatus.SUBMITTED if result.success else OrderStatus.REJECTED,
             ts=result.ts,
             reason=result.reason,
-            client_order_id=order.client_order_id,
         )
 
         if not result.success:
             return event, self.position
 
         if result.fill_price is None:
-            return event, self.position
+            raise ValueError("ExecutionResult.fill_price is required for successful execution")
 
-        self.position = PositionState(
+        key = PositionKey(
+            instrument_id=order.instrument_id,
+            trade_instrument_id=order.trade_instrument_id,
+            position_side=order.position_side,
+        )
+
+        position = PositionState(
             instrument_id=order.instrument_id,
             trade_instrument_id=order.trade_instrument_id,
             position_side=order.position_side,
             quantity=order.quantity,
             avg_price=result.fill_price,
-            updated_ts=result.ts,
+            runtime_id=self.runtime_id,
             strategy_name=strategy_name,
+            updated_ts=result.ts,
         )
 
-        return event, self.position
+        positions = dict(self.portfolio.positions)
+        positions[key] = position
+
+        self.portfolio = PortfolioState(
+            runtime_id=self.runtime_id,
+            positions=positions,
+            cash=self.portfolio.cash,
+            equity=self.portfolio.equity,
+            realized_pnl=self.portfolio.realized_pnl,
+            unrealized_pnl=self.portfolio.unrealized_pnl,
+            updated_ts=result.ts,
+            metadata=self.portfolio.metadata,
+        )
+        self.position = position
+
+        return event, position
+
+    def _resolve_order_id(self, result: ExecutionResult) -> str:
+        if result.order_id is None:
+            raise ValueError("ExecutionResult.order_id is required")
+        return result.order_id
