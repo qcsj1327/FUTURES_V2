@@ -36,3 +36,6 @@ __pycache__/
 .ruff_cache/
 .coverage
 
+.venv/
+__pycache__/
+*.pyc
