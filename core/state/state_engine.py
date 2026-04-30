@@ -11,7 +11,7 @@ from domain.state import PortfolioState, PositionKey, PositionState
 
 
 class StateEngine:
-    def __init__(self, runtime_id: str = "default") -> None:
+    def __init__(self, runtime_id: str = "default", commission_rate: float = 0.0) -> None:
         self.runtime_id = runtime_id
         self.position = PositionState(
             instrument_id="",
@@ -21,7 +21,7 @@ class StateEngine:
         self.position_lifecycle = PositionLifecycle()
         self.exit_rules = ExitRules()
         self.exit_order_factory = ExitOrderFactory()
-        self.capital_model = CapitalModel()
+        self.capital_model = CapitalModel(commission_rate=commission_rate)
 
     def apply(
         self,

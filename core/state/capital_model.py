@@ -6,6 +6,12 @@ from domain.state import PortfolioState, PositionState
 
 
 class CapitalModel:
+    def __init__(self, commission_rate: float = 0.0) -> None:
+        if commission_rate < 0:
+            raise ValueError("commission_rate_must_be_non_negative")
+
+        self.commission_rate = commission_rate
+
     def apply(
         self,
         *,
@@ -50,18 +56,19 @@ class CapitalModel:
 
     def _cash_delta(self, *, order: ExecutionOrder, fill_price: float) -> float:
         notional = order.quantity * fill_price
+        commission = notional * self.commission_rate
 
         if order.position_side == PositionSide.LONG:
             if order.side == Side.BUY:
-                return -notional
+                return -notional - commission
             if order.side == Side.SELL:
-                return notional
+                return notional - commission
 
         if order.position_side == PositionSide.SHORT:
             if order.side == Side.SELL:
-                return notional
+                return notional - commission
             if order.side == Side.BUY:
-                return -notional
+                return -notional - commission
 
         raise ValueError("invalid_capital_side")
 
