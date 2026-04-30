@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from app.runtime import Runtime
+from app.runtime_config import RuntimeConfig
 from research.run_report import RunReport
 
 
@@ -40,6 +43,33 @@ class MarketReplayRunner:
             position_qty_curve=position_qty_curve,
             max_drawdown=self._max_drawdown(equity_curve),
         )
+
+    def run_many_symbols(
+        self,
+        symbols: Iterable[str],
+        cycles: int,
+        *,
+        default_quantity: float = 1.0,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
+    ) -> dict[str, RunReport]:
+        results: dict[str, RunReport] = {}
+
+        for symbol in symbols:
+            runtime = Runtime(
+                RuntimeConfig(
+                    symbol=symbol,
+                    default_quantity=default_quantity,
+                )
+            )
+            runner = MarketReplayRunner(runtime)
+            results[symbol] = runner.run(
+                cycles,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            )
+
+        return results
 
     def _final_position_qty(self) -> float:
         return sum(
