@@ -18,12 +18,26 @@ class ExecutionEngine:
                 reason=decision.reason,
             )
 
+        if decision.quantity is None:
+            return None, ExecutionResult(
+                success=False,
+                status=ExecutionStatus.REJECTED,
+                reason="missing_quantity",
+            )
+
+        if decision.quantity <= 0:
+            return None, ExecutionResult(
+                success=False,
+                status=ExecutionStatus.REJECTED,
+                reason="invalid_quantity",
+            )
+
         order = ExecutionOrder(
             instrument_id=decision.instrument_id,
             trade_instrument_id=decision.trade_instrument_id,
             side=decision.side,
             position_side=decision.position_side or PositionSide.FLAT,
-            quantity=decision.quantity or 0.0,
+            quantity=decision.quantity,
             order_type="market",
         )
 

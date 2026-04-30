@@ -8,9 +8,13 @@ from domain.signal import SignalDecision
 
 class SignalRouter:
     def select(self, signals: Iterable[SignalDecision]) -> SignalDecision:
+        signals = list(signals)
+
+        if not signals:
+            raise ValueError("no signals")
+
         for s in signals:
             if s.decision != Decision.HOLD:
                 return s
 
-        # fallback：返回最后一个（通常是 HOLD）
-        return list(signals)[-1]
+        return signals[-1]

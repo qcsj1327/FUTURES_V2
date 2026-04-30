@@ -778,3 +778,170 @@ MarketData
 - Execution 是订单执行调度
 - State 是状态记录
 
+
+---
+
+## 主链歧义消除规则
+
+从本阶段开始，禁止“最小兼容式修补”掩盖主链语义问题。
+
+主链必须按根因解决，而不是通过默认值、兜底字符串或 silent fallback 掩盖问题。
+
+---
+
+## 标准主链（唯一合法执行路径）
+
+MarketData
+→ StrategyRegistry
+→ StrategyRunner
+→ SignalRouter
+→ TriggerEngine
+→ RiskEngine
+→ ExecutionEngine
+→ StateEngine
+
+---
+
+## 各层职责（强约束）
+
+### StrategyRunner
+
+- 只负责：
+  - 调用 strategy.generate
+  - 产出 SignalCandidate / SignalDecision
+
+- 禁止：
+  - 修改 signal 字段
+  - 注入默认值
+
+---
+
+### SignalRouter
+
+- 只负责：
+  - 多策略选择
+
+- 禁止：
+  - 修复字段
+  - 填充 instrument_id
+  - 修改 ts / price / side
+
+---
+
+### TriggerEngine
+
+- 必须保证：
+  - TriggerResult 是“结构完整”的
+
+- 禁止：
+  - 产生 None 的 instrument_id / trade_instrument_id
+
+- 如果缺失：
+  - 必须标记 lifecycle = BLOCKED
+  - 并携带 reason
+
+---
+
+### RiskEngine（关键约束）
+
+这是第一层允许“拒绝”的地方，但不是“修复”的地方
+
+必须：
+
+- 不允许使用 fallback：
+  instrument_id or ""
+  trade_instrument_id or ""
+
+- 不允许覆盖上游 reason（除非是本层新错误）
+
+规则：
+
+- trigger 未触发 → allowed = False（保留原 reason）
+- 字段缺失 → allowed = False（明确 reason）
+- 数量非法 → allowed = False（明确 reason）
+
+禁止：
+
+- fallback string
+- silent 修复
+- 吞掉错误原因
+
+---
+
+### ExecutionEngine
+
+- 只执行：
+  - 已经通过 Risk 的决策
+
+- 禁止：
+  - 再做风控判断
+  - 修改 quantity / side
+
+---
+
+### StateEngine
+
+- 只负责：
+  - 状态落地
+
+- 禁止：
+  - 推断业务逻辑
+  - 修改决策
+
+---
+
+## 全链路原则（必须遵守）
+
+### 1. 不允许 fallback 修复
+
+禁止：
+
+x or ""
+x or 0
+
+---
+
+### 2. 不允许吞错误
+
+必须：
+
+- 保留原始 reason
+- 或追加明确 reason
+
+禁止：
+
+reason = "unknown"
+
+---
+
+### 3. 不允许跨层修复
+
+错误必须在产生的那一层解决
+
+禁止：
+
+- Trigger 的错误 → Risk 修
+- Risk 的错误 → Execution 修
+
+---
+
+### 4. 数据必须“显式正确”，而不是“可运行”
+
+优先级：
+
+正确性 > 可运行性 > 兼容性
+
+---
+
+## 结论
+
+主链是系统的“物理定律”，不是“尽量跑通”。
+
+从此以后：
+
+- 不允许最小修复
+- 不允许 silent fallback
+- 不允许默认填充掩盖错误
+
+所有问题必须在源头解决。
+

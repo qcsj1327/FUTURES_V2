@@ -8,6 +8,7 @@ from domain.state import PositionState
 
 class StateEngine:
     def __init__(self) -> None:
+        # TODO: replace with multi-position portfolio model
         self.position = PositionState(
             instrument_id="",
             trade_instrument_id="",
@@ -37,7 +38,8 @@ class StateEngine:
         if result.success:
             fill_price = result.fill_price or order.price or 0.0
 
-            self.position = PositionState(
+            # TODO: replace with multi-position portfolio model
+        self.position = PositionState(
                 instrument_id=order.instrument_id,
                 trade_instrument_id=order.trade_instrument_id or "",
                 position_side=order.position_side,
