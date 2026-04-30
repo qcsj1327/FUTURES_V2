@@ -2,19 +2,28 @@ from __future__ import annotations
 
 from core.portfolio.portfolio_engine import PortfolioAllocation
 from core.risk.position_limit import PositionLimit
+from core.risk.risk_budget import RiskBudget
 from domain.enums import Decision, Side
 from domain.risk import RiskDecision
 from domain.state import PortfolioState
 
 
 class RiskEngine:
-    def __init__(self, max_position_qty: float | None = None) -> None:
+    def __init__(
+        self,
+        max_position_qty: float | None = None,
+        risk_budget: float | None = None,
+    ) -> None:
         self.position_limit = PositionLimit(max_position_qty=max_position_qty)
+        self.risk_budget = RiskBudget(risk_budget=risk_budget)
 
     def evaluate(
         self,
         allocation: PortfolioAllocation,
         portfolio: PortfolioState | None = None,
+        *,
+        price: float | None = None,
+        stop_loss_distance: float | None = None,
     ) -> RiskDecision:
         trigger = allocation.trigger
 
@@ -51,8 +60,25 @@ class RiskEngine:
         if allocation.quantity is None or allocation.quantity <= 0:
             return self._reject(allocation, allocation.reason or "invalid_quantity")
 
-        if self._exceeds_position_limit(allocation, portfolio):
-            return self._reject(allocation, "max_position_exceeded")
+        adjusted_quantity = self.risk_budget.adjust_quantity(
+            allocation=allocation,
+            portfolio=portfolio,
+            price=price,
+            stop_loss_distance=stop_loss_distance,
+        )
+
+        if adjusted_quantity is None or adjusted_quantity <= 0:
+            return self._reject(allocation, "invalid_quantity")
+
+        adjusted_allocation = allocation.__class__(
+            trigger=allocation.trigger,
+            quantity=adjusted_quantity,
+            reason=allocation.reason,
+            details=allocation.details,
+        )
+
+        if self._exceeds_position_limit(adjusted_allocation, portfolio):
+            return self._reject(adjusted_allocation, "max_position_exceeded")
 
         return RiskDecision(
             instrument_id=trigger.instrument_id,
@@ -62,7 +88,7 @@ class RiskEngine:
             side=trigger.side,
             position_side=trigger.position_side,
             lifecycle=trigger.lifecycle,
-            quantity=allocation.quantity,
+            quantity=adjusted_quantity,
             stop_loss=None,
             take_profit=None,
             risk_budget=None,
