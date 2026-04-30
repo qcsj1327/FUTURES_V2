@@ -38,7 +38,7 @@ class Runtime:
             trigger_result,
             default_quantity=self.config.default_quantity,
         )
-        risk_decision = self.risk.evaluate(allocation)
+        risk_decision = self.risk.evaluate(allocation, portfolio=self.state.portfolio)
 
         order, exec_result = self.execution.execute(risk_decision)
         if order is not None and exec_result.success:

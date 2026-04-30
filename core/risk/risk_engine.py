@@ -1,85 +1,57 @@
 from __future__ import annotations
 
 from core.portfolio.portfolio_engine import PortfolioAllocation
-from domain.enums import Decision, PositionSide, Side, TriggerLifecycle
+from domain.enums import Decision, Side
 from domain.risk import RiskDecision
+from domain.state import PortfolioState, PositionKey
 
 
 class RiskEngine:
-    def evaluate(self, allocation: PortfolioAllocation) -> RiskDecision:
+    def __init__(self, max_position_qty: float | None = None) -> None:
+        self.max_position_qty = max_position_qty
+
+    def evaluate(
+        self,
+        allocation: PortfolioAllocation,
+        portfolio: PortfolioState | None = None,
+    ) -> RiskDecision:
         trigger = allocation.trigger
 
         if not trigger.triggered:
-            return self._reject(
-                allocation=allocation,
+            return RiskDecision(
+                instrument_id=trigger.instrument_id if trigger.instrument_id is not None else "",
+                trade_instrument_id=(
+                    trigger.trade_instrument_id
+                    if trigger.trade_instrument_id is not None
+                    else ""
+                ),
+                allowed=False,
+                decision=trigger.decision,
+                side=trigger.side,
+                position_side=trigger.position_side,
+                lifecycle=trigger.lifecycle,
+                quantity=None,
                 reason=trigger.reason,
-            )
-
-        if trigger.decision == Decision.HOLD:
-            return self._reject(
-                allocation=allocation,
-                reason="triggered_hold",
+                details={"source": "risk_engine"},
             )
 
         if trigger.instrument_id is None:
-            return self._reject(
-                allocation=allocation,
-                reason="missing_instrument_id",
-            )
+            return self._reject(allocation, "missing_instrument_id")
 
         if trigger.trade_instrument_id is None:
-            return self._reject(
-                allocation=allocation,
-                reason="missing_trade_instrument_id",
-            )
+            return self._reject(allocation, "missing_trade_instrument_id")
+
+        if trigger.decision == Decision.HOLD:
+            return self._reject(allocation, "triggered_hold")
 
         if trigger.side == Side.NONE:
-            return self._reject(
-                allocation=allocation,
-                reason="missing_trade_side",
-            )
+            return self._reject(allocation, "missing_trade_side")
 
-        if trigger.position_side is None:
-            return self._reject(
-                allocation=allocation,
-                reason="missing_position_side",
-            )
+        if allocation.quantity is None or allocation.quantity <= 0:
+            return self._reject(allocation, allocation.reason or "invalid_quantity")
 
-        if allocation.quantity is None:
-            return self._reject(
-                allocation=allocation,
-                reason=allocation.reason or "missing_quantity",
-            )
-
-        if allocation.quantity <= 0:
-            return self._reject(
-                allocation=allocation,
-                reason="invalid_quantity",
-            )
-
-        if trigger.decision == Decision.OPEN_LONG:
-            if trigger.side != Side.BUY:
-                return self._reject(
-                    allocation=allocation,
-                    reason="open_long_requires_buy",
-                )
-            if trigger.position_side != PositionSide.LONG:
-                return self._reject(
-                    allocation=allocation,
-                    reason="open_long_requires_long_position",
-                )
-
-        if trigger.decision == Decision.OPEN_SHORT:
-            if trigger.side != Side.SELL:
-                return self._reject(
-                    allocation=allocation,
-                    reason="open_short_requires_sell",
-                )
-            if trigger.position_side != PositionSide.SHORT:
-                return self._reject(
-                    allocation=allocation,
-                    reason="open_short_requires_short_position",
-                )
+        if self._exceeds_position_limit(allocation, portfolio):
+            return self._reject(allocation, "max_position_exceeded")
 
         return RiskDecision(
             instrument_id=trigger.instrument_id,
@@ -90,33 +62,63 @@ class RiskEngine:
             position_side=trigger.position_side,
             lifecycle=trigger.lifecycle,
             quantity=allocation.quantity,
+            stop_loss=None,
+            take_profit=None,
+            risk_budget=None,
             reason=allocation.reason or trigger.reason,
             details={"source": "risk_engine"},
         )
 
-    def _reject(
+    def _exceeds_position_limit(
         self,
         allocation: PortfolioAllocation,
-        reason: str | None,
-    ) -> RiskDecision:
+        portfolio: PortfolioState | None,
+    ) -> bool:
+        if self.max_position_qty is None:
+            return False
+
+        if allocation.quantity is None:
+            return False
+
+        trigger = allocation.trigger
+
+        if (
+            portfolio is None
+            or trigger.instrument_id is None
+            or trigger.trade_instrument_id is None
+            or trigger.position_side is None
+        ):
+            return allocation.quantity > self.max_position_qty
+
+        key = PositionKey(
+            instrument_id=trigger.instrument_id,
+            trade_instrument_id=trigger.trade_instrument_id,
+            position_side=trigger.position_side,
+        )
+        existing = portfolio.positions.get(key)
+        existing_quantity = 0.0 if existing is None else existing.quantity
+
+        return existing_quantity + allocation.quantity > self.max_position_qty
+
+    def _reject(self, allocation: PortfolioAllocation, reason: str) -> RiskDecision:
         trigger = allocation.trigger
 
         return RiskDecision(
-            instrument_id=self._required_or_empty(trigger.instrument_id),
-            trade_instrument_id=self._required_or_empty(trigger.trade_instrument_id),
+            instrument_id=trigger.instrument_id if trigger.instrument_id is not None else "",
+            trade_instrument_id=(
+                trigger.trade_instrument_id
+                if trigger.trade_instrument_id is not None
+                else ""
+            ),
             allowed=False,
             decision=trigger.decision,
             side=trigger.side,
-            position_side=trigger.position_side or PositionSide.FLAT,
-            lifecycle=trigger.lifecycle
-            if trigger.lifecycle != TriggerLifecycle.TRIGGERED
-            else TriggerLifecycle.BLOCKED,
+            position_side=trigger.position_side,
+            lifecycle=trigger.lifecycle,
             quantity=None,
-            reason=reason or "risk_rejected",
+            stop_loss=None,
+            take_profit=None,
+            risk_budget=None,
+            reason=reason,
             details={"source": "risk_engine"},
         )
-
-    def _required_or_empty(self, value: str | None) -> str:
-        if value is None:
-            return ""
-        return value
