@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 from app.runtime_registry import RuntimeRegistry
 from domain.signal import SignalDecision
-from research.run_report import RunReport
+from tools.run_report import RunReport
 
 
 class RegistryScheduler:

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from adapters.broker.base import BrokerAdapter
+from core.execution.broker_port import BrokerPort
 from domain.enums import Decision, ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.risk import RiskDecision
 
 
 class ExecutionEngine:
-    def __init__(self, broker: BrokerAdapter) -> None:
+    def __init__(self, broker: BrokerPort) -> None:
         self.broker = broker
 
     def execute(self, decision: RiskDecision) -> tuple[ExecutionOrder | None, ExecutionResult]:
