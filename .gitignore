@@ -42,3 +42,6 @@ __pycache__/
 
 # runtime datastore outputs
 data/store/
+
+# local artifacts
+data/artifacts/approved/

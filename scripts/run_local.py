@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,13 +24,33 @@ def _utc_tag() -> str:
 def _rm_tree(path: Path) -> None:
     if not path.exists():
         return
-    # python 3.13+: Path.unlink(missing_ok=True) exists, but we need recursive remove
     for p in sorted(path.rglob("*"), reverse=True):
         if p.is_file() or p.is_symlink():
             p.unlink()
         else:
             p.rmdir()
     path.rmdir()
+
+
+def _make_config(*, runtime_id: str, symbol: str | None) -> RuntimeConfig:
+    cfg = RuntimeConfig()
+
+    # runtime_id override (handles dataclass or mutable class)
+    try:
+        cfg.runtime_id = runtime_id  # type: ignore[misc]
+    except Exception:
+        if is_dataclass(cfg):
+            cfg = replace(cfg, runtime_id=runtime_id)
+
+    # symbol override (optional)
+    if symbol is not None:
+        try:
+            cfg.symbol = symbol  # type: ignore[misc]
+        except Exception:
+            if is_dataclass(cfg):
+                cfg = replace(cfg, symbol=symbol)
+
+    return cfg
 
 
 def run_live(*, cfg: RuntimeConfig, ticks: int) -> None:
@@ -47,16 +67,16 @@ def run_live(*, cfg: RuntimeConfig, ticks: int) -> None:
 
 
 def run_sandbox(*, live_cfg: RuntimeConfig, ticks: int) -> None:
-    # Build a live runtime first so sandbox can clone state and prefer live datastore snapshots
     md = SimulatedMarketData()
     broker = SimulatedBroker(md)
+
     live_rt = RuntimeFactory.build_live_runtime(
         config=live_cfg,
         market_data=md,
         broker=broker,
     )
 
-    # Ensure at least one live tick exists so there is a snapshot baseline
+    # Ensure a baseline exists (snapshot preferred on sandbox bootstrap)
     live_rt.run_market_once()
 
     sandbox_rt = RuntimeFactory.build_sandbox_runtime_from_live(live_rt)
@@ -71,14 +91,16 @@ def run_promote(
     write_artifact: bool,
     candidate_strategy_name: str,
     candidate_params_json: str,
+    store_root: Path,
+    approved_dir: Path,
 ) -> Path | None:
     current_store = JSONLFileDataStore(
-        root_dir=Path("data/store/live"),
+        root_dir=store_root / "live",
         env="live",
         runtime_id=cfg.runtime_id,
     )
     candidate_store = JSONLFileDataStore(
-        root_dir=Path("data/store/sandbox"),
+        root_dir=store_root / "sandbox",
         env="sandbox",
         runtime_id=cfg.runtime_id,
     )
@@ -116,6 +138,7 @@ def run_promote(
         candidate_config=candidate_config,
         decision_deltas=decision.deltas,
         thresholds=asdict(thresholds),
+        output_dir=approved_dir,
         filename=f"approved_{candidate_id}.json",
     )
 
@@ -142,6 +165,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ticks-live", type=int, default=5)
     parser.add_argument("--ticks-sandbox", type=int, default=5)
 
+    parser.add_argument(
+        "--runtime-id",
+        type=str,
+        default="auto",
+        help="Runtime ID. Use 'auto' to generate a fresh id per run.",
+    )
+    parser.add_argument("--symbol", type=str, default=None)
+
+    parser.add_argument(
+        "--store-root",
+        type=str,
+        default="data/store",
+        help="Root directory for live/sandbox datastores.",
+    )
+    parser.add_argument(
+        "--approved-dir",
+        type=str,
+        default="data/artifacts/approved",
+        help="Directory for approved config artifacts.",
+    )
+
     parser.add_argument("--min-events", type=int, default=50)
     parser.add_argument("--min-success-rate-improvement", type=float, default=0.01)
     parser.add_argument("--max-consecutive-failures", type=int, default=3)
@@ -158,15 +202,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--clean",
         action="store_true",
-        help="Remove data/store and data/artifacts/approved before run.",
+        help="Remove store_root and approved_dir before run.",
     )
     args = parser.parse_args(argv)
 
-    if args.clean:
-        _rm_tree(Path("data/store"))
-        _rm_tree(Path("data/artifacts/approved"))
+    store_root = Path(args.store_root)
+    approved_dir = Path(args.approved_dir)
 
-    cfg = RuntimeConfig()
+    if args.clean:
+        _rm_tree(store_root)
+        _rm_tree(approved_dir)
+
+    runtime_id = args.runtime_id
+    if runtime_id == "auto":
+        runtime_id = f"r_{_utc_tag()}"
+
+    cfg = _make_config(runtime_id=runtime_id, symbol=args.symbol)
+
     thresholds = PromotionThresholds(
         min_events=args.min_events,
         min_success_rate_improvement=args.min_success_rate_improvement,
@@ -187,11 +239,13 @@ def main(argv: list[str] | None = None) -> int:
             write_artifact=bool(args.write_artifact),
             candidate_strategy_name=args.candidate_strategy_name,
             candidate_params_json=args.candidate_params_json,
+            store_root=store_root,
+            approved_dir=approved_dir,
         )
 
-    # exit code: 0 always (this is a local runner), but print artifact path for convenience
     if artifact is not None:
         print("Approved artifact written:", artifact)
+
     return 0
 
 

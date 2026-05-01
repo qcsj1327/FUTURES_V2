@@ -13,12 +13,12 @@ def test_run_local_all_writes_artifact_when_forced_thresholds(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    # Force approval regardless of SR delta by using a negative improvement threshold.
-    # Keep min_events small so we don't need many ticks.
     rc = main(
         [
             "all",
             "--clean",
+            "--runtime-id",
+            "rt_test",
             "--ticks-live",
             "2",
             "--ticks-sandbox",
