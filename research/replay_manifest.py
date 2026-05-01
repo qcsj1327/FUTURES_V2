@@ -16,6 +16,11 @@ class ManifestReplayReport:
     success_rate_delta: float | None
     current_summary: dict[str, Any]
     candidate_summary: dict[str, Any]
+    plan_path: str | None
+    plan_sha256: str | None
+    router_mode: str | None
+    universe_symbols: list[str]
+    strategy_names: list[str]
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -57,6 +62,33 @@ def replay_manifest(manifest_path: Path) -> ManifestReplayReport:
     sr_delta = deltas.get("success_rate_delta")
     success_rate_delta = float(sr_delta) if isinstance(sr_delta, (int, float)) else None
 
+    plan = dict(manifest.get("plan") or {})
+    plan_path = plan.get("path") if isinstance(plan.get("path"), str) else None
+    plan_sha256 = plan.get("sha256") if isinstance(plan.get("sha256"), str) else None
+    plan_cfg = plan.get("config") if isinstance(plan.get("config"), dict) else {}
+
+    router_mode = None
+    router = plan_cfg.get("router") if isinstance(plan_cfg, dict) else None
+    if isinstance(router, dict) and isinstance(router.get("mode"), str):
+        router_mode = router.get("mode")
+
+    universe_symbols: list[str] = []
+    universe = plan_cfg.get("universe") if isinstance(plan_cfg, dict) else None
+    if isinstance(universe, dict):
+        syms = universe.get("symbols")
+        if isinstance(syms, list):
+            universe_symbols = [s for s in syms if isinstance(s, str)]
+
+    strategy_names: list[str] = []
+    strategies = plan_cfg.get("strategies") if isinstance(plan_cfg, dict) else None
+    if isinstance(strategies, list):
+        for s in strategies:
+            if not isinstance(s, dict):
+                continue
+            name = s.get("name")
+            if isinstance(name, str):
+                strategy_names.append(name)
+
     return ManifestReplayReport(
         runtime_id=runtime_id,
         candidate_id=candidate_id,
@@ -65,6 +97,11 @@ def replay_manifest(manifest_path: Path) -> ManifestReplayReport:
         success_rate_delta=success_rate_delta,
         current_summary=cur_summary,
         candidate_summary=cand_summary,
+        plan_path=plan_path,
+        plan_sha256=plan_sha256,
+        router_mode=router_mode,
+        universe_symbols=universe_symbols,
+        strategy_names=strategy_names,
     )
 
 
@@ -77,6 +114,13 @@ def report_to_markdown(report: ManifestReplayReport) -> str:
     lines.append(f"- approved: `{report.approved}`")
     lines.append(f"- reasons: `{report.reasons}`")
     lines.append(f"- success_rate_delta: `{report.success_rate_delta}`")
+    lines.append("")
+    lines.append("## Plan summary")
+    lines.append(f"- plan_path: `{report.plan_path}`")
+    lines.append(f"- plan_sha256: `{report.plan_sha256}`")
+    lines.append(f"- router_mode: `{report.router_mode}`")
+    lines.append(f"- universe_symbols: `{report.universe_symbols}`")
+    lines.append(f"- strategy_names: `{report.strategy_names}`")
     lines.append("")
     lines.append("## Current summary")
     lines.append("```json")
