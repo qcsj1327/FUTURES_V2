@@ -1380,3 +1380,85 @@ equity = cash + position.quantity * position.avg_price
 - 直接计算组合敞口
 - 直接维护 active symbols
 - 修改 PortfolioState
+
+---
+
+## State 子模块职责边界：CapitalModel 与 MarkToMarket
+
+### StateEngine
+
+职责：
+
+- 接收 ExecutionOrder / ExecutionResult
+- 生成 OrderEvent
+- 调用 PositionLifecycle
+- 调用 CapitalModel
+- 写入 PortfolioState.positions
+
+禁止：
+
+- 计算 avg_price
+- 计算 realized_pnl
+- 计算 market_value
+- 计算 unrealized_pnl
+- 执行 mark-to-market
+
+### PositionLifecycle
+
+职责：
+
+- 开仓
+- 加仓
+- 减仓
+- 清仓
+- 计算 avg_price
+- 计算 realized_pnl
+
+禁止：
+
+- 修改 cash
+- 修改 equity
+- 执行 mark-to-market
+- 访问整个 PortfolioState
+
+### CapitalModel
+
+职责：
+
+- 处理成交后的 cash 变化
+- 处理 commission
+- 判断 insufficient_cash
+- 维护基础 equity
+
+禁止：
+
+- 使用 current_price
+- 计算 unrealized_pnl
+- 执行 mark-to-market
+- 修改 PositionState
+
+### MarkToMarket
+
+职责：
+
+- 使用 current_price 对 PortfolioState 估值
+- 计算 market_value
+- 计算 unrealized_pnl
+- 计算 mark-to-market equity
+
+禁止：
+
+- 修改 cash
+- 修改 PortfolioState
+- 修改 PositionState
+- 生成订单
+- 生成风险决策
+
+### 估值原则
+
+CapitalModel 处理“成交发生后的资金变化”。
+
+MarkToMarket 处理“行情变化后的账户估值”。
+
+二者禁止合并。
+
