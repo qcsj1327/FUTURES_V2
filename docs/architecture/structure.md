@@ -1555,3 +1555,42 @@ commission 仍属于 CapitalModel。
 当前 Domain 不支持 partial fill，因为 ExecutionResult 没有 filled_quantity / remaining_quantity / lifecycle 字段。
 
 如未来实现 partial fill，必须走 Domain Migration，不允许在 reason / metadata 中隐式编码。
+
+---
+
+## Execution Realism：Order ID 生成边界
+
+从本阶段开始，模拟 broker 的 order_id 生成逻辑从 `SimulatedBroker` 拆分到 `adapters/broker/order`。
+
+### OrderIdGenerator
+
+职责：
+
+- 生成递增 order_id
+- 保证同一 generator 内顺序唯一
+- 支持 prefix 配置
+
+禁止：
+
+- 访问 MarketData
+- 访问 ExecutionOrder 内容
+- 修改 ExecutionResult
+- 参与成交价格计算
+
+### SimulatedBroker
+
+职责：
+
+- 接收 ExecutionOrder
+- 读取 MarketDataAdapter
+- 调用 SlippageModel
+- 调用 OrderIdGenerator
+- 返回 ExecutionResult
+
+禁止：
+
+- 直接维护 order_id 生成规则
+- 计算 commission
+- 修改 State
+- 修改 RiskDecision
+
