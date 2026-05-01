@@ -13,6 +13,7 @@ from adapters.storage.datastore_fs import JSONLFileDataStore
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from optimize.promoter.approved_config import write_approved_config
+from optimize.promoter.decision_artifact import write_promotion_decision
 from optimize.promoter.promote_from_datastore import promote_from_datastore
 from optimize.promoter.promotion_gate import PromotionThresholds
 
@@ -93,6 +94,8 @@ def run_promote(
     candidate_params_json: str,
     store_root: Path,
     approved_dir: Path,
+    decision_dir: Path,
+    write_decision: bool,
 ) -> Path | None:
     current_store = JSONLFileDataStore(
         root_dir=store_root / "live",
@@ -122,6 +125,14 @@ def run_promote(
             default=str,
         ),
     )
+
+    if write_decision:
+        _ = write_promotion_decision(
+            runtime_id=cfg.runtime_id,
+            decision=asdict(decision),
+            thresholds=asdict(thresholds),
+            output_dir=decision_dir,
+        )
 
     if not write_artifact:
         return None
@@ -180,6 +191,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Root directory for live/sandbox datastores.",
     )
     parser.add_argument(
+        "--decision-dir",
+        type=str,
+        default="data/artifacts/decisions",
+        help="Directory for promotion decision artifacts.",
+    )
+    parser.add_argument(
         "--approved-dir",
         type=str,
         default="data/artifacts/approved",
@@ -190,6 +207,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-success-rate-improvement", type=float, default=0.01)
     parser.add_argument("--max-consecutive-failures", type=int, default=3)
 
+    parser.add_argument(
+        "--write-decision",
+        type=int,
+        default=1,
+        help="1 to write decision artifact, else 0",
+    )
     parser.add_argument(
         "--write-artifact",
         type=int,
@@ -208,6 +231,7 @@ def main(argv: list[str] | None = None) -> int:
 
     store_root = Path(args.store_root)
     approved_dir = Path(args.approved_dir)
+    decision_dir = Path(args.decision_dir)
 
     if args.clean:
         _rm_tree(store_root)
@@ -241,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
             candidate_params_json=args.candidate_params_json,
             store_root=store_root,
             approved_dir=approved_dir,
+            decision_dir=decision_dir,
+            write_decision=bool(args.write_decision),
         )
 
     if artifact is not None:
