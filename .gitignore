@@ -39,3 +39,6 @@ __pycache__/
 .venv/
 __pycache__/
 *.pyc
+
+# runtime datastore outputs
+data/store/

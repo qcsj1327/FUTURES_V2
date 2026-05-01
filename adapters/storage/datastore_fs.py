@@ -36,11 +36,11 @@ class JSONLFileDataStore(DataStore):
         with path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
-    def append_order_event(self, event: Any, *, env: str) -> None:
+    def append_order_event(self, event: dict[str, Any], *, env: str) -> None:
         self._assert_env(env)
         self._append_jsonl("order_events.jsonl", event)
 
-    def append_fill_event(self, event: Any, *, env: str) -> None:
+    def append_fill_event(self, event: dict[str, Any], *, env: str) -> None:
         self._assert_env(env)
         self._append_jsonl("fill_events.jsonl", event)
 
@@ -84,6 +84,27 @@ class JSONLFileDataStore(DataStore):
         with abs_path.open("rb") as f:
             return pickle.load(f)
 
+
+    def _read_jsonl(self, filename: str) -> list[dict[str, Any]]:
+        path = self._dir() / filename
+        if not path.exists():
+            return []
+        out: list[dict[str, Any]] = []
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                out.append(json.loads(line))
+        return out
+
+    def read_order_events(self, *, env: str) -> list[dict[str, Any]]:
+        self._assert_env(env)
+        return self._read_jsonl("order_events.jsonl")
+
+    def read_fill_events(self, *, env: str) -> list[dict[str, Any]]:
+        self._assert_env(env)
+        return self._read_jsonl("fill_events.jsonl")
 
     def append_metrics(self, *, ts: int, metrics: Mapping[str, Any], env: str) -> None:
         self._assert_env(env)
