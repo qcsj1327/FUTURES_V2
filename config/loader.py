@@ -203,6 +203,13 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         tie_breaker=str(router_raw.get("tie_breaker", base.router.tie_breaker)),
     )
 
+    allowed_router_modes = {"priority", "weighted_vote", "netting"}
+    allowed_tie_breakers = {"priority", "lex"}
+    if router.mode not in allowed_router_modes:
+        raise ValueError(f"invalid router.mode: {router.mode}")
+    if router.tie_breaker not in allowed_tie_breakers:
+        raise ValueError(f"invalid router.tie_breaker: {router.tie_breaker}")
+
     return RunPlan(
         schema_version=1,
         env=env,
