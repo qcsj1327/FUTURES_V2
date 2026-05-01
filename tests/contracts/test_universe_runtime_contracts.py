@@ -6,7 +6,7 @@ from adapters.storage.datastore_memory import MemoryDataStore
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from app.universe_runtime import UniverseRuntime
-from strategies.base.simple_strategy import StrategyEngine
+from strategies.registry import StrategyRegistry
 from strategies.strategy_set import StrategyEntry, StrategySet
 
 
@@ -25,13 +25,15 @@ def test_universe_runtime_runs_two_symbols_two_ticks_and_writes_events() -> None
         datastore=store,
     )
 
+    s = StrategyRegistry.create(name="simple_strategy", params={"force_decision": "HOLD"})
+
     entries = [
         StrategyEntry(
-            name="s1",
-            strategy=StrategyEngine(),
+            name="simple_strategy",
+            strategy=s,
             symbols=["au", "ag"],
             priority=10,
-            params={},
+            params={"force_decision": "HOLD"},
         ),
     ]
     sset = StrategySet(entries)
@@ -41,11 +43,10 @@ def test_universe_runtime_runs_two_symbols_two_ticks_and_writes_events() -> None
         market_data=md,
         universe_symbols=["au", "ag"],
         strategy_set=sset,
-        strategy_priorities={"s1": 10},
+        strategy_priorities={"simple_strategy": 10},
     )
 
     uni.run_tick()
     uni.run_tick()
 
-    # 2 symbols routed -> 2 execution events per tick -> 4 total
     assert len(store.fill_events) == 4
