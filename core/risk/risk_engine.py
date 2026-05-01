@@ -16,12 +16,14 @@ class RiskEngine:
         risk_budget: float | None = None,
         max_total_exposure: float | None = None,
         max_active_symbols: int | None = None,
+        max_symbol_weight: float | None = None,
     ) -> None:
         self.position_limit = PositionLimit(max_position_qty=max_position_qty)
         self.risk_budget = RiskBudget(risk_budget=risk_budget)
         self.portfolio_limit = PortfolioLimit(
             max_total_exposure=max_total_exposure,
             max_active_symbols=max_active_symbols,
+            max_symbol_weight=max_symbol_weight,
         )
 
     def evaluate(

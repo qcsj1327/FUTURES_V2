@@ -11,6 +11,7 @@ class PortfolioLimit:
         *,
         max_total_exposure: float | None = None,
         max_active_symbols: int | None = None,
+        max_symbol_weight: float | None = None,
     ) -> None:
         if max_total_exposure is not None and max_total_exposure < 0:
             raise ValueError("max_total_exposure_must_be_non_negative")
@@ -18,8 +19,12 @@ class PortfolioLimit:
         if max_active_symbols is not None and max_active_symbols < 0:
             raise ValueError("max_active_symbols_must_be_non_negative")
 
+        if max_symbol_weight is not None and not 0 <= max_symbol_weight <= 1:
+            raise ValueError("max_symbol_weight_must_be_between_0_and_1")
+
         self.max_total_exposure = max_total_exposure
         self.max_active_symbols = max_active_symbols
+        self.max_symbol_weight = max_symbol_weight
 
     def check(
         self,
@@ -43,6 +48,14 @@ class PortfolioLimit:
             price=price,
         ):
             return "max_total_exposure_exceeded"
+
+        symbol_weight_reason = self._symbol_weight_reason(
+            allocation=allocation,
+            portfolio=portfolio,
+            price=price,
+        )
+        if symbol_weight_reason is not None:
+            return symbol_weight_reason
 
         return None
 
@@ -91,6 +104,41 @@ class PortfolioLimit:
 
         return len(active_symbols) + 1 > self.max_active_symbols
 
+    def _symbol_weight_reason(
+        self,
+        *,
+        allocation: PortfolioAllocation,
+        portfolio: PortfolioState | None,
+        price: float | None,
+    ) -> str | None:
+        if self.max_symbol_weight is None:
+            return None
+
+        if allocation.quantity is None:
+            return None
+
+        if price is None:
+            return None
+
+        if portfolio is None or portfolio.equity is None or portfolio.equity <= 0:
+            return "portfolio_equity_required"
+
+        trigger = allocation.trigger
+        if trigger.instrument_id is None:
+            return None
+
+        current_symbol_exposure = self._current_symbol_exposure(
+            portfolio=portfolio,
+            instrument_id=trigger.instrument_id,
+        )
+        next_exposure = allocation.quantity * price
+        next_weight = (current_symbol_exposure + next_exposure) / portfolio.equity
+
+        if next_weight > self.max_symbol_weight:
+            return "max_symbol_weight_exceeded"
+
+        return None
+
     def _current_exposure(self, portfolio: PortfolioState | None) -> float:
         if portfolio is None:
             return 0.0
@@ -98,6 +146,28 @@ class PortfolioLimit:
         exposure = 0.0
 
         for position in portfolio.positions.values():
+            if position.quantity <= 0:
+                continue
+
+            if position.avg_price is None:
+                continue
+
+            exposure += position.quantity * position.avg_price
+
+        return exposure
+
+    def _current_symbol_exposure(
+        self,
+        *,
+        portfolio: PortfolioState,
+        instrument_id: str,
+    ) -> float:
+        exposure = 0.0
+
+        for position in portfolio.positions.values():
+            if position.instrument_id != instrument_id:
+                continue
+
             if position.quantity <= 0:
                 continue
 

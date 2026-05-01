@@ -1462,3 +1462,46 @@ MarkToMarket 处理“行情变化后的账户估值”。
 
 二者禁止合并。
 
+
+---
+
+## Portfolio-level Risk：Symbol Weight Limit
+
+从本阶段开始，组合级风控支持单品种权重限制。
+
+### max_symbol_weight
+
+语义：
+
+```text
+symbol_weight = (current_symbol_exposure + next_order_exposure) / portfolio.equity
+约束：
+
+* 取值范围必须在 0 到 1 之间
+* 只对开仓类交易生效
+* 只读取 PortfolioState
+* 不修改 PortfolioState
+* 不修改 quantity
+* 不修改 cash / equity
+
+equity 要求
+
+启用 max_symbol_weight 时：
+
+* 如果传入 price，则必须存在 portfolio.equity
+* 如果 portfolio.equity 缺失或 <= 0，RiskDecision.reason = portfolio_equity_required
+* 如果未传入 price，则保持向后兼容，不执行该规则
+
+职责边界
+
+PortfolioLimit 负责：
+
+* max_total_exposure
+* max_active_symbols
+* max_symbol_weight
+
+RiskEngine 负责：
+
+* 调用 PortfolioLimit
+* 接收拒绝原因
+* 输出 RiskDecision
