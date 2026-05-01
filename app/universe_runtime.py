@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from adapters.marketdata.base import MarketDataAdapter
 from app.runtime import Runtime
-from core.signal_router.decision_router import route_tagged_signals
+from core.signal_router.router import RouterConfig, route
 from strategies.strategy_set import StrategySet
 
 
@@ -15,17 +15,26 @@ class UniverseRuntime:
         universe_symbols: list[str],
         strategy_set: StrategySet,
         strategy_priorities: dict[str, int],
+        strategy_weights: dict[str, float],
+        router_config: RouterConfig,
     ) -> None:
         self.executor = executor
         self.market_data = market_data
         self.symbols = universe_symbols
         self.strategy_set = strategy_set
         self.priorities = strategy_priorities
+        self.weights = strategy_weights
+        self.router_config = router_config
 
     def run_tick(self) -> None:
         prices = self.market_data.get_last_prices(self.symbols)
         tagged = self.strategy_set.generate(prices)
-        final_tagged = route_tagged_signals(tagged, priorities=self.priorities)
+        final_tagged = route(
+            tagged,
+            config=self.router_config,
+            priorities=self.priorities,
+            weights=self.weights,
+        )
 
         for td in final_tagged:
             self.executor.run(td.decision, strategy_name=td.strategy_name)

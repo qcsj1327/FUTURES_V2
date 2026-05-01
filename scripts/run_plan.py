@@ -12,6 +12,7 @@ from app.runtime_factory import RuntimeFactory
 from app.universe_runtime import UniverseRuntime
 from config.loader import load_plan
 from config.models import RunPlan, StrategySpec
+from core.signal_router.router import RouterConfig
 from optimize.promoter.approved_config import write_approved_config
 from optimize.promoter.decision_artifact import write_promotion_decision
 from optimize.promoter.manifest_artifact import write_promotion_manifest
@@ -92,6 +93,8 @@ def run_all(plan: RunPlan, *, clean: bool) -> None:
     entries = _build_strategy_entries(plan.strategies)
     sset = StrategySet(entries)
     priorities = {e.name: e.priority for e in entries}
+    weights = {e.name: getattr(e, "weight", 1.0) for e in plan.strategies}
+    router_cfg = RouterConfig(mode=plan.router.mode, tie_breaker=plan.router.tie_breaker)
 
     # -------- Live session --------
     live_executor = RuntimeFactory.build_live_runtime(
@@ -106,6 +109,8 @@ def run_all(plan: RunPlan, *, clean: bool) -> None:
         universe_symbols=plan.universe.symbols,
         strategy_set=sset,
         strategy_priorities=priorities,
+        strategy_weights=weights,
+        router_config=router_cfg,
     )
     for _ in range(plan.runtime.ticks_live):
         uni_live.run_tick()
@@ -121,6 +126,8 @@ def run_all(plan: RunPlan, *, clean: bool) -> None:
         universe_symbols=plan.universe.symbols,
         strategy_set=sset,
         strategy_priorities=priorities,
+        strategy_weights=weights,
+        router_config=router_cfg,
     )
     for _ in range(plan.runtime.ticks_sandbox):
         uni_sandbox.run_tick()
