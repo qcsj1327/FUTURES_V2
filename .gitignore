@@ -45,3 +45,5 @@ data/store/
 
 # local artifacts
 data/artifacts/approved/
+data/artifacts/decisions/
+data/artifacts/summaries/

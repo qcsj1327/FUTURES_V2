@@ -16,6 +16,8 @@ from optimize.promoter.approved_config import write_approved_config
 from optimize.promoter.decision_artifact import write_promotion_decision
 from optimize.promoter.promote_from_datastore import promote_from_datastore
 from optimize.promoter.promotion_gate import PromotionThresholds
+from optimize.promoter.summary_artifact import write_summary_artifact
+from research.datastore_replay import replay_execution_events, summarize_execution_events
 
 
 def _utc_tag() -> str:
@@ -96,6 +98,8 @@ def run_promote(
     approved_dir: Path,
     decision_dir: Path,
     write_decision: bool,
+    summary_dir: Path,
+    write_summary: bool,
 ) -> Path | None:
     current_store = JSONLFileDataStore(
         root_dir=store_root / "live",
@@ -107,6 +111,27 @@ def run_promote(
         env="sandbox",
         runtime_id=cfg.runtime_id,
     )
+
+    cur_events = replay_execution_events(current_store, env="live")
+    cand_events = replay_execution_events(candidate_store, env="sandbox")
+    cur_summary = summarize_execution_events(cur_events)
+    cand_summary = summarize_execution_events(cand_events)
+    cur_metrics = asdict(cur_summary)
+    cand_metrics = asdict(cand_summary)
+
+    if write_summary:
+        _ = write_summary_artifact(
+            runtime_id=cfg.runtime_id,
+            role="current",
+            summary=cur_metrics,
+            output_dir=summary_dir,
+        )
+        _ = write_summary_artifact(
+            runtime_id=cfg.runtime_id,
+            role="candidate",
+            summary=cand_metrics,
+            output_dir=summary_dir,
+        )
 
     decision = promote_from_datastore(
         current_store=current_store,
@@ -131,6 +156,8 @@ def run_promote(
             runtime_id=cfg.runtime_id,
             decision=asdict(decision),
             thresholds=asdict(thresholds),
+            current_metrics=cur_metrics,
+            candidate_metrics=cand_metrics,
             output_dir=decision_dir,
         )
 
@@ -191,6 +218,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Root directory for live/sandbox datastores.",
     )
     parser.add_argument(
+        "--summary-dir",
+        type=str,
+        default="data/artifacts/summaries",
+        help="Directory for summary artifacts.",
+    )
+    parser.add_argument(
         "--decision-dir",
         type=str,
         default="data/artifacts/decisions",
@@ -207,6 +240,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-success-rate-improvement", type=float, default=0.01)
     parser.add_argument("--max-consecutive-failures", type=int, default=3)
 
+    parser.add_argument(
+        "--write-summary",
+        type=int,
+        default=1,
+        help="1 to write summary artifacts, else 0",
+    )
     parser.add_argument(
         "--write-decision",
         type=int,
@@ -232,10 +271,13 @@ def main(argv: list[str] | None = None) -> int:
     store_root = Path(args.store_root)
     approved_dir = Path(args.approved_dir)
     decision_dir = Path(args.decision_dir)
+    summary_dir = Path(args.summary_dir)
 
     if args.clean:
         _rm_tree(store_root)
         _rm_tree(approved_dir)
+        _rm_tree(decision_dir)
+        _rm_tree(summary_dir)
 
     runtime_id = args.runtime_id
     if runtime_id == "auto":
@@ -267,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
             approved_dir=approved_dir,
             decision_dir=decision_dir,
             write_decision=bool(args.write_decision),
+            summary_dir=summary_dir,
+            write_summary=bool(args.write_summary),
         )
 
     if artifact is not None:
