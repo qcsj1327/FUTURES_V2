@@ -71,6 +71,65 @@ class MarketReplayRunner:
 
         return results
 
+    def run_multi_symbol_shared_portfolio(
+        self,
+        symbols: Iterable[str],
+        cycles: int,
+        *,
+        default_quantity: float = 1.0,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
+    ) -> RunReport:
+        if cycles < 0:
+            raise ValueError("cycles_must_be_non_negative")
+
+        symbols = list(symbols)
+        if not symbols:
+            return RunReport(
+                cycles_run=0,
+                orders_submitted=0,
+                final_position_qty=0.0,
+            )
+
+        equity_curve: list[float] = []
+        cash_curve: list[float] = []
+        position_qty_curve: list[float] = []
+
+        shared_portfolio = self.runtime.state.portfolio
+        total_orders_submitted = 0
+
+        for index in range(cycles):
+            symbol = symbols[index % len(symbols)]
+            runtime = Runtime(
+                RuntimeConfig(
+                    symbol=symbol,
+                    default_quantity=default_quantity,
+                )
+            )
+            runtime.state.portfolio = shared_portfolio
+            runtime.run_market_once(
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            )
+
+            shared_portfolio = runtime.state.portfolio
+            total_orders_submitted += runtime.orders_submitted
+            self.runtime = runtime
+
+            cash_curve.append(self._cash())
+            position_qty_curve.append(self._final_position_qty())
+            equity_curve.append(self._equity())
+
+        return RunReport(
+            cycles_run=cycles,
+            orders_submitted=total_orders_submitted,
+            final_position_qty=self._final_position_qty(),
+            equity_curve=equity_curve,
+            cash_curve=cash_curve,
+            position_qty_curve=position_qty_curve,
+            max_drawdown=self._max_drawdown(equity_curve),
+        )
+
     def _final_position_qty(self) -> float:
         return sum(
             position.quantity
