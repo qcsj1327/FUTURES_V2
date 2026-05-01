@@ -1,6 +1,6 @@
 from __future__ import annotations
-# mypy: disable_error_code="valid-type,no-any-return"
 
+# mypy: disable_error_code="valid-type,no-any-return"
 import importlib
 from collections.abc import Iterable
 
