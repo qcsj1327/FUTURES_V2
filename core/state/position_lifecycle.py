@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from domain.enums import PositionSide, Side
+from domain.enums import ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.state import PositionState
 
@@ -15,11 +15,8 @@ class PositionLifecycle:
         runtime_id: str,
         strategy_name: str,
     ) -> PositionState:
-        if order.quantity <= 0:
-            raise ValueError("invalid_position_quantity")
-
-        if result.fill_price is None:
-            raise ValueError("ExecutionResult.fill_price is required for successful execution")
+        filled_quantity = self._filled_quantity(order=order, result=result)
+        fill_price = self._fill_price(result)
 
         if self._is_open_order(order):
             return self._apply_open(
@@ -28,6 +25,8 @@ class PositionLifecycle:
                 existing=existing,
                 runtime_id=runtime_id,
                 strategy_name=strategy_name,
+                filled_quantity=filled_quantity,
+                fill_price=fill_price,
             )
 
         if self._is_close_order(order):
@@ -37,6 +36,8 @@ class PositionLifecycle:
                 existing=existing,
                 runtime_id=runtime_id,
                 strategy_name=strategy_name,
+                filled_quantity=filled_quantity,
+                fill_price=fill_price,
             )
 
         raise ValueError("invalid_position_lifecycle_side")
@@ -49,17 +50,18 @@ class PositionLifecycle:
         existing: PositionState | None,
         runtime_id: str,
         strategy_name: str,
+        filled_quantity: float,
+        fill_price: float,
     ) -> PositionState:
-        if result.fill_price is None:
-            raise ValueError("ExecutionResult.fill_price is required for successful execution")
+        trade_instrument_id = self._resolve_trade_instrument_id(order)
 
         if existing is None:
             return PositionState(
                 instrument_id=order.instrument_id,
-                trade_instrument_id=self._resolve_trade_instrument_id(order),
+                trade_instrument_id=trade_instrument_id,
                 position_side=order.position_side,
-                quantity=order.quantity,
-                avg_price=result.fill_price,
+                quantity=filled_quantity,
+                avg_price=fill_price,
                 realized_pnl=0.0,
                 runtime_id=runtime_id,
                 strategy_name=strategy_name,
@@ -69,10 +71,10 @@ class PositionLifecycle:
         if existing.avg_price is None:
             raise ValueError("existing_position_avg_price_missing")
 
-        total_quantity = existing.quantity + order.quantity
+        total_quantity = existing.quantity + filled_quantity
         avg_price = (
             (existing.quantity * existing.avg_price)
-            + (order.quantity * result.fill_price)
+            + (filled_quantity * fill_price)
         ) / total_quantity
 
         return PositionState(
@@ -97,14 +99,13 @@ class PositionLifecycle:
         existing: PositionState | None,
         runtime_id: str,
         strategy_name: str,
+        filled_quantity: float,
+        fill_price: float,
     ) -> PositionState:
-        if result.fill_price is None:
-            raise ValueError("ExecutionResult.fill_price is required for successful execution")
-
         if existing is None or existing.quantity <= 0:
             raise ValueError("cannot_close_missing_position")
 
-        if order.quantity > existing.quantity:
+        if filled_quantity > existing.quantity:
             raise ValueError("close_quantity_exceeds_position")
 
         if existing.avg_price is None:
@@ -113,15 +114,15 @@ class PositionLifecycle:
         realized_delta = self._calculate_realized_pnl(
             position_side=order.position_side,
             avg_price=existing.avg_price,
-            exit_price=result.fill_price,
-            quantity=order.quantity,
+            exit_price=fill_price,
+            quantity=filled_quantity,
         )
 
         return PositionState(
             instrument_id=existing.instrument_id,
             trade_instrument_id=existing.trade_instrument_id,
             position_side=existing.position_side,
-            quantity=existing.quantity - order.quantity,
+            quantity=existing.quantity - filled_quantity,
             avg_price=existing.avg_price,
             realized_pnl=existing.realized_pnl + realized_delta,
             unrealized_pnl=existing.unrealized_pnl,
@@ -130,6 +131,43 @@ class PositionLifecycle:
             updated_ts=result.ts,
             metadata=existing.metadata,
         )
+
+    def _filled_quantity(
+        self,
+        *,
+        order: ExecutionOrder,
+        result: ExecutionResult,
+    ) -> float:
+        if result.status in {
+            ExecutionStatus.FILLED,
+            ExecutionStatus.PARTIALLY_FILLED,
+        }:
+            if result.filled_quantity is None:
+                raise ValueError("ExecutionResult.filled_quantity is required")
+
+            if result.filled_quantity <= 0:
+                raise ValueError("invalid_filled_quantity")
+
+            if result.filled_quantity > order.quantity:
+                raise ValueError("filled_quantity_exceeds_order_quantity")
+
+            return result.filled_quantity
+
+        if order.quantity <= 0:
+            raise ValueError("invalid_position_quantity")
+
+        return order.quantity
+
+    def _fill_price(self, result: ExecutionResult) -> float:
+        fill_price = result.avg_fill_price
+
+        if fill_price is not None:
+            return fill_price
+
+        if result.fill_price is None:
+            raise ValueError("ExecutionResult.fill_price is required for successful execution")
+
+        return result.fill_price
 
     def _is_open_order(self, order: ExecutionOrder) -> bool:
         if order.position_side == PositionSide.LONG:

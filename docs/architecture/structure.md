@@ -1682,3 +1682,29 @@ StateEngine 只生成 rejected OrderEvent，不更新 PositionState / PortfolioS
 
 StateEngine / PositionLifecycle / CapitalModel 后续必须改为使用 filled_quantity，而不是 order.quantity。
 
+
+---
+
+## Partial Fill 接入 State / Capital
+
+从本阶段开始，State 与 Capital 只使用实际成交数量更新。
+
+### 规则
+
+- OrderEvent.quantity 保留订单请求数量：ExecutionOrder.quantity
+- PositionState.quantity 使用实际成交数量：ExecutionResult.filled_quantity
+- CapitalModel 使用实际成交数量计算 notional / commission
+- avg_fill_price 优先于 fill_price
+- FILLED / PARTIALLY_FILLED 必须提供 filled_quantity
+- filled_quantity 不允许超过 order.quantity
+
+### 兼容规则
+
+ExecutionStatus.SUBMITTED 的旧测试路径仍按 order.quantity 处理。
+
+正式 broker fill 路径必须使用：
+
+- FILLED
+- PARTIALLY_FILLED
+- REJECTED
+

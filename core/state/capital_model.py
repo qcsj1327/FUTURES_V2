@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from domain.enums import PositionSide, Side
+from domain.enums import ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.state import PortfolioState, PositionState
 
@@ -23,10 +23,13 @@ class CapitalModel:
         if portfolio.cash is None:
             return None, portfolio.equity
 
-        if result.fill_price is None:
-            raise ValueError("ExecutionResult.fill_price is required for capital update")
-
-        cash_delta = self._cash_delta(order=order, fill_price=result.fill_price)
+        fill_price = self._fill_price(result)
+        filled_quantity = self._filled_quantity(order=order, result=result)
+        cash_delta = self._cash_delta(
+            order=order,
+            fill_price=fill_price,
+            quantity=filled_quantity,
+        )
         new_cash = portfolio.cash + cash_delta
 
         if new_cash < 0:
@@ -46,16 +49,62 @@ class CapitalModel:
         if portfolio.cash is None:
             return
 
-        if result.fill_price is None:
-            raise ValueError("ExecutionResult.fill_price is required for capital update")
-
-        cash_delta = self._cash_delta(order=order, fill_price=result.fill_price)
+        fill_price = self._fill_price(result)
+        filled_quantity = self._filled_quantity(order=order, result=result)
+        cash_delta = self._cash_delta(
+            order=order,
+            fill_price=fill_price,
+            quantity=filled_quantity,
+        )
 
         if portfolio.cash + cash_delta < 0:
             raise ValueError("insufficient_cash")
 
-    def _cash_delta(self, *, order: ExecutionOrder, fill_price: float) -> float:
-        notional = order.quantity * fill_price
+    def _filled_quantity(
+        self,
+        *,
+        order: ExecutionOrder,
+        result: ExecutionResult,
+    ) -> float:
+        if result.status in {
+            ExecutionStatus.FILLED,
+            ExecutionStatus.PARTIALLY_FILLED,
+        }:
+            if result.filled_quantity is None:
+                raise ValueError("ExecutionResult.filled_quantity is required")
+
+            if result.filled_quantity <= 0:
+                raise ValueError("invalid_filled_quantity")
+
+            if result.filled_quantity > order.quantity:
+                raise ValueError("filled_quantity_exceeds_order_quantity")
+
+            return result.filled_quantity
+
+        if order.quantity <= 0:
+            raise ValueError("invalid_position_quantity")
+
+        return order.quantity
+
+    def _fill_price(self, result: ExecutionResult) -> float:
+        fill_price = result.avg_fill_price
+
+        if fill_price is not None:
+            return fill_price
+
+        if result.fill_price is None:
+            raise ValueError("ExecutionResult.fill_price is required for capital update")
+
+        return result.fill_price
+
+    def _cash_delta(
+        self,
+        *,
+        order: ExecutionOrder,
+        fill_price: float,
+        quantity: float,
+    ) -> float:
+        notional = quantity * fill_price
         commission = notional * self.commission_rate
 
         if order.position_side == PositionSide.LONG:

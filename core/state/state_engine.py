@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from core.state.capital_model import CapitalModel
 from core.state.position_lifecycle import PositionLifecycle
-from domain.enums import OrderStatus
+from domain.enums import ExecutionStatus, OrderStatus
 from domain.event import OrderEvent
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.state import PortfolioState, PositionKey, PositionState
@@ -46,7 +46,7 @@ class StateEngine:
             side=order.side,
             position_side=order.position_side,
             quantity=order.quantity,
-            status=OrderStatus.SUBMITTED if result.success else OrderStatus.REJECTED,
+            status=self._order_status(result),
             ts=result.ts,
             reason=result.reason,
         )
@@ -99,6 +99,18 @@ class StateEngine:
         self.position = position
 
         return event, position
+
+    def _order_status(self, result: ExecutionResult) -> OrderStatus:
+        if not result.success:
+            return OrderStatus.REJECTED
+
+        if result.status == ExecutionStatus.PARTIALLY_FILLED:
+            return OrderStatus.PARTIALLY_FILLED
+
+        if result.status == ExecutionStatus.FILLED:
+            return OrderStatus.FILLED
+
+        return OrderStatus.SUBMITTED
 
     def _resolve_order_id(self, result: ExecutionResult) -> str:
         if result.order_id is None:
