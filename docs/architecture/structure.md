@@ -1505,3 +1505,53 @@ RiskEngine 负责：
 * 调用 PortfolioLimit
 * 接收拒绝原因
 * 输出 RiskDecision
+
+---
+
+## Execution Realism：Fill Model 边界
+
+从本阶段开始，broker 成交价格调整逻辑从 `SimulatedBroker` 拆分到 `adapters/broker/fill`。
+
+### SimulatedBroker
+
+职责：
+
+- 接收 ExecutionOrder
+- 读取 MarketDataAdapter
+- 调用 fill model
+- 返回 ExecutionResult
+
+禁止：
+
+- 直接实现复杂成交模型
+- 计算 commission
+- 修改 State
+- 修改 RiskDecision
+
+### SlippageModel
+
+职责：
+
+- 根据 Side 和 slippage_rate 调整 fill_price
+
+规则：
+
+- BUY：fill_price = market_price * (1 + slippage_rate)
+- SELL：fill_price = market_price * (1 - slippage_rate)
+- NONE：fill_price = market_price
+
+### Commission
+
+commission 仍属于 CapitalModel。
+
+原因：
+
+- slippage 改变成交价格
+- commission 改变资金结果
+- 二者职责不同，禁止合并
+
+### Partial Fill / Order Lifecycle
+
+当前 Domain 不支持 partial fill，因为 ExecutionResult 没有 filled_quantity / remaining_quantity / lifecycle 字段。
+
+如未来实现 partial fill，必须走 Domain Migration，不允许在 reason / metadata 中隐式编码。
