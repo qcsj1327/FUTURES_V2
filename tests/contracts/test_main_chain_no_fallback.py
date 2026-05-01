@@ -92,7 +92,7 @@ def test_execution_does_not_execute_rejected_risk_decision() -> None:
     )
 
     broker = DummyBroker()
-    engine = ExecutionEngine(broker)  # type: ignore[arg-type]
+    engine = ExecutionEngine(broker)
 
     order, result = engine.execute(decision)
 
@@ -117,7 +117,7 @@ def test_execution_rejects_allowed_decision_without_quantity() -> None:
     )
 
     broker = DummyBroker()
-    engine = ExecutionEngine(broker)  # type: ignore[arg-type]
+    engine = ExecutionEngine(broker)
 
     order, result = engine.execute(decision)
 
