@@ -16,8 +16,8 @@ def test_memory_store_env_mismatch_raises() -> None:
 
 
 def test_fs_store_writes_are_isolated_by_env(tmp_path: Path) -> None:
-    live = JSONLFileDataStore(root_dir=tmp_path, env="live", runtime_id="r1")
-    sandbox = JSONLFileDataStore(root_dir=tmp_path, env="sandbox", runtime_id="r1")
+    live = JSONLFileDataStore(root_dir=tmp_path / "live", env="live", runtime_id="r1")
+    sandbox = JSONLFileDataStore(root_dir=tmp_path / "sandbox", env="sandbox", runtime_id="r1")
 
     live.append_order_event({"id": "o1"}, env="live")
     sandbox.append_order_event({"id": "o2"}, env="sandbox")

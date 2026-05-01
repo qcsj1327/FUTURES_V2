@@ -15,7 +15,11 @@ def test_fs_datastore_isolation_live_not_touched_by_sandbox(tmp_path: Path) -> N
     md = SimulatedMarketData()
     broker = SimulatedBroker(md)
 
-    live_store = JSONLFileDataStore(root_dir=tmp_path, env="live", runtime_id=config.runtime_id)
+    live_store = JSONLFileDataStore(
+        root_dir=tmp_path / "live",
+        env="live",
+        runtime_id=config.runtime_id,
+    )
     live_runtime = RuntimeFactory.build_live_runtime(
         config=config,
         market_data=md,
@@ -24,7 +28,7 @@ def test_fs_datastore_isolation_live_not_touched_by_sandbox(tmp_path: Path) -> N
     )
 
     sandbox_store = JSONLFileDataStore(
-        root_dir=tmp_path,
+        root_dir=tmp_path / "sandbox",
         env="sandbox",
         runtime_id=config.runtime_id,
     )

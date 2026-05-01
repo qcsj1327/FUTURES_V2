@@ -25,7 +25,7 @@ class JSONLFileDataStore(DataStore):
         self.root_dir = root_dir
 
     def _dir(self) -> Path:
-        d = self.root_dir / self.env / self.runtime_id
+        d = self.root_dir / self.runtime_id
         d.mkdir(parents=True, exist_ok=True)
         return d
 

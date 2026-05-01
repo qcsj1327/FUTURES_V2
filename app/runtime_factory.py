@@ -52,7 +52,7 @@ class RuntimeFactory:
     ) -> Runtime:
         if datastore is None:
             datastore = JSONLFileDataStore(
-                root_dir=Path("data/store"),
+                root_dir=Path("data/store/live"),
                 env="live",
                 runtime_id=config.runtime_id,
             )
@@ -119,7 +119,7 @@ class RuntimeFactory:
 
         if datastore is None:
             datastore = JSONLFileDataStore(
-                root_dir=Path("data/store"),
+                root_dir=Path("data/store/sandbox"),
                 env="sandbox",
                 runtime_id=(config or live_runtime.config).runtime_id,
             )
