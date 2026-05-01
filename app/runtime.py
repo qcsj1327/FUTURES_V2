@@ -78,10 +78,10 @@ class Runtime:
             self.state.apply(exit_order, exit_result, strategy_name="exit")
             self._maybe_save_snapshot()
 
-    def run(self, decision: SignalDecision) -> None:
-        self._run_decision(decision)
+    def run(self, decision: SignalDecision, *, strategy_name: str | None = None) -> None:
+        self._run_decision(decision, strategy_name=strategy_name)
 
-    def _run_decision(self, decision: SignalDecision) -> None:
+    def _run_decision(self, decision: SignalDecision, *, strategy_name: str | None = None) -> None:
         trigger_result = self.trigger.process(
             decision,
             runtime_id=self.runtime_id,
@@ -96,7 +96,8 @@ class Runtime:
         if order is not None and exec_result.success:
             self.orders_submitted += 1
 
-        self._maybe_append_events(order, exec_result, strategy_name="main")
+        name = getattr(decision, "strategy_name", "main")
+        self._maybe_append_events(order, exec_result, strategy_name=name)
         self.state.apply(order, exec_result)
         self._maybe_save_snapshot()
 

@@ -19,7 +19,8 @@ from optimize.promoter.promote_from_datastore import promote_from_datastore
 from optimize.promoter.promotion_gate import PromotionThresholds
 from optimize.promoter.summary_artifact import write_summary_artifact
 from research.datastore_replay import replay_execution_events, summarize_execution_events
-from strategies.base.simple_strategy import StrategyEngine
+from strategies.base.strategy import Strategy
+from strategies.registry import create_strategy
 from strategies.strategy_set import StrategyEntry, StrategySet
 
 
@@ -47,9 +48,8 @@ def _make_runtime_config(*, runtime_id: str, default_quantity: float) -> Runtime
     return cfg
 
 
-def _strategy_instance(name: str) -> StrategyEngine:
-    # TODO: plug into strategies/registry.py
-    return StrategyEngine()
+def _strategy_instance(name: str, params: dict[str, object]) -> Strategy:
+    return create_strategy(name=name, params=params)
 
 
 def _build_strategy_entries(strategies: list[StrategySpec]) -> list[StrategyEntry]:
@@ -58,7 +58,7 @@ def _build_strategy_entries(strategies: list[StrategySpec]) -> list[StrategyEntr
         entries.append(
             StrategyEntry(
                 name=s.name,
-                strategy=_strategy_instance(s.name),
+                strategy=_strategy_instance(s.name, s.params),
                 symbols=s.symbols,
                 priority=s.priority,
                 params=s.params,
