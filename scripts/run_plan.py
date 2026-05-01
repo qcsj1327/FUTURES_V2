@@ -65,8 +65,16 @@ def _build_market_data(plan: RunPlan) -> MarketDataAdapter:
             for k, v in start_prices_any.items():
                 if isinstance(k, str) and isinstance(v, (int, float)):
                     start_prices[k] = float(v)
+
+        # Expand universe to include base and *_main variants to match execution symbols.
+        base_syms = list(plan.universe.symbols)
+        expanded = list(dict.fromkeys(base_syms + [f"{s}_main" for s in base_syms]))
+        for s in base_syms:
+            if s in start_prices and f"{s}_main" not in start_prices:
+                start_prices[f"{s}_main"] = start_prices[s]
+
         return SimulatedMarketDataV2(
-            symbols=plan.universe.symbols,
+            symbols=expanded,
             seed=seed,
             start_prices=start_prices,
             drift=drift,
