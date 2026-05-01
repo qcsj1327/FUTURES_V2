@@ -3,6 +3,7 @@ from __future__ import annotations
 from config.models import (
     DataStoreSpec,
     PromotionSpec,
+    RouterSpec,
     RunPlan,
     RuntimeSpec,
     StrategySpec,
@@ -16,7 +17,13 @@ def default_plan(*, runtime_id: str) -> RunPlan:
         env="dev",
         universe=UniverseSpec(symbols=["au"]),
         strategies=[
-            StrategySpec(name="simple_strategy", params={}, symbols=["au"], priority=100),
+            StrategySpec(
+                name="simple_strategy",
+                params={},
+                symbols=["au"],
+                priority=100,
+                weight=1.0,
+            ),
         ],
         runtime=RuntimeSpec(
             runtime_id=runtime_id,
@@ -27,6 +34,7 @@ def default_plan(*, runtime_id: str) -> RunPlan:
             take_profit=None,
         ),
         datastore=DataStoreSpec(),
+        router=RouterSpec(mode="priority", tie_breaker="priority"),
         promotion=PromotionSpec(
             min_events=1,
             min_success_rate_improvement=-1.0,

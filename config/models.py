@@ -14,8 +14,15 @@ class UniverseSpec:
 class StrategySpec:
     name: str
     params: dict[str, Any]
-    symbols: list[str]          # which symbols this strategy applies to
-    priority: int = 100         # lower number = higher priority
+    symbols: list[str]
+    priority: int = 100          # lower is higher priority
+    weight: float = 1.0          # used by weighted_vote/netting
+
+
+@dataclass(frozen=True)
+class RouterSpec:
+    mode: str = "priority"       # priority | weighted_vote | netting
+    tie_breaker: str = "priority"  # priority | lex
 
 
 @dataclass(frozen=True)
@@ -52,9 +59,10 @@ class PromotionSpec:
 @dataclass(frozen=True)
 class RunPlan:
     schema_version: int
-    env: str                   # "live" | "sandbox" | "dev"
+    env: str
     universe: UniverseSpec
     strategies: list[StrategySpec]
     runtime: RuntimeSpec
     datastore: DataStoreSpec
     promotion: PromotionSpec
+    router: RouterSpec
