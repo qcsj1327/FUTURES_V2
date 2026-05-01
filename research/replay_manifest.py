@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -88,3 +89,48 @@ def report_to_markdown(report: ManifestReplayReport) -> str:
     lines.append("```")
     lines.append("")
     return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="replay_manifest",
+        description="Replay a promotion manifest and produce an audit report.",
+    )
+    parser.add_argument(
+        "manifest",
+        type=str,
+        help="Path to manifest_*.json",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["md", "json"],
+        default="md",
+        help="Output format.",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="",
+        help="Write output to this file (optional).",
+    )
+    args = parser.parse_args(argv)
+
+    report = replay_manifest(Path(args.manifest))
+
+    if args.format == "json":
+        text = json.dumps(asdict(report), ensure_ascii=False, indent=2)
+    else:
+        text = report_to_markdown(report)
+
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text, encoding="utf-8")
+    else:
+        print(text)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
