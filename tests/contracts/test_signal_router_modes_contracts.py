@@ -68,3 +68,48 @@ def test_router_netting_nets_to_hold_on_tie() -> None:
         weights={"a": 1.0, "b": 1.0, "c": 1.0},
     )
     assert out[0].strategy_name == "c"
+
+
+def test_router_weighted_vote_tie_breaker_priority_picks_highest_priority_strategy() -> None:
+    # Same winning decision (OPEN_LONG) from two strategies with equal weights.
+    # tie_breaker="priority" should pick the lower priority number.
+    tagged = [
+        TaggedDecision("a", _sd("au", Decision.OPEN_LONG)),
+        TaggedDecision("b", _sd("au", Decision.OPEN_LONG)),
+    ]
+    out = route(
+        tagged,
+        config=RouterConfig(mode="weighted_vote", tie_breaker="priority"),
+        priorities={"a": 10, "b": 1},
+        weights={"a": 1.0, "b": 1.0},
+    )
+    assert out[0].strategy_name == "b"
+
+
+def test_router_weighted_vote_tie_breaker_lex_picks_lex_smallest_strategy() -> None:
+    tagged = [
+        TaggedDecision("b", _sd("au", Decision.OPEN_LONG)),
+        TaggedDecision("a", _sd("au", Decision.OPEN_LONG)),
+    ]
+    out = route(
+        tagged,
+        config=RouterConfig(mode="weighted_vote", tie_breaker="lex"),
+        priorities={"a": 1, "b": 10},
+        weights={"a": 1.0, "b": 1.0},
+    )
+    assert out[0].strategy_name == "a"
+
+
+def test_router_netting_close_dominates_and_uses_priority_among_close() -> None:
+    tagged = [
+        TaggedDecision("x", _sd("au", Decision.OPEN_LONG)),
+        TaggedDecision("close_low", _sd("au", Decision.CLOSE)),
+        TaggedDecision("close_high", _sd("au", Decision.CLOSE)),
+    ]
+    out = route(
+        tagged,
+        config=RouterConfig(mode="netting"),
+        priorities={"close_high": 5, "close_low": 20, "x": 100},
+        weights={"close_high": 1.0, "close_low": 1.0, "x": 1.0},
+    )
+    assert out[0].strategy_name == "close_high"
