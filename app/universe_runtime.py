@@ -65,3 +65,8 @@ class UniverseRuntime:
             self.executor._maybe_append_events(exit_order, exit_result, strategy_name="exit")
             self.executor.state.apply(exit_order, exit_result, strategy_name="exit")
             self.executor._maybe_save_snapshot()
+
+        # advance market clock if adapter supports it
+        adv = getattr(self.market_data, "advance", None)
+        if callable(adv):
+            adv()

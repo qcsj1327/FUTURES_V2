@@ -15,21 +15,21 @@ class StrategySpec:
     name: str
     params: dict[str, Any]
     symbols: list[str]
-    priority: int = 100          # lower is higher priority
-    weight: float = 1.0          # used by weighted_vote/netting
+    priority: int = 100
+    weight: float = 1.0
 
 
 @dataclass(frozen=True)
 class RouterSpec:
-    mode: str = "priority"       # priority | weighted_vote | netting
+    mode: str = "priority"         # priority | weighted_vote | netting
     tie_breaker: str = "priority"  # priority | lex
-
 
 
 @dataclass(frozen=True)
 class MarketDataSpec:
-    mode: str = "simulated"  # simulated | live_file
+    mode: str = "simulated"  # simulated | simulated_v2 | live_file
     prices_path: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

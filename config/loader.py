@@ -223,13 +223,16 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     md_raw = adapters_raw.get("market_data", {})
     if not isinstance(md_raw, dict):
         raise ValueError("adapters.market_data must be an object")
-    _assert_keys(md_raw, {"mode", "prices_path"}, where="adapters.market_data")
+    _assert_keys(md_raw, {"mode", "prices_path", "params"}, where="adapters.market_data")
 
     md_mode = str(md_raw.get("mode", base.adapters.market_data.mode))
+    md_params = md_raw.get("params", {})
+    if not isinstance(md_params, dict):
+        raise ValueError("adapters.market_data.params must be object")
     prices_path = md_raw.get("prices_path", None)
     if prices_path is not None and not isinstance(prices_path, str):
         raise ValueError("adapters.market_data.prices_path must be str")
-    if md_mode not in {"simulated", "live_file"}:
+    if md_mode not in {"simulated", "simulated_v2", "live_file"}:
         raise ValueError(f"invalid adapters.market_data.mode: {md_mode}")
     if md_mode == "live_file" and not prices_path:
         raise ValueError("adapters.market_data.prices_path required for live_file")
@@ -238,6 +241,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         market_data=MarketDataSpec(
             mode=md_mode,
             prices_path=prices_path,
+            params=dict(md_params),
         )
     )
 

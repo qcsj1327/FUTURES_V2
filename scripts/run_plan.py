@@ -11,6 +11,7 @@ from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.marketdata.base import MarketDataAdapter
 from adapters.marketdata.live_market_data import LiveFileMarketData
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
+from adapters.marketdata.simulated_market_data_v2 import SimulatedMarketDataV2
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from app.universe_runtime import UniverseRuntime
@@ -25,7 +26,7 @@ from optimize.promoter.promotion_gate import PromotionThresholds
 from optimize.promoter.summary_artifact import write_summary_artifact
 from research.datastore_replay import replay_execution_events, summarize_execution_events
 from strategies.base.strategy import Strategy
-from strategies.registry import create_strategy
+from strategies.registry import StrategyRegistry
 from strategies.strategy_set import StrategyEntry, StrategySet
 
 
@@ -40,12 +41,8 @@ def _rm_tree(path: Path) -> None:
     path.rmdir()
 
 
-def _make_runtime_config(*, runtime_id: str, default_quantity: float) -> RuntimeConfig:
+def _make_runtime_config(*, default_quantity: float) -> RuntimeConfig:
     cfg = RuntimeConfig()
-    try:
-        cfg.runtime_id = runtime_id  # type: ignore[misc]
-    except Exception:
-        pass
     try:
         cfg.default_quantity = default_quantity  # type: ignore[misc]
     except Exception:
@@ -53,17 +50,42 @@ def _make_runtime_config(*, runtime_id: str, default_quantity: float) -> Runtime
     return cfg
 
 
-def _strategy_instance(name: str, params: dict[str, object]) -> Strategy:
-    return create_strategy(name=name, params=params)
+def _build_market_data(plan: RunPlan) -> MarketDataAdapter:
+    md_mode = plan.adapters.market_data.mode
+    if md_mode == "simulated":
+        return SimulatedMarketData()
+    if md_mode == "simulated_v2":
+        params = plan.adapters.market_data.params
+        seed = int(params.get("seed", 1))
+        drift = float(params.get("drift", 0.0))
+        vol = float(params.get("vol", 0.01))
+        start_prices_any = params.get("start_prices", {})
+        start_prices: dict[str, float] = {}
+        if isinstance(start_prices_any, dict):
+            for k, v in start_prices_any.items():
+                if isinstance(k, str) and isinstance(v, (int, float)):
+                    start_prices[k] = float(v)
+        return SimulatedMarketDataV2(
+            symbols=plan.universe.symbols,
+            seed=seed,
+            start_prices=start_prices,
+            drift=drift,
+            vol=vol,
+        )
+    if md_mode == "live_file":
+        assert plan.adapters.market_data.prices_path is not None
+        return LiveFileMarketData(prices_path=Path(plan.adapters.market_data.prices_path))
+    raise ValueError(f"unknown market_data mode: {md_mode}")
 
 
 def _build_strategy_entries(strategies: list[StrategySpec]) -> list[StrategyEntry]:
     entries: list[StrategyEntry] = []
     for s in strategies:
+        strat: Strategy = StrategyRegistry.create(name=s.name, params=s.params)
         entries.append(
             StrategyEntry(
                 name=s.name,
-                strategy=_strategy_instance(s.name, s.params),
+                strategy=strat,
                 symbols=s.symbols,
                 priority=s.priority,
                 params=s.params,
@@ -86,39 +108,28 @@ def run_all(plan: RunPlan, *, clean: bool, plan_meta: dict[str, object]) -> None
         _rm_tree(summaries_dir)
         _rm_tree(manifests_dir)
 
-    cfg = _make_runtime_config(
-        runtime_id=plan.runtime.runtime_id,
-        default_quantity=plan.runtime.default_quantity,
-    )
+    cfg = _make_runtime_config(default_quantity=plan.runtime.default_quantity)
 
-    md_mode = plan.adapters.market_data.mode
-    md: MarketDataAdapter
-    if md_mode == "simulated":
-        md = SimulatedMarketData()
-    elif md_mode == "live_file":
-        assert plan.adapters.market_data.prices_path is not None
-        md = LiveFileMarketData(prices_path=Path(plan.adapters.market_data.prices_path))
-    else:
-        raise ValueError(f"unknown market_data mode: {md_mode}")
-
-    broker = SimulatedBroker(md)
+    # separate marketdata instances per env
+    md_live = _build_market_data(plan)
+    broker_live = SimulatedBroker(md_live)
 
     entries = _build_strategy_entries(plan.strategies)
     sset = StrategySet(entries)
     priorities = {e.name: e.priority for e in entries}
-    weights = {e.name: getattr(e, "weight", 1.0) for e in plan.strategies}
+    weights = {s.name: s.weight for s in plan.strategies}
     router_cfg = RouterConfig(mode=plan.router.mode, tie_breaker=plan.router.tie_breaker)
 
     # -------- Live session --------
     live_executor = RuntimeFactory.build_live_runtime(
         config=cfg,
         runtime_id=plan.runtime.runtime_id,
-        market_data=md,
-        broker=broker,
+        market_data=md_live,
+        broker=broker_live,
     )
     uni_live = UniverseRuntime(
         executor=live_executor,
-        market_data=md,
+        market_data=md_live,
         universe_symbols=plan.universe.symbols,
         strategy_set=sset,
         strategy_priorities=priorities,
@@ -129,13 +140,17 @@ def run_all(plan: RunPlan, *, clean: bool, plan_meta: dict[str, object]) -> None
         uni_live.run_tick()
 
     # -------- Sandbox session --------
+    md_sandbox = _build_market_data(plan)
+    broker_sandbox = SimulatedBroker(md_sandbox)
     sandbox_executor = RuntimeFactory.build_sandbox_runtime_from_live(
         live_executor,
+        market_data=md_sandbox,
+        broker=broker_sandbox,
         runtime_id=plan.runtime.runtime_id,
     )
     uni_sandbox = UniverseRuntime(
         executor=sandbox_executor,
-        market_data=md,
+        market_data=md_sandbox,
         universe_symbols=plan.universe.symbols,
         strategy_set=sset,
         strategy_priorities=priorities,
@@ -145,13 +160,12 @@ def run_all(plan: RunPlan, *, clean: bool, plan_meta: dict[str, object]) -> None
     for _ in range(plan.runtime.ticks_sandbox):
         uni_sandbox.run_tick()
 
-    # datastore must exist (Factory defaults inject FS store)
+    # datastore must exist (factory defaults inject FS stores)
     live_store = live_executor.datastore
     sandbox_store = sandbox_executor.datastore
     assert live_store is not None
     assert sandbox_store is not None
 
-    # -------- Promotion --------
     thresholds = PromotionThresholds(
         min_events=plan.promotion.min_events,
         min_success_rate_improvement=plan.promotion.min_success_rate_improvement,
@@ -165,7 +179,6 @@ def run_all(plan: RunPlan, *, clean: bool, plan_meta: dict[str, object]) -> None
         thresholds=thresholds,
     )
 
-    # summaries for audit
     cur_events = replay_execution_events(live_store, env="live")
     cand_events = replay_execution_events(sandbox_store, env="sandbox")
     cur_summary = summarize_execution_events(cur_events)
@@ -244,19 +257,13 @@ def main(argv: list[str] | None = None) -> int:
         prog="run_plan",
         description="Run a full plan (multi-symbol/multi-strategy) end-to-end.",
     )
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="",
-        help="Optional plan json (schema_version=1).",
-    )
+    parser.add_argument("--config", type=str, default="")
     parser.add_argument("--runtime-id", type=str, default="r_plan")
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args(argv)
 
     plan = load_plan(Path(args.config) if args.config else None, runtime_id=args.runtime_id)
 
-    # Plan metadata for manifest audit
     if args.config:
         plan_path = args.config
         raw_bytes = Path(args.config).read_bytes()
@@ -268,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         plan_config = json.loads(plan_json)
         plan_sha256 = hashlib.sha256(plan_json.encode("utf-8")).hexdigest()
 
-    plan_meta = {"path": plan_path, "sha256": plan_sha256, "config": plan_config}
+    plan_meta: dict[str, object] = {"path": plan_path, "sha256": plan_sha256, "config": plan_config}
     run_all(plan, clean=args.clean, plan_meta=plan_meta)
     return 0
 
