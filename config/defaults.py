@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from config.models import (
+    AdaptersSpec,
     DataStoreSpec,
     PromotionSpec,
     RouterSpec,
@@ -25,6 +26,7 @@ def default_plan(*, runtime_id: str) -> RunPlan:
                 weight=1.0,
             ),
         ],
+        adapters=AdaptersSpec(),
         runtime=RuntimeSpec(
             runtime_id=runtime_id,
             ticks_live=3,

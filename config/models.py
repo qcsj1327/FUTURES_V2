@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,18 @@ class StrategySpec:
 class RouterSpec:
     mode: str = "priority"       # priority | weighted_vote | netting
     tie_breaker: str = "priority"  # priority | lex
+
+
+
+@dataclass(frozen=True)
+class MarketDataSpec:
+    mode: str = "simulated"  # simulated | live_file
+    prices_path: str | None = None
+
+
+@dataclass(frozen=True)
+class AdaptersSpec:
+    market_data: MarketDataSpec = field(default_factory=MarketDataSpec)
 
 
 @dataclass(frozen=True)
@@ -62,6 +74,7 @@ class RunPlan:
     env: str
     universe: UniverseSpec
     strategies: list[StrategySpec]
+    adapters: AdaptersSpec
     runtime: RuntimeSpec
     datastore: DataStoreSpec
     promotion: PromotionSpec

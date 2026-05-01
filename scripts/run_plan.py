@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import cast
 
 from adapters.broker.simulated_broker import SimulatedBroker
+from adapters.marketdata.base import MarketDataAdapter
+from adapters.marketdata.live_market_data import LiveFileMarketData
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
@@ -89,7 +91,16 @@ def run_all(plan: RunPlan, *, clean: bool, plan_meta: dict[str, object]) -> None
         default_quantity=plan.runtime.default_quantity,
     )
 
-    md = SimulatedMarketData()
+    md_mode = plan.adapters.market_data.mode
+    md: MarketDataAdapter
+    if md_mode == "simulated":
+        md = SimulatedMarketData()
+    elif md_mode == "live_file":
+        assert plan.adapters.market_data.prices_path is not None
+        md = LiveFileMarketData(prices_path=Path(plan.adapters.market_data.prices_path))
+    else:
+        raise ValueError(f"unknown market_data mode: {md_mode}")
+
     broker = SimulatedBroker(md)
 
     entries = _build_strategy_entries(plan.strategies)

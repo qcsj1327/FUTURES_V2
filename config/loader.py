@@ -7,7 +7,9 @@ from typing import Any
 
 from config.defaults import default_plan
 from config.models import (
+    AdaptersSpec,
     DataStoreSpec,
+    MarketDataSpec,
     PromotionSpec,
     RouterSpec,
     RunPlan,
@@ -44,6 +46,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             "datastore",
             "promotion",
             "router",
+            "adapters",
         },
         where="root",
     )
@@ -210,11 +213,40 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     if router.tie_breaker not in allowed_tie_breakers:
         raise ValueError(f"invalid router.tie_breaker: {router.tie_breaker}")
 
+
+    # adapters
+    adapters_raw = raw.get("adapters", {})
+    if not isinstance(adapters_raw, dict):
+        raise ValueError("adapters must be an object")
+    _assert_keys(adapters_raw, {"market_data"}, where="adapters")
+
+    md_raw = adapters_raw.get("market_data", {})
+    if not isinstance(md_raw, dict):
+        raise ValueError("adapters.market_data must be an object")
+    _assert_keys(md_raw, {"mode", "prices_path"}, where="adapters.market_data")
+
+    md_mode = str(md_raw.get("mode", base.adapters.market_data.mode))
+    prices_path = md_raw.get("prices_path", None)
+    if prices_path is not None and not isinstance(prices_path, str):
+        raise ValueError("adapters.market_data.prices_path must be str")
+    if md_mode not in {"simulated", "live_file"}:
+        raise ValueError(f"invalid adapters.market_data.mode: {md_mode}")
+    if md_mode == "live_file" and not prices_path:
+        raise ValueError("adapters.market_data.prices_path required for live_file")
+
+    adapters = AdaptersSpec(
+        market_data=MarketDataSpec(
+            mode=md_mode,
+            prices_path=prices_path,
+        )
+    )
+
     return RunPlan(
         schema_version=1,
         env=env,
         universe=universe,
         strategies=strategies,
+        adapters=adapters,
         runtime=runtime,
         datastore=datastore,
         promotion=promotion,
