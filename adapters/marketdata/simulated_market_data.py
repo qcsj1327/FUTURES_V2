@@ -15,3 +15,6 @@ class SimulatedMarketData(MarketDataAdapter):
 
         self._prices[symbol] = price
         return float(price)
+
+    def snapshot_prices(self) -> dict[str, float]:
+        return dict(self._prices)

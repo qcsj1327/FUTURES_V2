@@ -4,12 +4,15 @@ from collections.abc import Iterable
 
 from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from core.state.mark_to_market import MarkToMarket
 from research.run_report import RunReport
 
 
 class MarketReplayRunner:
     def __init__(self, runtime: Runtime | None = None) -> None:
         self.runtime = runtime or Runtime()
+        self.mark_to_market = MarkToMarket()
+        self._latest_prices: dict[str, float] = {}
 
     def run(
         self,
@@ -30,6 +33,7 @@ class MarketReplayRunner:
                 stop_loss=stop_loss,
                 take_profit=take_profit,
             )
+            self._latest_prices.update(self._market_prices())
             cash_curve.append(self._cash())
             position_qty_curve.append(self._final_position_qty())
             equity_curve.append(self._equity())
@@ -97,6 +101,7 @@ class MarketReplayRunner:
 
         shared_portfolio = self.runtime.state.portfolio
         total_orders_submitted = 0
+        shared_prices: dict[str, float] = {}
 
         for index in range(cycles):
             symbol = symbols[index % len(symbols)]
@@ -115,6 +120,9 @@ class MarketReplayRunner:
             shared_portfolio = runtime.state.portfolio
             total_orders_submitted += runtime.orders_submitted
             self.runtime = runtime
+
+            shared_prices.update(self._market_prices())
+            self._latest_prices = dict(shared_prices)
 
             cash_curve.append(self._cash())
             position_qty_curve.append(self._final_position_qty())
@@ -143,15 +151,25 @@ class MarketReplayRunner:
     def _equity(self) -> float:
         portfolio = self.runtime.state.portfolio
 
-        if portfolio.equity is not None:
-            return portfolio.equity
+        if not portfolio.positions:
+            return self._cash()
 
-        position_value = sum(
-            position.quantity * (position.avg_price or 0.0)
-            for position in portfolio.positions.values()
+        valuation = self.mark_to_market.value(
+            portfolio=portfolio,
+            prices=self._latest_prices,
         )
 
-        return self._cash() + position_value
+        return valuation.equity
+
+    def _market_prices(self) -> dict[str, float]:
+        market_data = self.runtime.market_data
+
+        if hasattr(market_data, "snapshot_prices"):
+            prices = market_data.snapshot_prices()
+            if isinstance(prices, dict):
+                return prices
+
+        return {}
 
     def _max_drawdown(self, equity_curve: list[float]) -> float:
         if not equity_curve:
