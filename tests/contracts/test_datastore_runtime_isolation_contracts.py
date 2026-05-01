@@ -33,3 +33,6 @@ def test_sandbox_runtime_writes_do_not_touch_live_store() -> None:
 
     assert len(live_store.snapshots) == baseline_live
     assert len(sandbox_store.snapshots) == 1
+    # fill_events must be written only to sandbox store (stable even if strategy produces no order)
+    assert len(live_store.fill_events) == 0
+    assert len(sandbox_store.fill_events) == 1

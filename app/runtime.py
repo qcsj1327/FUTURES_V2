@@ -65,6 +65,7 @@ class Runtime:
             exit_result = self.execution.broker.submit_order(exit_order)
             if exit_result.success:
                 self.orders_submitted += 1
+            self._maybe_append_events(exit_order, exit_result, strategy_name="exit")
             self.state.apply(exit_order, exit_result, strategy_name="exit")
             self._maybe_save_snapshot()
 
@@ -86,6 +87,7 @@ class Runtime:
         if order is not None and exec_result.success:
             self.orders_submitted += 1
 
+        self._maybe_append_events(order, exec_result, strategy_name="main")
         self.state.apply(order, exec_result)
         self._maybe_save_snapshot()
 
@@ -98,4 +100,29 @@ class Runtime:
             env=self.environment,
         )
         self._tick += 1
+
+    def _maybe_append_events(
+        self,
+        order: object | None,
+        exec_result: object,
+        *,
+        strategy_name: str,
+    ) -> None:
+        if self.datastore is None:
+            return
+        base = {
+            "ts": self._tick,
+            "runtime_id": self.config.runtime_id,
+            "strategy_name": strategy_name,
+        }
+        if order is not None:
+            self.datastore.append_order_event(
+                {**base, "order": str(order)},
+                env=self.environment,
+            )
+        # Always append a fill/execution event per tick (stable even when no order).
+        self.datastore.append_fill_event(
+            {**base, "execution_result": str(exec_result)},
+            env=self.environment,
+        )
 
