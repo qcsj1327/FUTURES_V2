@@ -1594,3 +1594,50 @@ commission 仍属于 CapitalModel。
 - 修改 State
 - 修改 RiskDecision
 
+
+---
+
+## Execution Realism：Rejection Policy 边界
+
+从本阶段开始，模拟 broker 支持拒单模型。
+
+### RejectionPolicy
+
+职责：
+
+- reject_next_order
+- reject_by_symbol
+- reject_above_quantity
+- 返回拒单 reason
+
+禁止：
+
+- 访问 MarketData
+- 修改 ExecutionOrder
+- 修改 ExecutionResult
+- 修改 State
+- 修改 RiskDecision
+
+### SimulatedBroker
+
+职责：
+
+- 生成 order_id
+- 生成 ts
+- 调用 RejectionPolicy
+- 如果拒单，返回 ExecutionStatus.REJECTED
+- 如果通过，继续读取 MarketData 并调用 SlippageModel
+
+拒单结果必须满足：
+
+- success = False
+- status = REJECTED
+- order_id 显式存在
+- ts 显式存在
+- fill_price = None
+- reason 显式存在
+
+### StateEngine 处理拒单
+
+StateEngine 只生成 rejected OrderEvent，不更新 PositionState / PortfolioState.positions。
+
