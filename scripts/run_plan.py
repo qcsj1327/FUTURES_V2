@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
+from typing import cast
 
 from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
@@ -68,7 +70,7 @@ def _build_strategy_entries(strategies: list[StrategySpec]) -> list[StrategyEntr
     return entries
 
 
-def run_all(plan: RunPlan, *, clean: bool) -> None:
+def run_all(plan: RunPlan, *, clean: bool, plan_meta: dict[str, object]) -> None:
     store_root = Path(plan.datastore.store_root)
     approved_dir = Path(plan.datastore.approved_dir)
     decisions_dir = Path(plan.datastore.decisions_dir)
@@ -217,6 +219,9 @@ def run_all(plan: RunPlan, *, clean: bool) -> None:
             candidate_summary_path=cand_path,
             decision_path=decision_path,
             approved_path=approved_path,
+            plan=cast(dict[str, object], plan_meta["config"]),
+            plan_path=str(plan_meta["path"]) if plan_meta["path"] is not None else None,
+            plan_sha256=str(plan_meta["sha256"]),
             output_dir=manifests_dir,
         )
 
@@ -239,7 +244,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     plan = load_plan(Path(args.config) if args.config else None, runtime_id=args.runtime_id)
-    run_all(plan, clean=args.clean)
+
+    # Plan metadata for manifest audit
+    if args.config:
+        plan_path = args.config
+        raw_bytes = Path(args.config).read_bytes()
+        plan_config = json.loads(raw_bytes.decode("utf-8"))
+        plan_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+    else:
+        plan_path = None
+        plan_json = json.dumps(asdict(plan), ensure_ascii=False, sort_keys=True, default=str)
+        plan_config = json.loads(plan_json)
+        plan_sha256 = hashlib.sha256(plan_json.encode("utf-8")).hexdigest()
+
+    plan_meta = {"path": plan_path, "sha256": plan_sha256, "config": plan_config}
+    run_all(plan, clean=args.clean, plan_meta=plan_meta)
     return 0
 
 

@@ -21,6 +21,9 @@ def write_promotion_manifest(
     candidate_summary_path: Path | None,
     decision_path: Path | None,
     approved_path: Path | None,
+    plan: Mapping[str, Any] | None = None,
+    plan_path: str | None = None,
+    plan_sha256: str | None = None,
     output_dir: Path | None = None,
     filename: str | None = None,
 ) -> Path:
@@ -38,6 +41,11 @@ def write_promotion_manifest(
         "candidate_id": candidate_id,
         "candidate_config": dict(candidate_config),
         "thresholds": dict(thresholds),
+        "plan": {
+            "path": plan_path,
+            "sha256": plan_sha256,
+            "config": dict(plan) if plan is not None else None,
+        },
         "artifacts": {
             "current_summary": str(current_summary_path) if current_summary_path else None,
             "candidate_summary": str(candidate_summary_path) if candidate_summary_path else None,
