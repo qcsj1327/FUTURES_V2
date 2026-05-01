@@ -75,6 +75,8 @@
 | 字段 | 值 | 语义 |
 |---|---|---|
 | SUBMITTED | submitted | 执行已提交 |
+| PARTIALLY_FILLED | partially_filled | 部分成交 |
+| FILLED | filled | 完全成交 |
 | REJECTED | rejected | 执行被拒绝 |
 
 ---
@@ -289,6 +291,9 @@
 | ts | int \| None | 时间戳 |
 | fill_price | float \| None | 成交价 |
 | reason | str \| None | 原因 |
+| filled_quantity | float \| None | 本次成交数量 |
+| remaining_quantity | float \| None | 剩余未成交数量 |
+| avg_fill_price | float \| None | 平均成交价格 |
 
 ---
 
@@ -764,3 +769,20 @@ StateSnapshot 仅用于：
 - 绕过 PositionKey 查找持仓
 - 构建第二套持仓状态系统
 
+
+
+---
+
+## v0.4 ExecutionResult Partial Fill Migration
+
+本次 migration 新增：
+
+- ExecutionStatus.PARTIALLY_FILLED
+- ExecutionStatus.FILLED
+- ExecutionResult.filled_quantity
+- ExecutionResult.remaining_quantity
+- ExecutionResult.avg_fill_price
+
+本次 migration 只修改 Domain 契约，不修改 broker / state / capital 行为。
+
+后续 partial fill 实现必须显式使用 filled_quantity，禁止用 reason / metadata 编码成交数量。

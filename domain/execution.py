@@ -27,3 +27,6 @@ class ExecutionResult:
     ts: int | None = None
     fill_price: float | None = None
     reason: str | None = None
+    filled_quantity: float | None = None
+    remaining_quantity: float | None = None
+    avg_fill_price: float | None = None

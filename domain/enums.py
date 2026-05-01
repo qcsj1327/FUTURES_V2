@@ -48,4 +48,6 @@ class OrderStatus(StrEnum):
 
 class ExecutionStatus(StrEnum):
     SUBMITTED = "submitted"
+    PARTIALLY_FILLED = "partially_filled"
+    FILLED = "filled"
     REJECTED = "rejected"

@@ -37,6 +37,11 @@ def test_enums() -> None:
     assert enums.PositionSide.SHORT.value == "short"
     assert enums.PositionSide.FLAT.value == "flat"
 
+    assert enums.ExecutionStatus.SUBMITTED.value == "submitted"
+    assert enums.ExecutionStatus.PARTIALLY_FILLED.value == "partially_filled"
+    assert enums.ExecutionStatus.FILLED.value == "filled"
+    assert enums.ExecutionStatus.REJECTED.value == "rejected"
+
 
 def test_feature_snapshot_fields() -> None:
     assert_dataclass(FeatureSnapshot)
@@ -202,6 +207,9 @@ def test_execution_fields() -> None:
         "ts",
         "fill_price",
         "reason",
+        "filled_quantity",
+        "remaining_quantity",
+        "avg_fill_price",
     }
 
 
