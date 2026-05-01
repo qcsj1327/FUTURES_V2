@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.portfolio.portfolio_engine import PortfolioAllocation
+from core.risk.portfolio_limit import PortfolioLimit
 from core.risk.position_limit import PositionLimit
 from core.risk.risk_budget import RiskBudget
 from domain.enums import Decision, Side
@@ -13,9 +14,15 @@ class RiskEngine:
         self,
         max_position_qty: float | None = None,
         risk_budget: float | None = None,
+        max_total_exposure: float | None = None,
+        max_active_symbols: int | None = None,
     ) -> None:
         self.position_limit = PositionLimit(max_position_qty=max_position_qty)
         self.risk_budget = RiskBudget(risk_budget=risk_budget)
+        self.portfolio_limit = PortfolioLimit(
+            max_total_exposure=max_total_exposure,
+            max_active_symbols=max_active_symbols,
+        )
 
     def evaluate(
         self,
@@ -79,6 +86,14 @@ class RiskEngine:
 
         if self._exceeds_position_limit(adjusted_allocation, portfolio):
             return self._reject(adjusted_allocation, "max_position_exceeded")
+
+        portfolio_limit_reason = self.portfolio_limit.check(
+            allocation=adjusted_allocation,
+            portfolio=portfolio,
+            price=price,
+        )
+        if portfolio_limit_reason is not None:
+            return self._reject(adjusted_allocation, portfolio_limit_reason)
 
         return RiskDecision(
             instrument_id=trigger.instrument_id,

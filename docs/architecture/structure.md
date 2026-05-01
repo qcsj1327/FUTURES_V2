@@ -1339,3 +1339,44 @@ equity = cash + position.quantity * position.avg_price
 - 如生成 exit order，则交给 broker 执行
 - 执行结果再交回 StateEngine.apply
 
+
+---
+
+## Portfolio-level Risk 职责边界
+
+组合级风控从本阶段开始放入 `core/risk/portfolio_limit.py`。
+
+### PortfolioLimit
+
+职责：
+
+- 基于 PortfolioState 读取组合总敞口
+- 限制 max_total_exposure
+- 限制 max_active_symbols
+- 只返回拒绝原因，不修改 PortfolioState
+
+允许：
+
+- 读取 PortfolioState.positions
+- 读取 PositionState.quantity / avg_price
+- 读取 TriggerResult.instrument_id
+
+禁止：
+
+- 修改 position
+- 修改 portfolio
+- 修改 cash / equity
+- 修改 quantity
+
+### RiskEngine
+
+职责：
+
+- 编排 PositionLimit / RiskBudget / PortfolioLimit
+- 输出 RiskDecision
+
+禁止：
+
+- 直接计算组合敞口
+- 直接维护 active symbols
+- 修改 PortfolioState
