@@ -36,3 +36,9 @@ def test_sandbox_runtime_writes_do_not_touch_live_store() -> None:
     # fill_events must be written only to sandbox store (stable even if strategy produces no order)
     assert len(live_store.fill_events) == 0
     assert len(sandbox_store.fill_events) == 1
+    fill = sandbox_store.fill_events[0]
+    assert isinstance(fill, dict)
+    assert fill.get("event_type") == "execution"
+    for k in ("ts", "runtime_id", "env", "strategy_name", "success"):
+        assert k in fill
+

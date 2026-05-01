@@ -7,6 +7,11 @@ from core.execution.execution_engine import ExecutionEngine
 from core.portfolio.portfolio_engine import PortfolioEngine
 from core.risk.risk_engine import RiskEngine
 from core.services.runtime.datastore import DataStore
+from core.services.runtime.event_codec import (
+    build_base_event,
+    encode_execution_event,
+    encode_order_event,
+)
 from core.services.trade.exit_service import ExitService
 from core.state.state_engine import StateEngine
 from core.trigger.trigger_engine import TriggerEngine
@@ -110,19 +115,20 @@ class Runtime:
     ) -> None:
         if self.datastore is None:
             return
-        base = {
-            "ts": self._tick,
-            "runtime_id": self.config.runtime_id,
-            "strategy_name": strategy_name,
-        }
-        if order is not None:
-            self.datastore.append_order_event(
-                {**base, "order": str(order)},
-                env=self.environment,
-            )
-        # Always append a fill/execution event per tick (stable even when no order).
-        self.datastore.append_fill_event(
-            {**base, "execution_result": str(exec_result)},
+
+        base = build_base_event(
+            ts=self._tick,
+            runtime_id=self.config.runtime_id,
             env=self.environment,
+            strategy_name=strategy_name,
+            symbol=self.config.symbol,
         )
+
+        order_payload = encode_order_event(order)
+        if order_payload:
+            self.datastore.append_order_event({**base, **order_payload}, env=self.environment)
+
+        exec_payload = encode_execution_event(exec_result)
+        # Always append an execution event per tick (stable even when no order).
+        self.datastore.append_fill_event({**base, **exec_payload}, env=self.environment)
 
