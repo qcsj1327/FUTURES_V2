@@ -117,6 +117,19 @@ class RuntimeFactory:
         sandbox_broker = broker or SimulatedBroker(sandbox_market_data)
         sandbox_state = clone_state_engine(live_runtime.state)
 
+        # Prefer live datastore snapshot as sandbox baseline (fallback to in-memory clone)
+        baseline = None
+        store = live_runtime.datastore
+        if store is not None:
+            try:
+                baseline = store.load_latest_portfolio_snapshot(
+                    env=getattr(live_runtime, "environment", "live"),
+                )
+            except Exception:
+                baseline = None
+        if baseline is not None:
+            sandbox_state.portfolio = deepcopy(baseline)
+
         if datastore is None:
             datastore = JSONLFileDataStore(
                 root_dir=Path("data/store/sandbox"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -45,15 +46,28 @@ class JSONLFileDataStore(DataStore):
 
     def save_portfolio_snapshot(self, *, ts: int, portfolio: Any, env: str) -> None:
         self._assert_env(env)
-        self._append_jsonl("portfolio_snapshots.jsonl", {"ts": ts, "portfolio": portfolio})
+        base_dir = self._dir()
+        snap_dir = base_dir / "snapshots"
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"portfolio_{ts}.pkl"
+        rel_path = str(Path("snapshots") / filename)
+        abs_path = snap_dir / filename
+        with abs_path.open("wb") as f:
+            pickle.dump(portfolio, f)
+        self._append_jsonl(
+            "portfolio_snapshots.jsonl",
+            {"ts": ts, "portfolio_file": rel_path, "portfolio_repr": str(portfolio)},
+        )
+
 
     def load_latest_portfolio_snapshot(self, *, env: str) -> Any | None:
         self._assert_env(env)
-        path = self._dir() / "portfolio_snapshots.jsonl"
-        if not path.exists():
+        base_dir = self._dir()
+        index_path = base_dir / "portfolio_snapshots.jsonl"
+        if not index_path.exists():
             return None
         last = None
-        with path.open("r", encoding="utf-8") as f:
+        with index_path.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -61,7 +75,15 @@ class JSONLFileDataStore(DataStore):
         if last is None:
             return None
         data = json.loads(last)
-        return data.get("portfolio")
+        rel = data.get("portfolio_file")
+        if not rel:
+            return None
+        abs_path = base_dir / rel
+        if not abs_path.exists():
+            return None
+        with abs_path.open("rb") as f:
+            return pickle.load(f)
+
 
     def append_metrics(self, *, ts: int, metrics: Mapping[str, Any], env: str) -> None:
         self._assert_env(env)
