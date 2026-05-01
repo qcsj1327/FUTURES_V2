@@ -6,6 +6,7 @@ from app.runtime_config import RuntimeConfig
 from core.execution.execution_engine import ExecutionEngine
 from core.portfolio.portfolio_engine import PortfolioEngine
 from core.risk.risk_engine import RiskEngine
+from core.services.runtime.datastore import DataStore
 from core.services.trade.exit_service import ExitService
 from core.state.state_engine import StateEngine
 from core.trigger.trigger_engine import TriggerEngine
@@ -23,6 +24,8 @@ class Runtime:
         broker: BrokerAdapter,
         state: StateEngine | None = None,
         strategy: Strategy | None = None,
+        environment: str = "live",
+        datastore: DataStore | None = None,
     ) -> None:
         self.config = config or RuntimeConfig()
 
@@ -34,6 +37,9 @@ class Runtime:
         self.exit_service = ExitService()
         self.strategy = strategy or StrategyEngine()
         self.market_data = market_data
+        self.environment = environment
+        self.datastore = datastore
+        self._tick = 0
         self.orders_submitted = 0
 
     def run_market_once(
@@ -60,6 +66,7 @@ class Runtime:
             if exit_result.success:
                 self.orders_submitted += 1
             self.state.apply(exit_order, exit_result, strategy_name="exit")
+            self._maybe_save_snapshot()
 
     def run(self, decision: SignalDecision) -> None:
         self._run_decision(decision)
@@ -80,3 +87,15 @@ class Runtime:
             self.orders_submitted += 1
 
         self.state.apply(order, exec_result)
+        self._maybe_save_snapshot()
+
+    def _maybe_save_snapshot(self) -> None:
+        if self.datastore is None:
+            return
+        self.datastore.save_portfolio_snapshot(
+            ts=self._tick,
+            portfolio=self.state.portfolio,
+            env=self.environment,
+        )
+        self._tick += 1
+

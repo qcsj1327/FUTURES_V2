@@ -9,6 +9,7 @@ from adapters.marketdata.base import MarketDataAdapter
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
 from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from core.services.runtime.datastore import DataStore
 from core.services.runtime.state_clone import clone_state_engine
 from core.state.state_engine import StateEngine
 from strategies.base.strategy import Strategy
@@ -23,6 +24,8 @@ class RuntimeFactory:
         broker: BrokerAdapter,
         state: StateEngine | None = None,
         strategy: Strategy | None = None,
+        environment: str = "live",
+        datastore: DataStore | None = None,
     ) -> Runtime:
         return Runtime(
             config,
@@ -30,6 +33,8 @@ class RuntimeFactory:
             broker=broker,
             state=state,
             strategy=strategy,
+            environment=environment,
+            datastore=datastore,
         )
 
     @staticmethod
@@ -40,6 +45,8 @@ class RuntimeFactory:
         broker: BrokerAdapter,
         state: StateEngine | None = None,
         strategy: Strategy | None = None,
+        environment: str = "live",
+        datastore: DataStore | None = None,
     ) -> Runtime:
         return RuntimeFactory.build_runtime(
             config=config,
@@ -47,6 +54,8 @@ class RuntimeFactory:
             broker=broker,
             state=state,
             strategy=strategy,
+            environment=environment,
+            datastore=datastore,
         )
 
     @staticmethod
@@ -61,6 +70,8 @@ class RuntimeFactory:
         fill_ratio: float = 1.0,
         state: StateEngine | None = None,
         strategy: Strategy | None = None,
+        environment: str = "live",
+        datastore: DataStore | None = None,
     ) -> Runtime:
         market_data = SimulatedMarketData()
         broker = SimulatedBroker(
@@ -79,6 +90,8 @@ class RuntimeFactory:
             broker=broker,
             state=state,
             strategy=strategy,
+            environment=environment,
+            datastore=datastore,
         )
 
     @staticmethod
@@ -89,6 +102,7 @@ class RuntimeFactory:
         market_data: MarketDataAdapter | None = None,
         broker: BrokerAdapter | None = None,
         strategy: Strategy | None = None,
+        datastore: DataStore | None = None,
     ) -> Runtime:
         sandbox_market_data = market_data or SimulatedMarketData()
         sandbox_broker = broker or SimulatedBroker(sandbox_market_data)
@@ -100,4 +114,6 @@ class RuntimeFactory:
             broker=sandbox_broker,
             state=sandbox_state,
             strategy=strategy or deepcopy(live_runtime.strategy),
+            environment="sandbox",
+            datastore=datastore,
         )
