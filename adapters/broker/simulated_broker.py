@@ -7,6 +7,7 @@ from adapters.broker.base import BrokerAdapter
 from adapters.broker.fill.fill_quantity_model import FillQuantityModel
 from adapters.broker.fill.slippage_model import SlippageModel
 from adapters.broker.order.order_id_generator import OrderIdGenerator
+from adapters.broker.order.order_tracker import OrderTracker
 from adapters.broker.order.rejection_policy import RejectionPolicy
 from adapters.marketdata.base import MarketDataAdapter
 from domain.enums import ExecutionStatus
@@ -29,6 +30,7 @@ class SimulatedBroker(BrokerAdapter):
         self.slippage_model = SlippageModel(slippage_rate=slippage_rate)
         self.fill_quantity_model = FillQuantityModel(fill_ratio=fill_ratio)
         self.order_id_generator = OrderIdGenerator(prefix=order_id_prefix)
+        self.order_tracker = OrderTracker()
         self.rejection_policy = rejection_policy or RejectionPolicy(
             reject_next_order=reject_next_order,
             rejected_symbols=rejected_symbols,
@@ -39,8 +41,12 @@ class SimulatedBroker(BrokerAdapter):
         order_id = self.order_id_generator.next_id()
         ts = int(time.time())
 
+        self.order_tracker.create(order_id=order_id, order=order)
+        self.order_tracker.submit(order_id)
+
         reject_reason = self.rejection_policy.reject_reason(order)
         if reject_reason is not None:
+            self.order_tracker.reject(order_id=order_id, reason=reject_reason)
             return ExecutionResult(
                 success=False,
                 status=ExecutionStatus.REJECTED,
@@ -60,6 +66,12 @@ class SimulatedBroker(BrokerAdapter):
             side=order.side,
         )
         fill_quantity = self.fill_quantity_model.apply(order.quantity)
+
+        self.order_tracker.fill(
+            order_id=order_id,
+            filled_quantity=fill_quantity.filled_quantity,
+            remaining_quantity=fill_quantity.remaining_quantity,
+        )
 
         return ExecutionResult(
             success=True,

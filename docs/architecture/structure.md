@@ -1708,3 +1708,53 @@ ExecutionStatus.SUBMITTED 的旧测试路径仍按 order.quantity 处理。
 - PARTIALLY_FILLED
 - REJECTED
 
+
+---
+
+## v0.5 Order Lifecycle：OrderTracker
+
+从本阶段开始，模拟 broker 内部维护订单生命周期。
+
+### OrderTracker
+
+职责：
+
+- 记录 CREATED
+- 记录 SUBMITTED
+- 记录 PARTIALLY_FILLED
+- 记录 FILLED
+- 记录 REJECTED
+- 保存订单状态历史
+
+禁止：
+
+- 读取 MarketData
+- 计算 fill_price
+- 计算 filled_quantity
+- 修改 ExecutionResult
+- 修改 State / PortfolioState
+
+### SimulatedBroker
+
+职责：
+
+- 生成 order_id
+- 创建订单记录
+- 提交订单记录
+- 调用 RejectionPolicy
+- 调用 SlippageModel
+- 调用 FillQuantityModel
+- 更新 OrderTracker
+- 返回 ExecutionResult
+
+### 边界
+
+OrderTracker 是 broker adapter 内部订单账本。
+
+它不替代：
+
+- domain OrderState
+- StateEngine
+- PortfolioState
+- OrderEvent
+
