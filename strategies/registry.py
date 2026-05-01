@@ -17,6 +17,7 @@ class StrategyRegistry:
     # known base strategy builders (strict)
     _builders: dict[str, Callable[[], Strategy]] = {
         "simple_strategy": lambda: StrategyEngine(),
+        "simple_strategy_alt": lambda: StrategyEngine(),
     }
 
     def __init__(self) -> None:
