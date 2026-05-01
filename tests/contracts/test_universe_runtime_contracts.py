@@ -6,6 +6,7 @@ from adapters.storage.datastore_memory import MemoryDataStore
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from app.universe_runtime import UniverseRuntime
+from core.signal_router.router import RouterConfig
 from strategies.registry import StrategyRegistry
 from strategies.strategy_set import StrategyEntry, StrategySet
 
@@ -44,6 +45,8 @@ def test_universe_runtime_runs_two_symbols_two_ticks_and_writes_events() -> None
         universe_symbols=["au", "ag"],
         strategy_set=sset,
         strategy_priorities={"simple_strategy": 10},
+        strategy_weights={"simple_strategy": 1.0},
+        router_config=RouterConfig(mode="priority"),
     )
 
     uni.run_tick()
