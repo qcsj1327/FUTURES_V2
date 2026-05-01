@@ -18,3 +18,7 @@ class SimulatedMarketData(MarketDataAdapter):
 
     def snapshot_prices(self) -> dict[str, float]:
         return dict(self._prices)
+
+
+    def get_last_prices(self, symbols: list[str]) -> dict[str, float]:
+        return {s: self.get_last_price(s) for s in symbols}

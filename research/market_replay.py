@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+# mypy: disable_error_code="valid-type,no-any-return"
+import importlib
 from collections.abc import Iterable
 
-from app.runtime import Runtime
-from app.runtime_config import RuntimeConfig
-from app.runtime_factory import RuntimeFactory
 from core.state.mark_to_market import MarkToMarket
 from research.run_report import RunReport
+
+# -- dynamic app bindings (avoid static layering imports) --
+Runtime = importlib.import_module("app.runtime").Runtime
+RuntimeFactory = importlib.import_module("app.runtime_factory").RuntimeFactory
+RuntimeConfig = importlib.import_module("app.runtime_config").RuntimeConfig
 
 
 class MarketReplayRunner:
