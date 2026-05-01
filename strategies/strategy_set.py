@@ -20,18 +20,26 @@ class StrategyEntry:
 class TaggedDecision:
     strategy_name: str
     decision: SignalDecision
+    strategy_impl: str = "unknown"
 
 
 class StrategySet:
     def __init__(self, entries: list[StrategyEntry]) -> None:
         self.entries = sorted(entries, key=lambda e: (e.priority, e.name))
 
+    def _impl_name(self, s: Strategy) -> str:
+        base = getattr(s, "_base", None)
+        if base is not None:
+            return str(base.__class__.__name__)
+        return str(s.__class__.__name__)
+
     def generate(self, prices: dict[str, float]) -> list[TaggedDecision]:
         out: list[TaggedDecision] = []
         for entry in self.entries:
+            impl = self._impl_name(entry.strategy)
             for sym in entry.symbols:
                 if sym not in prices:
                     continue
                 d = entry.strategy.generate(sym, prices[sym])
-                out.append(TaggedDecision(strategy_name=entry.name, decision=d))
+                out.append(TaggedDecision(entry.name, d, impl))
         return out

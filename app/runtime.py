@@ -78,10 +78,22 @@ class Runtime:
             self.state.apply(exit_order, exit_result, strategy_name="exit")
             self._maybe_save_snapshot()
 
-    def run(self, decision: SignalDecision, *, strategy_name: str | None = None) -> None:
-        self._run_decision(decision, strategy_name=strategy_name)
+    def run(
+        self,
+        decision: SignalDecision,
+        *,
+        strategy_name: str | None = None,
+        strategy_impl: str | None = None,
+    ) -> None:
+        self._run_decision(decision, strategy_name=strategy_name, strategy_impl=strategy_impl)
 
-    def _run_decision(self, decision: SignalDecision, *, strategy_name: str | None = None) -> None:
+    def _run_decision(
+        self,
+        decision: SignalDecision,
+        *,
+        strategy_name: str | None = None,
+        strategy_impl: str | None = None,
+    ) -> None:
         trigger_result = self.trigger.process(
             decision,
             runtime_id=self.runtime_id,
@@ -97,7 +109,12 @@ class Runtime:
             self.orders_submitted += 1
 
         name = getattr(decision, "strategy_name", "main")
-        self._maybe_append_events(order, exec_result, strategy_name=name)
+        self._maybe_append_events(
+            order,
+            exec_result,
+            strategy_name=name,
+            strategy_impl=strategy_impl,
+        )
         self.state.apply(order, exec_result)
         self._maybe_save_snapshot()
 
@@ -107,6 +124,7 @@ class Runtime:
         exec_result: object,
         *,
         strategy_name: str,
+        strategy_impl: str | None = None,
     ) -> None:
         if self.datastore is None:
             return

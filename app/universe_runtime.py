@@ -37,7 +37,11 @@ class UniverseRuntime:
         )
 
         for td in final_tagged:
-            self.executor.run(td.decision, strategy_name=td.strategy_name)
+            self.executor.run(
+                td.decision,
+                strategy_name=td.strategy_name,
+                strategy_impl=getattr(td, "strategy_impl", None),
+            )
 
         # optional exit per position (best-effort symbol mapping)
         cfg = self.executor.config
