@@ -31,21 +31,24 @@ class Runtime:
         strategy: Strategy | None = None,
         environment: str = "live",
         datastore: DataStore | None = None,
+        runtime_id: str | None = None,
     ) -> None:
         self.config = config or RuntimeConfig()
+        self.runtime_id = runtime_id or self.config.runtime_id
 
         self.trigger = TriggerEngine()
         self.portfolio = PortfolioEngine()
         self.risk = RiskEngine()
         self.execution = ExecutionEngine(broker)
-        self.state = state or StateEngine(runtime_id=self.config.runtime_id)
+        self.state = state or StateEngine(runtime_id=self.runtime_id)
         self.exit_service = ExitService()
         self.strategy = strategy or StrategyEngine()
         self.market_data = market_data
+
         self.environment = environment
         self.datastore = datastore
-        self._tick = 0
         self.orders_submitted = 0
+        self._tick = 0
 
     def run_market_once(
         self,
@@ -70,6 +73,7 @@ class Runtime:
             exit_result = self.execution.broker.submit_order(exit_order)
             if exit_result.success:
                 self.orders_submitted += 1
+
             self._maybe_append_events(exit_order, exit_result, strategy_name="exit")
             self.state.apply(exit_order, exit_result, strategy_name="exit")
             self._maybe_save_snapshot()
@@ -80,7 +84,7 @@ class Runtime:
     def _run_decision(self, decision: SignalDecision) -> None:
         trigger_result = self.trigger.process(
             decision,
-            runtime_id=self.config.runtime_id,
+            runtime_id=self.runtime_id,
         )
         allocation = self.portfolio.allocate(
             trigger_result,
@@ -96,16 +100,6 @@ class Runtime:
         self.state.apply(order, exec_result)
         self._maybe_save_snapshot()
 
-    def _maybe_save_snapshot(self) -> None:
-        if self.datastore is None:
-            return
-        self.datastore.save_portfolio_snapshot(
-            ts=self._tick,
-            portfolio=self.state.portfolio,
-            env=self.environment,
-        )
-        self._tick += 1
-
     def _maybe_append_events(
         self,
         order: object | None,
@@ -118,7 +112,7 @@ class Runtime:
 
         base = build_base_event(
             ts=self._tick,
-            runtime_id=self.config.runtime_id,
+            runtime_id=self.runtime_id,
             env=self.environment,
             strategy_name=strategy_name,
             symbol=self.config.symbol,
@@ -126,9 +120,25 @@ class Runtime:
 
         order_payload = encode_order_event(order)
         if order_payload:
-            self.datastore.append_order_event({**base, **order_payload}, env=self.environment)
+            self.datastore.append_order_event(
+                {**base, **order_payload},
+                env=self.environment,
+            )
 
         exec_payload = encode_execution_event(exec_result)
-        # Always append an execution event per tick (stable even when no order).
-        self.datastore.append_fill_event({**base, **exec_payload}, env=self.environment)
+        self.datastore.append_fill_event(
+            {**base, **exec_payload},
+            env=self.environment,
+        )
 
+    def _maybe_save_snapshot(self) -> None:
+        if self.datastore is None:
+            self._tick += 1
+            return
+
+        self.datastore.save_portfolio_snapshot(
+            ts=self._tick,
+            portfolio=self.state.portfolio,
+            env=self.environment,
+        )
+        self._tick += 1

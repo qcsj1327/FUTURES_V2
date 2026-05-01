@@ -28,6 +28,7 @@ class RuntimeFactory:
         strategy: Strategy | None = None,
         environment: str = "live",
         datastore: DataStore | None = None,
+        runtime_id: str | None = None,
     ) -> Runtime:
         return Runtime(
             config,
@@ -37,6 +38,7 @@ class RuntimeFactory:
             strategy=strategy,
             environment=environment,
             datastore=datastore,
+            runtime_id=runtime_id,
         )
 
     @staticmethod
@@ -47,24 +49,25 @@ class RuntimeFactory:
         broker: BrokerAdapter,
         state: StateEngine | None = None,
         strategy: Strategy | None = None,
-        environment: str = "live",
         datastore: DataStore | None = None,
+        runtime_id: str | None = None,
     ) -> Runtime:
+        rid = runtime_id or config.runtime_id
         if datastore is None:
             datastore = JSONLFileDataStore(
                 root_dir=Path("data/store/live"),
                 env="live",
-                runtime_id=config.runtime_id,
+                runtime_id=rid,
             )
-
         return RuntimeFactory.build_runtime(
             config=config,
             market_data=market_data,
             broker=broker,
             state=state,
             strategy=strategy,
-            environment=environment,
+            environment="live",
             datastore=datastore,
+            runtime_id=rid,
         )
 
     @staticmethod
@@ -79,8 +82,8 @@ class RuntimeFactory:
         fill_ratio: float = 1.0,
         state: StateEngine | None = None,
         strategy: Strategy | None = None,
-        environment: str = "live",
         datastore: DataStore | None = None,
+        runtime_id: str | None = None,
     ) -> Runtime:
         market_data = SimulatedMarketData()
         broker = SimulatedBroker(
@@ -92,15 +95,26 @@ class RuntimeFactory:
             reject_above_quantity=reject_above_quantity,
             fill_ratio=fill_ratio,
         )
-
+        if config is None:
+            base_id = RuntimeConfig().runtime_id
+        else:
+            base_id = config.runtime_id
+        rid = runtime_id or base_id
+        if datastore is None:
+            datastore = JSONLFileDataStore(
+                root_dir=Path("data/store/sandbox"),
+                env="sandbox",
+                runtime_id=rid,
+            )
         return RuntimeFactory.build_runtime(
             config=config,
             market_data=market_data,
             broker=broker,
             state=state,
             strategy=strategy,
-            environment=environment,
+            environment="sandbox",
             datastore=datastore,
+            runtime_id=rid,
         )
 
     @staticmethod
@@ -112,30 +126,30 @@ class RuntimeFactory:
         broker: BrokerAdapter | None = None,
         strategy: Strategy | None = None,
         datastore: DataStore | None = None,
+        runtime_id: str | None = None,
     ) -> Runtime:
         sandbox_market_data = market_data or SimulatedMarketData()
         sandbox_broker = broker or SimulatedBroker(sandbox_market_data)
         sandbox_state = clone_state_engine(live_runtime.state)
+
+        rid = runtime_id or live_runtime.runtime_id
+        if datastore is None:
+            datastore = JSONLFileDataStore(
+                root_dir=Path("data/store/sandbox"),
+                env="sandbox",
+                runtime_id=rid,
+            )
 
         # Prefer live datastore snapshot as sandbox baseline (fallback to in-memory clone)
         baseline = None
         store = live_runtime.datastore
         if store is not None:
             try:
-                baseline = store.load_latest_portfolio_snapshot(
-                    env=getattr(live_runtime, "environment", "live"),
-                )
+                baseline = store.load_latest_portfolio_snapshot(env=live_runtime.environment)
             except Exception:
                 baseline = None
         if baseline is not None:
             sandbox_state.portfolio = deepcopy(baseline)
-
-        if datastore is None:
-            datastore = JSONLFileDataStore(
-                root_dir=Path("data/store/sandbox"),
-                env="sandbox",
-                runtime_id=(config or live_runtime.config).runtime_id,
-            )
 
         return RuntimeFactory.build_runtime(
             config=config or live_runtime.config,
@@ -145,4 +159,5 @@ class RuntimeFactory:
             strategy=strategy or deepcopy(live_runtime.strategy),
             environment="sandbox",
             datastore=datastore,
+            runtime_id=rid,
         )
