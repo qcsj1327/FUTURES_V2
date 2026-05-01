@@ -54,7 +54,7 @@ def test_simulated_broker_can_reject_next_order_once() -> None:
     assert first.reason == "reject_next_order"
 
     assert second.success is True
-    assert second.status == ExecutionStatus.SUBMITTED
+    assert second.status == ExecutionStatus.FILLED
     assert second.order_id == "sim_order_2"
     assert second.fill_price is not None
 
@@ -117,7 +117,7 @@ def test_simulated_broker_allows_quantity_at_limit() -> None:
     result = broker.submit_order(make_order(quantity=2.0))
 
     assert result.success is True
-    assert result.status == ExecutionStatus.SUBMITTED
+    assert result.status == ExecutionStatus.FILLED
     assert result.fill_price is not None
 
 

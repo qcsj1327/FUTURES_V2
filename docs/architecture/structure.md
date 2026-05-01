@@ -1641,3 +1641,44 @@ commission 仍属于 CapitalModel。
 
 StateEngine 只生成 rejected OrderEvent，不更新 PositionState / PortfolioState.positions。
 
+
+---
+
+## Execution Realism：Fill Quantity Model
+
+从 v0.4 execution domain migration 后，SimulatedBroker 支持 full fill 与 partial fill。
+
+### FillQuantityModel
+
+职责：
+
+- 根据 fill_ratio 计算 filled_quantity
+- 根据 fill_ratio 计算 remaining_quantity
+- 决定 ExecutionStatus.FILLED / PARTIALLY_FILLED
+
+规则：
+
+- fill_ratio 必须满足 0 < fill_ratio <= 1
+- FILLED：remaining_quantity = 0
+- PARTIALLY_FILLED：filled_quantity > 0 且 remaining_quantity > 0
+
+### SimulatedBroker
+
+成交成功时必须显式填充：
+
+- filled_quantity
+- remaining_quantity
+- avg_fill_price
+
+拒单时：
+
+- filled_quantity = None
+- remaining_quantity = None
+- avg_fill_price = None
+
+### 后续迁移
+
+当前提交只实现 broker fill quantity 输出。
+
+StateEngine / PositionLifecycle / CapitalModel 后续必须改为使用 filled_quantity，而不是 order.quantity。
+

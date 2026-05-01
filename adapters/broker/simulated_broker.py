@@ -4,6 +4,7 @@ import time
 from collections.abc import Iterable
 
 from adapters.broker.base import BrokerAdapter
+from adapters.broker.fill.fill_quantity_model import FillQuantityModel
 from adapters.broker.fill.slippage_model import SlippageModel
 from adapters.broker.order.order_id_generator import OrderIdGenerator
 from adapters.broker.order.rejection_policy import RejectionPolicy
@@ -22,9 +23,11 @@ class SimulatedBroker(BrokerAdapter):
         reject_next_order: bool = False,
         rejected_symbols: Iterable[str] | None = None,
         reject_above_quantity: float | None = None,
+        fill_ratio: float = 1.0,
     ) -> None:
         self.market_data = market_data
         self.slippage_model = SlippageModel(slippage_rate=slippage_rate)
+        self.fill_quantity_model = FillQuantityModel(fill_ratio=fill_ratio)
         self.order_id_generator = OrderIdGenerator(prefix=order_id_prefix)
         self.rejection_policy = rejection_policy or RejectionPolicy(
             reject_next_order=reject_next_order,
@@ -45,6 +48,9 @@ class SimulatedBroker(BrokerAdapter):
                 order_id=order_id,
                 fill_price=None,
                 reason=reject_reason,
+                filled_quantity=None,
+                remaining_quantity=None,
+                avg_fill_price=None,
             )
 
         symbol = order.trade_instrument_id or order.instrument_id
@@ -53,12 +59,20 @@ class SimulatedBroker(BrokerAdapter):
             market_price=market_price,
             side=order.side,
         )
+        fill_quantity = self.fill_quantity_model.apply(order.quantity)
 
         return ExecutionResult(
             success=True,
-            status=ExecutionStatus.SUBMITTED,
+            status=fill_quantity.status,
             ts=ts,
             order_id=order_id,
             fill_price=fill_price,
-            reason="simulated_fill",
+            reason=(
+                "simulated_fill"
+                if fill_quantity.status == ExecutionStatus.FILLED
+                else "simulated_partial_fill"
+            ),
+            filled_quantity=fill_quantity.filled_quantity,
+            remaining_quantity=fill_quantity.remaining_quantity,
+            avg_fill_price=fill_price,
         )
