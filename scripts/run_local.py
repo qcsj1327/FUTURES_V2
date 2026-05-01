@@ -14,6 +14,7 @@ from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from optimize.promoter.approved_config import write_approved_config
 from optimize.promoter.decision_artifact import write_promotion_decision
+from optimize.promoter.manifest_artifact import write_promotion_manifest
 from optimize.promoter.promote_from_datastore import promote_from_datastore
 from optimize.promoter.promotion_gate import PromotionThresholds
 from optimize.promoter.summary_artifact import write_summary_artifact
@@ -38,14 +39,13 @@ def _rm_tree(path: Path) -> None:
 def _make_config(*, runtime_id: str, symbol: str | None) -> RuntimeConfig:
     cfg = RuntimeConfig()
 
-    # runtime_id override (handles dataclass or mutable class)
+    # runtime_id override (RuntimeConfig may be treated as read-only by type checker)
     try:
         cfg.runtime_id = runtime_id  # type: ignore[misc]
     except Exception:
         if is_dataclass(cfg):
             cfg = replace(cfg, runtime_id=runtime_id)
 
-    # symbol override (optional)
     if symbol is not None:
         try:
             cfg.symbol = symbol  # type: ignore[misc]
@@ -59,12 +59,7 @@ def _make_config(*, runtime_id: str, symbol: str | None) -> RuntimeConfig:
 def run_live(*, cfg: RuntimeConfig, ticks: int) -> None:
     md = SimulatedMarketData()
     broker = SimulatedBroker(md)
-
-    rt = RuntimeFactory.build_live_runtime(
-        config=cfg,
-        market_data=md,
-        broker=broker,
-    )
+    rt = RuntimeFactory.build_live_runtime(config=cfg, market_data=md, broker=broker)
     for _ in range(ticks):
         rt.run_market_once()
 
@@ -73,14 +68,8 @@ def run_sandbox(*, live_cfg: RuntimeConfig, ticks: int) -> None:
     md = SimulatedMarketData()
     broker = SimulatedBroker(md)
 
-    live_rt = RuntimeFactory.build_live_runtime(
-        config=live_cfg,
-        market_data=md,
-        broker=broker,
-    )
-
-    # Ensure a baseline exists (snapshot preferred on sandbox bootstrap)
-    live_rt.run_market_once()
+    live_rt = RuntimeFactory.build_live_runtime(config=live_cfg, market_data=md, broker=broker)
+    live_rt.run_market_once()  # ensure a baseline snapshot exists
 
     sandbox_rt = RuntimeFactory.build_sandbox_runtime_from_live(live_rt)
     for _ in range(ticks):
@@ -91,16 +80,18 @@ def run_promote(
     *,
     cfg: RuntimeConfig,
     thresholds: PromotionThresholds,
-    write_artifact: bool,
     candidate_strategy_name: str,
     candidate_params_json: str,
     store_root: Path,
     approved_dir: Path,
     decision_dir: Path,
-    write_decision: bool,
     summary_dir: Path,
+    manifest_dir: Path,
     write_summary: bool,
-) -> Path | None:
+    write_decision: bool,
+    write_artifact: bool,
+    write_manifest: bool,
+) -> tuple[Path | None, Path | None, Path | None, Path | None]:
     current_store = JSONLFileDataStore(
         root_dir=store_root / "live",
         env="live",
@@ -119,14 +110,16 @@ def run_promote(
     cur_metrics = asdict(cur_summary)
     cand_metrics = asdict(cand_summary)
 
+    cur_path: Path | None = None
+    cand_path: Path | None = None
     if write_summary:
-        _ = write_summary_artifact(
+        cur_path = write_summary_artifact(
             runtime_id=cfg.runtime_id,
             role="current",
             summary=cur_metrics,
             output_dir=summary_dir,
         )
-        _ = write_summary_artifact(
+        cand_path = write_summary_artifact(
             runtime_id=cfg.runtime_id,
             role="candidate",
             summary=cand_metrics,
@@ -143,16 +136,12 @@ def run_promote(
 
     print(
         "PromotionDecision:",
-        json.dumps(
-            asdict(decision),
-            ensure_ascii=False,
-            indent=2,
-            default=str,
-        ),
+        json.dumps(asdict(decision), ensure_ascii=False, indent=2, default=str),
     )
 
+    decision_path: Path | None = None
     if write_decision:
-        _ = write_promotion_decision(
+        decision_path = write_promotion_decision(
             runtime_id=cfg.runtime_id,
             decision=asdict(decision),
             thresholds=asdict(thresholds),
@@ -161,31 +150,42 @@ def run_promote(
             output_dir=decision_dir,
         )
 
-    if not write_artifact:
-        return None
-
     candidate_id = f"cand_{cfg.runtime_id}_{_utc_tag()}"
     candidate_config: dict[str, Any] = {
         "strategy_name": candidate_strategy_name,
         "params": json.loads(candidate_params_json) if candidate_params_json else {},
     }
 
-    out = write_approved_config(
-        approved=decision.approved,
-        candidate_id=candidate_id,
-        candidate_config=candidate_config,
-        decision_deltas=decision.deltas,
-        thresholds=asdict(thresholds),
-        output_dir=approved_dir,
-        filename=f"approved_{candidate_id}.json",
-    )
+    approved_path: Path | None = None
+    if write_artifact:
+        approved_path = write_approved_config(
+            approved=decision.approved,
+            candidate_id=candidate_id,
+            candidate_config=candidate_config,
+            decision_deltas=decision.deltas,
+            thresholds=asdict(thresholds),
+            current_metrics=cur_metrics,
+            candidate_metrics=cand_metrics,
+            output_dir=approved_dir,
+            filename=f"approved_{candidate_id}.json",
+        )
 
-    if out is None:
-        print("Artifact: not written (decision not approved)")
-    else:
-        print("Artifact:", str(out))
+    manifest_path: Path | None = None
+    if write_manifest:
+        manifest_path = write_promotion_manifest(
+            runtime_id=cfg.runtime_id,
+            candidate_id=candidate_id,
+            candidate_config=candidate_config,
+            thresholds=asdict(thresholds),
+            current_summary_path=cur_path,
+            candidate_summary_path=cand_path,
+            decision_path=decision_path,
+            approved_path=approved_path,
+            output_dir=manifest_dir,
+        )
+        print("Manifest:", str(manifest_path))
 
-    return out
+    return cur_path, cand_path, decision_path, approved_path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -200,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=["live", "sandbox", "promote", "all"],
         help="Which pipeline to run.",
     )
+
     parser.add_argument("--ticks-live", type=int, default=5)
     parser.add_argument("--ticks-sandbox", type=int, default=5)
 
@@ -211,73 +212,39 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--symbol", type=str, default=None)
 
-    parser.add_argument(
-        "--store-root",
-        type=str,
-        default="data/store",
-        help="Root directory for live/sandbox datastores.",
-    )
-    parser.add_argument(
-        "--summary-dir",
-        type=str,
-        default="data/artifacts/summaries",
-        help="Directory for summary artifacts.",
-    )
-    parser.add_argument(
-        "--decision-dir",
-        type=str,
-        default="data/artifacts/decisions",
-        help="Directory for promotion decision artifacts.",
-    )
-    parser.add_argument(
-        "--approved-dir",
-        type=str,
-        default="data/artifacts/approved",
-        help="Directory for approved config artifacts.",
-    )
+    parser.add_argument("--store-root", type=str, default="data/store")
+    parser.add_argument("--approved-dir", type=str, default="data/artifacts/approved")
+    parser.add_argument("--decision-dir", type=str, default="data/artifacts/decisions")
+    parser.add_argument("--summary-dir", type=str, default="data/artifacts/summaries")
+    parser.add_argument("--manifest-dir", type=str, default="data/artifacts/manifests")
 
     parser.add_argument("--min-events", type=int, default=50)
     parser.add_argument("--min-success-rate-improvement", type=float, default=0.01)
     parser.add_argument("--max-consecutive-failures", type=int, default=3)
 
-    parser.add_argument(
-        "--write-summary",
-        type=int,
-        default=1,
-        help="1 to write summary artifacts, else 0",
-    )
-    parser.add_argument(
-        "--write-decision",
-        type=int,
-        default=1,
-        help="1 to write decision artifact, else 0",
-    )
-    parser.add_argument(
-        "--write-artifact",
-        type=int,
-        default=1,
-        help="1 to write approved artifact, else 0",
-    )
+    parser.add_argument("--write-summary", type=int, default=1)
+    parser.add_argument("--write-decision", type=int, default=1)
+    parser.add_argument("--write-manifest", type=int, default=1)
+    parser.add_argument("--write-artifact", type=int, default=1)
+
     parser.add_argument("--candidate-strategy-name", type=str, default="simple_strategy")
     parser.add_argument("--candidate-params-json", type=str, default="{}")
 
-    parser.add_argument(
-        "--clean",
-        action="store_true",
-        help="Remove store_root and approved_dir before run.",
-    )
+    parser.add_argument("--clean", action="store_true")
     args = parser.parse_args(argv)
 
     store_root = Path(args.store_root)
     approved_dir = Path(args.approved_dir)
     decision_dir = Path(args.decision_dir)
     summary_dir = Path(args.summary_dir)
+    manifest_dir = Path(args.manifest_dir)
 
     if args.clean:
         _rm_tree(store_root)
         _rm_tree(approved_dir)
         _rm_tree(decision_dir)
         _rm_tree(summary_dir)
+        _rm_tree(manifest_dir)
 
     runtime_id = args.runtime_id
     if runtime_id == "auto":
@@ -297,24 +264,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode in ("sandbox", "all"):
         run_sandbox(live_cfg=cfg, ticks=args.ticks_sandbox)
 
-    artifact: Path | None = None
     if args.mode in ("promote", "all"):
-        artifact = run_promote(
+        run_promote(
             cfg=cfg,
             thresholds=thresholds,
-            write_artifact=bool(args.write_artifact),
             candidate_strategy_name=args.candidate_strategy_name,
             candidate_params_json=args.candidate_params_json,
             store_root=store_root,
             approved_dir=approved_dir,
             decision_dir=decision_dir,
-            write_decision=bool(args.write_decision),
             summary_dir=summary_dir,
+            manifest_dir=manifest_dir,
             write_summary=bool(args.write_summary),
+            write_decision=bool(args.write_decision),
+            write_artifact=bool(args.write_artifact),
+            write_manifest=bool(args.write_manifest),
         )
-
-    if artifact is not None:
-        print("Approved artifact written:", artifact)
 
     return 0
 
