@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from copy import deepcopy
+from pathlib import Path
 
 from adapters.broker.base import BrokerAdapter
 from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.marketdata.base import MarketDataAdapter
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
+from adapters.storage.datastore_fs import JSONLFileDataStore
 from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
 from core.services.runtime.datastore import DataStore
@@ -48,6 +50,13 @@ class RuntimeFactory:
         environment: str = "live",
         datastore: DataStore | None = None,
     ) -> Runtime:
+        if datastore is None:
+            datastore = JSONLFileDataStore(
+                root_dir=Path("data/store"),
+                env="live",
+                runtime_id=config.runtime_id,
+            )
+
         return RuntimeFactory.build_runtime(
             config=config,
             market_data=market_data,
@@ -107,6 +116,13 @@ class RuntimeFactory:
         sandbox_market_data = market_data or SimulatedMarketData()
         sandbox_broker = broker or SimulatedBroker(sandbox_market_data)
         sandbox_state = clone_state_engine(live_runtime.state)
+
+        if datastore is None:
+            datastore = JSONLFileDataStore(
+                root_dir=Path("data/store"),
+                env="sandbox",
+                runtime_id=(config or live_runtime.config).runtime_id,
+            )
 
         return RuntimeFactory.build_runtime(
             config=config or live_runtime.config,
