@@ -1,80 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from dataclasses import is_dataclass
 from typing import Any
-
-
-def _to_primitive(x: Any) -> Any:
-    # Make enums/objects serializable without relying on str() for the whole payload.
-    if x is None:
-        return None
-    if isinstance(x, (bool, int, float, str)):
-        return x
-    # common enum pattern
-    name = getattr(x, "name", None)
-    if isinstance(name, str):
-        return name
-    value = getattr(x, "value", None)
-    if isinstance(value, (bool, int, float, str)):
-        return value
-    return str(x)
-
-
-def encode_order_event(order: Any) -> dict[str, Any]:
-    """
-    Minimal stable order schema for replay/learning.
-    We do NOT depend on domain types here (adapter-agnostic).
-    """
-    if order is None:
-        return {}
-
-    # best-effort field extraction (works across domain order variants)
-    d: dict[str, Any] = {"event_type": "order"}
-    for k in (
-        "order_id",
-        "symbol",
-        "action",
-        "side",
-        "position_side",
-        "quantity",
-        "price",
-        "type",
-        "reduce_only",
-    ):
-        if hasattr(order, k):
-            d[k] = _to_primitive(getattr(order, k))
-    # some orders store identifiers under other names
-    for alt, key in (("id", "order_id"), ("qty", "quantity")):
-        if key not in d and hasattr(order, alt):
-            d[key] = _to_primitive(getattr(order, alt))
-    return d
-
-
-def encode_execution_event(exec_result: Any) -> dict[str, Any]:
-    """
-    Minimal stable execution result schema.
-    Always emits success + reason when present.
-    """
-    d: dict[str, Any] = {"event_type": "execution"}
-    for k in (
-        "success",
-        "reason",
-        "rejected_reason",
-        "filled_quantity",
-        "remaining_quantity",
-        "avg_fill_price",
-        "commission",
-        "slippage",
-        "order_id",
-    ):
-        if hasattr(exec_result, k):
-            d[k] = _to_primitive(getattr(exec_result, k))
-
-    # success is the only hard requirement (default False if missing)
-    if "success" not in d:
-        d["success"] = False
-
-    return d
 
 
 def build_base_event(
@@ -83,17 +10,68 @@ def build_base_event(
     runtime_id: str,
     env: str,
     strategy_name: str,
-    symbol: str | None = None,
-    extra: Mapping[str, Any] | None = None,
+    symbol: str,
+    strategy_impl: str | None = None,
 ) -> dict[str, Any]:
-    base: dict[str, Any] = {
+    # strategy_name is kept for compatibility; strategy_id is the stable config id.
+    strategy_id = strategy_name
+    return {
         "ts": ts,
         "runtime_id": runtime_id,
         "env": env,
-        "strategy_name": strategy_name,
+        "symbol": symbol,
+        "strategy_name": strategy_name,  # legacy, stable = strategy_id
+        "strategy_id": strategy_id,      # new
+        "strategy_impl": strategy_impl,  # new (debug)
     }
-    if symbol is not None:
-        base["symbol"] = symbol
-    if extra:
-        base.update({k: _to_primitive(v) for k, v in extra.items()})
-    return base
+
+
+def encode_order_event(order: object | None) -> dict[str, Any]:
+    if order is None:
+        return {}
+
+    if is_dataclass(order):
+        d = order.__dict__
+        return {
+            "event_type": "order",
+            "side": getattr(d.get("side"), "value", d.get("side")),
+            "position_side": getattr(d.get("position_side"), "value", d.get("position_side")),
+            "quantity": d.get("quantity"),
+            "price": d.get("price"),
+        }
+
+    return {
+        "event_type": "order",
+        "side": getattr(getattr(order, "side", None), "value", getattr(order, "side", None)),
+        "position_side": getattr(
+            getattr(order, "position_side", None),
+            "value",
+            getattr(order, "position_side", None),
+        ),
+        "quantity": getattr(order, "quantity", None),
+        "price": getattr(order, "price", None),
+    }
+
+
+def encode_execution_event(exec_result: object) -> dict[str, Any]:
+    if is_dataclass(exec_result):
+        d = exec_result.__dict__
+        return {
+            "event_type": "execution",
+            "success": d.get("success"),
+            "reason": d.get("reason"),
+            "filled_quantity": d.get("filled_quantity"),
+            "remaining_quantity": d.get("remaining_quantity"),
+            "avg_fill_price": d.get("avg_fill_price"),
+            "order_id": d.get("order_id"),
+        }
+
+    return {
+        "event_type": "execution",
+        "success": getattr(exec_result, "success", None),
+        "reason": getattr(exec_result, "reason", None),
+        "filled_quantity": getattr(exec_result, "filled_quantity", None),
+        "remaining_quantity": getattr(exec_result, "remaining_quantity", None),
+        "avg_fill_price": getattr(exec_result, "avg_fill_price", None),
+        "order_id": getattr(exec_result, "order_id", None),
+    }

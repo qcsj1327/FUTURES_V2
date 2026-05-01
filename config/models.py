@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,14 +15,26 @@ class StrategySpec:
     name: str
     params: dict[str, Any]
     symbols: list[str]
-    priority: int = 100          # lower is higher priority
-    weight: float = 1.0          # used by weighted_vote/netting
+    priority: int = 100
+    weight: float = 1.0
 
 
 @dataclass(frozen=True)
 class RouterSpec:
-    mode: str = "priority"       # priority | weighted_vote | netting
+    mode: str = "priority"         # priority | weighted_vote | netting
     tie_breaker: str = "priority"  # priority | lex
+
+
+@dataclass(frozen=True)
+class MarketDataSpec:
+    mode: str = "simulated"  # simulated | simulated_v2 | live_file
+    prices_path: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AdaptersSpec:
+    market_data: MarketDataSpec = field(default_factory=MarketDataSpec)
 
 
 @dataclass(frozen=True)
@@ -62,6 +74,7 @@ class RunPlan:
     env: str
     universe: UniverseSpec
     strategies: list[StrategySpec]
+    adapters: AdaptersSpec
     runtime: RuntimeSpec
     datastore: DataStoreSpec
     promotion: PromotionSpec

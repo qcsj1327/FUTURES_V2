@@ -48,3 +48,6 @@ data/artifacts/approved/
 data/artifacts/decisions/
 data/artifacts/summaries/
 data/artifacts/manifests/
+
+# local plans
+plan.json

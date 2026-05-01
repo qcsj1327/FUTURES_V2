@@ -37,7 +37,11 @@ class UniverseRuntime:
         )
 
         for td in final_tagged:
-            self.executor.run(td.decision, strategy_name=td.strategy_name)
+            self.executor.run(
+                td.decision,
+                strategy_name=td.strategy_name,
+                strategy_impl=getattr(td, "strategy_impl", None),
+            )
 
         # optional exit per position (best-effort symbol mapping)
         cfg = self.executor.config
@@ -65,3 +69,8 @@ class UniverseRuntime:
             self.executor._maybe_append_events(exit_order, exit_result, strategy_name="exit")
             self.executor.state.apply(exit_order, exit_result, strategy_name="exit")
             self.executor._maybe_save_snapshot()
+
+        # advance market clock if adapter supports it
+        adv = getattr(self.market_data, "advance", None)
+        if callable(adv):
+            adv()
