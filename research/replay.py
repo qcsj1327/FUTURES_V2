@@ -6,6 +6,7 @@ from pathlib import Path
 from adapters.storage.csv_report_writer import CSVReportWriter
 from adapters.storage.csv_signal_loader import CSVSignalLoader
 from app.runtime import Runtime
+from app.runtime_factory import RuntimeFactory
 from app.scheduler import Scheduler
 from domain.signal import SignalDecision
 from research.run_report import RunReport
@@ -13,7 +14,7 @@ from research.run_report import RunReport
 
 class ReplayRunner:
     def __init__(self, runtime: Runtime | None = None) -> None:
-        self.runtime = runtime or Runtime()
+        self.runtime = runtime or RuntimeFactory.build_simulated_runtime()
         self.scheduler = Scheduler(self.runtime)
 
     def run(self, decisions: Iterable[SignalDecision]) -> RunReport:

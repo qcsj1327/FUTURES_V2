@@ -1758,3 +1758,87 @@ OrderTracker 是 broker adapter 内部订单账本。
 - PortfolioState
 - OrderEvent
 
+
+---
+
+## Runtime Environment Separation：Live / Sandbox / Dev
+
+从本阶段开始，Runtime 不再硬编码 SimulatedMarketData / SimulatedBroker。
+
+### Runtime
+
+职责：
+
+- 接收 MarketDataAdapter
+- 接收 BrokerAdapter
+- 接收可选 StateEngine
+- 接收可选 Strategy
+- 执行主交易链
+
+禁止：
+
+- 直接选择 simulated / live / paper adapter
+- 直接构造 SimulatedMarketData
+- 直接构造 SimulatedBroker
+- 在 live 与 sandbox 之间共享 StateEngine 引用
+
+### RuntimeFactory
+
+职责：
+
+- build_live_runtime：显式注入 live / paper adapters
+- build_simulated_runtime：构造开发 / 测试用 simulated runtime
+- build_sandbox_runtime_from_live：从 live runtime fork sandbox runtime
+
+### Live Plane
+
+Live Runtime 使用：
+
+- live / paper market data
+- live / paper broker
+- live StateEngine
+- live data store
+
+Live 数据是生产权威数据，append-only。
+
+### Sandbox Plane
+
+Sandbox Runtime 使用：
+
+- cloned StateEngine
+- cloned PortfolioState
+- cloned PositionState
+- simulated market data
+- simulated broker
+
+Sandbox 可以读取 live snapshot，但不能共享 live state 引用，不能写回 live state。
+
+### 数据语义
+
+实盘上线后：
+
+- live 数据是智能选优的权威依据
+- paper 数据可用于候选验证
+- sandbox/dev synthetic 数据只用于开发、休盘调试、故障复现、压力测试
+- sandbox/dev 数据不得参与实盘晋升依据
+
+### 智能选优边界
+
+智能选优链路：
+
+LiveDataStore
+→ Analyzer
+→ Optimizer
+→ Candidate
+→ Shadow / Paper Validation
+→ PromotionGate
+→ ApprovedConfig
+→ Next Live Session
+
+禁止：
+
+- optimizer 直接修改 LiveRuntime
+- sandbox result 覆盖 live state
+- simulated fills 写入 live fills
+- synthetic prices 写入 live raw data
+

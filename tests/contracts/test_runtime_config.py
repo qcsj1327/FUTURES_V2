@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from app.runtime_factory import RuntimeFactory
 from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
 
 
 def test_runtime_uses_config_quantity() -> None:
-    runtime = Runtime(RuntimeConfig(runtime_id="test", default_quantity=7.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(runtime_id="test", default_quantity=7.0)
+    )
 
     decision = SignalDecision(
         decision=Decision.OPEN_LONG,

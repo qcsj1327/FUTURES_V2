@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from app.runtime import Runtime
+from app.runtime_factory import RuntimeFactory
 from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
 
 
 def test_runtime_full_flow() -> None:
-    runtime = Runtime()
+    runtime = RuntimeFactory.build_simulated_runtime()
 
     decision = SignalDecision(
         decision=Decision.OPEN_LONG,

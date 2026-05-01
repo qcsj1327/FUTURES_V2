@@ -5,8 +5,8 @@ import pytest
 from adapters.broker.order.rejection_policy import RejectionPolicy
 from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
-from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from app.runtime_factory import RuntimeFactory
 from core.execution.execution_engine import ExecutionEngine
 from domain.enums import ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder
@@ -122,7 +122,9 @@ def test_simulated_broker_allows_quantity_at_limit() -> None:
 
 
 def test_market_loop_broker_rejection_does_not_update_position() -> None:
-    runtime = Runtime(RuntimeConfig(symbol="au", default_quantity=1.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(symbol="au", default_quantity=1.0)
+    )
     runtime.execution = ExecutionEngine(
         SimulatedBroker(
             runtime.market_data,

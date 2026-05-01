@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from app.runtime_factory import RuntimeFactory
 from domain.enums import PositionSide
 
 
 def test_runtime_market_loop_runs_once() -> None:
-    runtime = Runtime(RuntimeConfig(symbol="au", default_quantity=1.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(symbol="au", default_quantity=1.0)
+    )
 
     runtime.run_market_once()
 
@@ -14,7 +16,9 @@ def test_runtime_market_loop_runs_once() -> None:
 
 
 def test_runtime_market_loop_can_run_strategy_chain() -> None:
-    runtime = Runtime(RuntimeConfig(symbol="au", default_quantity=1.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(symbol="au", default_quantity=1.0)
+    )
 
     runtime.run_market_once()
 
@@ -22,7 +26,9 @@ def test_runtime_market_loop_can_run_strategy_chain() -> None:
 
 
 def test_runtime_market_loop_checks_exit_without_mutating_when_no_thresholds() -> None:
-    runtime = Runtime(RuntimeConfig(symbol="au", default_quantity=1.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(symbol="au", default_quantity=1.0)
+    )
 
     runtime.run_market_once()
     before = dict(runtime.state.portfolio.positions)
@@ -33,7 +39,9 @@ def test_runtime_market_loop_checks_exit_without_mutating_when_no_thresholds() -
 
 
 def test_runtime_market_loop_exit_can_close_position() -> None:
-    runtime = Runtime(RuntimeConfig(symbol="au", default_quantity=1.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(symbol="au", default_quantity=1.0)
+    )
 
     runtime.run_market_once(
         stop_loss=10_000.0,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.runtime import Runtime
+from app.runtime_factory import RuntimeFactory
 from core.services.trade.exit_order_factory import ExitOrderFactory
 from core.services.trade.exit_rules import ExitRules
 from core.services.trade.exit_service import ExitService
@@ -29,7 +29,7 @@ def test_state_engine_does_not_own_exit_orchestration() -> None:
 
 
 def test_runtime_owns_exit_service() -> None:
-    runtime = Runtime()
+    runtime = RuntimeFactory.build_simulated_runtime()
 
     assert isinstance(runtime.exit_service, ExitService)
 

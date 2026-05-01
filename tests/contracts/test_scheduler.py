@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.runtime import Runtime
+from app.runtime_factory import RuntimeFactory
 from app.scheduler import Scheduler
 from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
@@ -27,7 +27,7 @@ def make_decision(signal_id: str) -> SignalDecision:
 
 
 def test_scheduler_run_once() -> None:
-    runtime = Runtime()
+    runtime = RuntimeFactory.build_simulated_runtime()
     scheduler = Scheduler(runtime)
 
     scheduler.run_once(make_decision("s1"))
@@ -37,7 +37,7 @@ def test_scheduler_run_once() -> None:
 
 
 def test_scheduler_run_many() -> None:
-    runtime = Runtime()
+    runtime = RuntimeFactory.build_simulated_runtime()
     scheduler = Scheduler(runtime)
 
     report = scheduler.run_many(

@@ -4,6 +4,7 @@ from collections.abc import Iterable
 
 from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from app.runtime_factory import RuntimeFactory
 
 
 class RuntimeRegistry:
@@ -11,15 +12,14 @@ class RuntimeRegistry:
         self._runtimes: dict[str, Runtime] = {}
 
     def register(self, runtime: Runtime) -> None:
-        runtime_id = runtime.config.runtime_id
-        self._runtimes[runtime_id] = runtime
-
-    def build_from_configs(self, configs: Iterable[RuntimeConfig]) -> None:
-        for cfg in configs:
-            self.register(Runtime(cfg))
+        self._runtimes[runtime.config.runtime_id] = runtime
 
     def get(self, runtime_id: str) -> Runtime:
         return self._runtimes[runtime_id]
 
-    def all(self) -> list[Runtime]:
-        return list(self._runtimes.values())
+    def all(self) -> tuple[Runtime, ...]:
+        return tuple(self._runtimes.values())
+
+    def build_from_configs(self, configs: Iterable[RuntimeConfig]) -> None:
+        for cfg in configs:
+            self.register(RuntimeFactory.build_simulated_runtime(cfg))

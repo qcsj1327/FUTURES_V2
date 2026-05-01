@@ -4,8 +4,8 @@ from typing import cast
 
 import pytest
 
-from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from app.runtime_factory import RuntimeFactory
 from core.portfolio.portfolio_engine import PortfolioAllocation
 from core.risk.risk_engine import RiskEngine
 from domain.enums import Decision, PositionSide, Side, SignalStrength, TriggerLifecycle
@@ -65,7 +65,9 @@ def test_risk_engine_only_accepts_portfolio_allocation() -> None:
 
 
 def test_runtime_main_chain_uses_portfolio_before_risk() -> None:
-    runtime = Runtime(RuntimeConfig(runtime_id="contract_runtime", default_quantity=3.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(runtime_id="contract_runtime", default_quantity=3.0)
+    )
     signal = make_signal()
 
     trigger = runtime.trigger.process(signal, runtime_id=runtime.config.runtime_id)
@@ -86,7 +88,9 @@ def test_runtime_main_chain_uses_portfolio_before_risk() -> None:
 
 
 def test_runtime_full_chain_produces_order_through_locked_types() -> None:
-    runtime = Runtime(RuntimeConfig(runtime_id="contract_runtime", default_quantity=2.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(runtime_id="contract_runtime", default_quantity=2.0)
+    )
     signal = make_signal()
 
     trigger = runtime.trigger.process(signal, runtime_id=runtime.config.runtime_id)
@@ -108,7 +112,9 @@ def test_runtime_full_chain_produces_order_through_locked_types() -> None:
 
 
 def test_execution_result_ts_contract_is_explicit() -> None:
-    runtime = Runtime(RuntimeConfig(runtime_id="contract_runtime", default_quantity=1.0))
+    runtime = RuntimeFactory.build_simulated_runtime(
+        RuntimeConfig(runtime_id="contract_runtime", default_quantity=1.0)
+    )
     signal = make_signal()
 
     trigger = runtime.trigger.process(signal, runtime_id=runtime.config.runtime_id)

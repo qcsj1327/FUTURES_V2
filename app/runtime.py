@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from adapters.broker.simulated_broker import SimulatedBroker
-from adapters.marketdata.simulated_market_data import SimulatedMarketData
+from adapters.broker.base import BrokerAdapter
+from adapters.marketdata.base import MarketDataAdapter
 from app.runtime_config import RuntimeConfig
 from core.execution.execution_engine import ExecutionEngine
 from core.portfolio.portfolio_engine import PortfolioEngine
@@ -11,20 +11,28 @@ from core.state.state_engine import StateEngine
 from core.trigger.trigger_engine import TriggerEngine
 from domain.signal import SignalDecision
 from strategies.base.simple_strategy import StrategyEngine
+from strategies.base.strategy import Strategy
 
 
 class Runtime:
-    def __init__(self, config: RuntimeConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: RuntimeConfig | None = None,
+        *,
+        market_data: MarketDataAdapter,
+        broker: BrokerAdapter,
+        state: StateEngine | None = None,
+        strategy: Strategy | None = None,
+    ) -> None:
         self.config = config or RuntimeConfig()
-        market_data = SimulatedMarketData()
 
         self.trigger = TriggerEngine()
         self.portfolio = PortfolioEngine()
         self.risk = RiskEngine()
-        self.execution = ExecutionEngine(SimulatedBroker(market_data))
-        self.state = StateEngine()
+        self.execution = ExecutionEngine(broker)
+        self.state = state or StateEngine(runtime_id=self.config.runtime_id)
         self.exit_service = ExitService()
-        self.strategy = StrategyEngine()
+        self.strategy = strategy or StrategyEngine()
         self.market_data = market_data
         self.orders_submitted = 0
 

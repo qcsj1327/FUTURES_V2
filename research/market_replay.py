@@ -4,13 +4,14 @@ from collections.abc import Iterable
 
 from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from app.runtime_factory import RuntimeFactory
 from core.state.mark_to_market import MarkToMarket
 from research.run_report import RunReport
 
 
 class MarketReplayRunner:
     def __init__(self, runtime: Runtime | None = None) -> None:
-        self.runtime = runtime or Runtime()
+        self.runtime = runtime or RuntimeFactory.build_simulated_runtime()
         self.mark_to_market = MarkToMarket()
         self._latest_prices: dict[str, float] = {}
 
@@ -60,7 +61,7 @@ class MarketReplayRunner:
         results: dict[str, RunReport] = {}
 
         for symbol in symbols:
-            runtime = Runtime(
+            runtime = RuntimeFactory.build_simulated_runtime(
                 RuntimeConfig(
                     symbol=symbol,
                     default_quantity=default_quantity,
@@ -105,7 +106,7 @@ class MarketReplayRunner:
 
         for index in range(cycles):
             symbol = symbols[index % len(symbols)]
-            runtime = Runtime(
+            runtime = RuntimeFactory.build_simulated_runtime(
                 RuntimeConfig(
                     symbol=symbol,
                     default_quantity=default_quantity,
