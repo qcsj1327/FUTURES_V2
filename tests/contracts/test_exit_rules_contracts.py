@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.state.exit_rules import ExitRules, ExitSignal
+from core.services.trade.exit_rules import ExitRules, ExitSignal
 from domain.enums import PositionSide
 from domain.state import PositionState
 

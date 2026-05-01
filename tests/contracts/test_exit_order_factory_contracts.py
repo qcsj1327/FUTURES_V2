@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from core.state.exit_order_factory import ExitOrderFactory
-from core.state.exit_rules import ExitSignal
+from core.services.trade.exit_order_factory import ExitOrderFactory
+from core.services.trade.exit_rules import ExitSignal
 from domain.enums import PositionSide, Side
 from domain.state import PositionState
 

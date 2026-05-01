@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.state.exit_rules import ExitRules
+from core.services.trade.exit_rules import ExitRules
 from domain.enums import PositionSide, Side
 from domain.execution import ExecutionOrder
 from domain.state import PositionState

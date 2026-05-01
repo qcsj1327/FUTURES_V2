@@ -6,6 +6,7 @@ from app.runtime_config import RuntimeConfig
 from core.execution.execution_engine import ExecutionEngine
 from core.portfolio.portfolio_engine import PortfolioEngine
 from core.risk.risk_engine import RiskEngine
+from core.services.trade.exit_service import ExitService
 from core.state.state_engine import StateEngine
 from core.trigger.trigger_engine import TriggerEngine
 from domain.signal import SignalDecision
@@ -22,10 +23,10 @@ class Runtime:
         self.risk = RiskEngine()
         self.execution = ExecutionEngine(SimulatedBroker(market_data))
         self.state = StateEngine()
+        self.exit_service = ExitService()
         self.strategy = StrategyEngine()
         self.market_data = market_data
         self.orders_submitted = 0
-
 
     def run_market_once(
         self,
@@ -38,7 +39,7 @@ class Runtime:
         self.run(decision)
 
         for position in list(self.state.portfolio.positions.values()):
-            exit_order = self.state.create_exit_order(
+            exit_order = self.exit_service.create_exit_order(
                 position=position,
                 current_price=price,
                 stop_loss=stop_loss,

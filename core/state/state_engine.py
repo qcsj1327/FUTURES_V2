@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from core.state.capital_model import CapitalModel
-from core.state.exit_order_factory import ExitOrderFactory
-from core.state.exit_rules import ExitRules
 from core.state.position_lifecycle import PositionLifecycle
 from domain.enums import OrderStatus
 from domain.event import OrderEvent
@@ -11,7 +9,11 @@ from domain.state import PortfolioState, PositionKey, PositionState
 
 
 class StateEngine:
-    def __init__(self, runtime_id: str = "default", commission_rate: float = 0.0) -> None:
+    def __init__(
+        self,
+        runtime_id: str = "default",
+        commission_rate: float = 0.0,
+    ) -> None:
         self.runtime_id = runtime_id
         self.position = PositionState(
             instrument_id="",
@@ -19,8 +21,6 @@ class StateEngine:
         )
         self.portfolio = PortfolioState(runtime_id=runtime_id)
         self.position_lifecycle = PositionLifecycle()
-        self.exit_rules = ExitRules()
-        self.exit_order_factory = ExitOrderFactory()
         self.capital_model = CapitalModel(commission_rate=commission_rate)
 
     def apply(
@@ -61,11 +61,13 @@ class StateEngine:
         )
 
         existing = self.portfolio.positions.get(key)
+
         self.capital_model.pre_validate(
             portfolio=self.portfolio,
             order=order,
             result=result,
         )
+
         position = self.position_lifecycle.apply(
             order=order,
             result=result,
@@ -97,26 +99,6 @@ class StateEngine:
         self.position = position
 
         return event, position
-
-    def create_exit_order(
-        self,
-        *,
-        position: PositionState,
-        current_price: float,
-        stop_loss: float | None = None,
-        take_profit: float | None = None,
-    ) -> ExecutionOrder | None:
-        signal = self.exit_rules.evaluate(
-            position=position,
-            current_price=current_price,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
-        )
-
-        return self.exit_order_factory.create(
-            position=position,
-            signal=signal,
-        )
 
     def _resolve_order_id(self, result: ExecutionResult) -> str:
         if result.order_id is None:

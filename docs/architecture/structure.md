@@ -1294,3 +1294,48 @@ equity = cash + position.quantity * position.avg_price
 - 修改 State
 - 判断价格条件
 
+
+---
+
+## Exit 职责迁移：State → Trade Service
+
+从本阶段开始，Exit 相关职责从 `core/state` 迁移到 `core/services/trade`。
+
+### core/state
+
+职责：
+
+- PortfolioState 更新
+- PositionLifecycle 调用
+- CapitalModel 调用
+- OrderEvent 生成
+
+禁止：
+
+- 判断 exit 条件
+- 生成 exit order
+- 编排 exit 服务
+
+### core/services/trade
+
+职责：
+
+- ExitRules：判断 stop_loss / take_profit
+- ExitOrderFactory：生成平仓 ExecutionOrder
+- ExitService：组合 ExitRules 与 ExitOrderFactory
+
+禁止：
+
+- 修改 PortfolioState
+- 执行订单
+- 修改 cash / equity
+- 计算 pnl
+
+### Runtime
+
+职责：
+
+- 在 market loop 中调用 ExitService
+- 如生成 exit order，则交给 broker 执行
+- 执行结果再交回 StateEngine.apply
+
