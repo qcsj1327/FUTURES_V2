@@ -14,6 +14,8 @@ const state = {
   selectedEvent: null,
   lastManifestJson: null,
   lastEventsUrl: null,
+  eventsSortKey: 'ts',
+  eventsSortDir: 'asc',
 };
 
 function qs(params) {
@@ -276,7 +278,9 @@ async function loadEvents() {
   const url = `/runs/${state.selected}/events?${qs(params)}`;
   state.lastEventsUrl = url;
   const d = await apiGet(`/runs/${state.selected}/events`, params);
-  renderEventsTable(d.timeline || []);
+  const sorted = sortEventsRows(d.timeline || []);
+  renderSortIndicators();
+  renderEventsTable(sorted);
 }
 
 function applyEventsFilter({ since_ts, event_type, strategy_id, success }) {
@@ -295,6 +299,45 @@ function applyEventsFilter({ since_ts, event_type, strategy_id, success }) {
   // reset paging
   $("offset").value = "0";
   loadEvents();
+}
+
+
+function sortEventsRows(rows) {
+  const key = state.eventsSortKey || "ts";
+  const dir = state.eventsSortDir || "asc";
+
+  const getv = (ev) => {
+    const v = ev[key];
+    if (key === "success") {
+      if (v === true) return 1;
+      if (v === false) return 0;
+      return -1;
+    }
+    if (typeof v === "number") return v;
+    if (typeof v === "string") return v;
+    return v === null || v === undefined ? "" : String(v);
+  };
+
+  const out = rows.slice().sort((a, b) => {
+    const va = getv(a);
+    const vb = getv(b);
+    if (va < vb) return -1;
+    if (va > vb) return 1;
+    return 0;
+  });
+  return dir === "desc" ? out.reverse() : out;
+}
+
+function renderSortIndicators() {
+  document.querySelectorAll("th.thsort").forEach((th) => {
+    const k = th.getAttribute("data-sort");
+    const base = (th.textContent || "").replace(/[▲▼]\s*$/, "").trim();
+    if (k === state.eventsSortKey) {
+      th.textContent = base + (state.eventsSortDir === "desc" ? " ▼" : " ▲");
+    } else {
+      th.textContent = base;
+    }
+  });
 }
 
 function renderEventsTable(rows) {
