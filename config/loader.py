@@ -54,6 +54,8 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     if raw.get("schema_version") != 1:
         raise ValueError("unsupported schema_version")
 
+    base_dir = (path.parent if path is not None else Path.cwd())
+
     env = raw.get("env", base.env)
 
     # universe
@@ -148,7 +150,10 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             return default
         if not isinstance(v, str):
             raise ValueError(f"datastore.{key} must be str path")
-        return Path(v)
+        pp = Path(v).expanduser()
+        if pp.is_absolute():
+            return pp
+        return (base_dir / pp).resolve()
 
     datastore = DataStoreSpec(
         store_root=_p("store_root", base.datastore.store_root),
@@ -230,6 +235,13 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     if not isinstance(md_params, dict):
         raise ValueError("adapters.market_data.params must be object")
     prices_path = md_raw.get("prices_path", None)
+    # resolve prices_path relative to plan file dir (not cwd)
+    if isinstance(prices_path, str):
+        pp = Path(prices_path).expanduser()
+        if not pp.is_absolute():
+            prices_path = str((base_dir / pp).resolve())
+        else:
+            prices_path = str(pp)
     if prices_path is not None and not isinstance(prices_path, str):
         raise ValueError("adapters.market_data.prices_path must be str")
     if md_mode not in {"simulated", "simulated_v2", "live_file"}:
