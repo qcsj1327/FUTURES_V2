@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from web.readmodel.models import RunListItem, RunReadModel
-from web.viewmodels.zh_mapping import zh_reason, zh_router_mode
+from web.viewmodels.zh_mapping import (
+    zh_position_side,
+    zh_reason,
+    zh_router_mode,
+    zh_side,
+)
 
 
 def run_list_item_to_vm(item: RunListItem) -> dict[str, Any]:
@@ -63,12 +68,24 @@ def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
     order_raw = payload.get("order_events")
     order_events = order_raw if isinstance(order_raw, list) else []
 
+    tl_raw = payload.get("timeline")
+    timeline = tl_raw if isinstance(tl_raw, list) else []
+
     def _annotate(ev: Any) -> Any:
         if not isinstance(ev, dict):
             return ev
-        r = ev.get("reason") if isinstance(ev.get("reason"), str) else None
+
         ev2 = dict(ev)
+
+        r = ev.get("reason") if isinstance(ev.get("reason"), str) else None
         ev2["reason_zh"] = zh_reason(r)
+
+        side = ev.get("side") if isinstance(ev.get("side"), str) else None
+        ev2["side_zh"] = zh_side(side)
+
+        ps = ev.get("position_side") if isinstance(ev.get("position_side"), str) else None
+        ev2["position_side_zh"] = zh_position_side(ps)
+
         return ev2
 
     return {
@@ -78,4 +95,5 @@ def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
         "paths": payload.get("paths"),
         "fill_events": [_annotate(x) for x in fill_events],
         "order_events": [_annotate(x) for x in order_events],
+        "timeline": [_annotate(x) for x in timeline],
     }
