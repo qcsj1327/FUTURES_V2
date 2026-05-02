@@ -52,3 +52,7 @@ data/artifacts/manifests/
 # local plans
 plan.json
 .vscode/
+
+# local editor / env
+.vscode/
+.env
