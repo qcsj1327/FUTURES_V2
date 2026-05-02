@@ -18,8 +18,14 @@ def health_route() -> dict[str, Any]:
 
 
 @app.get("/manifests")
-def manifests_route() -> list[str]:
-    return list_manifests()
+def manifests_route(
+    runtime_id: str = Query(default=""),
+    limit: int = Query(default=200, ge=1, le=2000),
+    offset: int = Query(default=0, ge=0),
+) -> list[str]:
+    rid = runtime_id.strip() or None
+    items = list_manifests(runtime_id=rid)
+    return items[offset : offset + limit]
 
 
 @app.get("/manifests/{filename}")
@@ -35,11 +41,14 @@ def runs_route(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     q: str = Query(default=""),
+    approved: str = Query(default=""),
+    router_mode: str = Query(default=""),
+    strategy: str = Query(default=""),
 ) -> list[dict[str, Any]]:
     items = list_runs()
 
-    if q:
-        qn = q.strip().lower()
+    qn = q.strip().lower()
+    if qn:
         items = [
             x
             for x in items
@@ -47,6 +56,19 @@ def runs_route(
             or qn in (x.get("router_mode") or "").lower()
             or any(qn in s.lower() for s in (x.get("strategy_names") or []))
         ]
+
+    ap = approved.strip().lower()
+    if ap in {"true", "false"}:
+        want = ap == "true"
+        items = [x for x in items if x.get("approved") is want]
+
+    rm = router_mode.strip()
+    if rm:
+        items = [x for x in items if x.get("router_mode") == rm]
+
+    st = strategy.strip()
+    if st:
+        items = [x for x in items if st in (x.get("strategy_names") or [])]
 
     return items[offset : offset + limit]
 
@@ -61,7 +83,6 @@ def run_latest_route(runtime_id: str) -> dict[str, Any]:
 
 @app.get("/runs/{runtime_id}/manifest")
 def run_latest_manifest_route(runtime_id: str) -> dict[str, Any]:
-    # Return the raw manifest json for debugging.
     from web.readmodel.repository import FileRepository
 
     repo = FileRepository(artifacts_root=Path("data/artifacts"))
