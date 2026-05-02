@@ -208,3 +208,14 @@ mark.hl{
 
 .thsort{ cursor:pointer; user-select:none; }
 .thsort:hover{ color:#93c5fd; }
+
+.ellipsis{
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge-ok{ color: #86efac; font-weight: 700; }
+.badge-bad{ color: #fca5a5; font-weight: 700; }
+
+#eventsTable{ table-layout: fixed; width: 100%; }
