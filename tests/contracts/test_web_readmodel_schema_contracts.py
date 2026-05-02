@@ -6,9 +6,14 @@ from pathlib import Path
 import pytest
 
 from scripts.run_plan import main as run_plan_main
+from web.api.runs import get_latest_run, list_runs
 
 
-def test_events_use_config_strategy_id_and_have_impl(
+def _all_files(root: Path) -> set[str]:
+    return {str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()}
+
+
+def test_web_list_and_detail_schema_is_read_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -21,7 +26,7 @@ def test_events_use_config_strategy_id_and_have_impl(
         "strategies": [
             {
                 "name": "simple_strategy",
-                "params": {},
+                "params": {"force_decision": "HOLD"},
                 "symbols": ["au", "ag"],
                 "priority": 10,
                 "weight": 1.0,
@@ -35,22 +40,22 @@ def test_events_use_config_strategy_id_and_have_impl(
         },
         "router": {"mode": "priority", "tie_breaker": "priority"},
     }
-
     cfg = tmp_path / "plan.json"
     cfg.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    rid = "rt_strategy_fields"
+    rid = "rt_web"
     assert run_plan_main(["--config", str(cfg), "--runtime-id", rid, "--clean"]) == 0
 
-    p = tmp_path / "data" / "store" / "live" / rid / "fill_events.jsonl"
-    assert p.exists()
+    before = _all_files(tmp_path)
 
-    allowed_ids = {"simple_strategy", "exit", "main"}
+    items = list_runs(artifacts_root=Path("data/artifacts"))
+    assert any(x["runtime_id"] == rid for x in items)
 
-    for line in p.read_text(encoding="utf-8").splitlines():
-        ev = json.loads(line)
-        assert ev.get("strategy_id") == ev.get("strategy_name")
-        assert ev["strategy_id"] in allowed_ids
-        assert ev["strategy_id"] != "simple_trend"
-        assert isinstance(ev.get("strategy_impl"), str)
-        assert ev["strategy_impl"]
+    detail = get_latest_run(runtime_id=rid, artifacts_root=Path("data/artifacts"))
+    assert detail["runtime_id"] == rid
+    assert "router_mode_zh" in detail
+    assert "summaries" in detail
+    assert "decision" in detail
+
+    after = _all_files(tmp_path)
+    assert before == after

@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 
 from scripts.run_plan import main as run_plan_main
+from web.readmodel.loader import load_run_from_manifest
+from web.readmodel.repository import FileRepository
 
 
-def test_events_use_config_strategy_id_and_have_impl(
+def test_readmodel_fails_if_manifest_points_to_missing_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -21,7 +23,7 @@ def test_events_use_config_strategy_id_and_have_impl(
         "strategies": [
             {
                 "name": "simple_strategy",
-                "params": {},
+                "params": {"force_decision": "HOLD"},
                 "symbols": ["au", "ag"],
                 "priority": 10,
                 "weight": 1.0,
@@ -35,22 +37,24 @@ def test_events_use_config_strategy_id_and_have_impl(
         },
         "router": {"mode": "priority", "tie_breaker": "priority"},
     }
-
     cfg = tmp_path / "plan.json"
     cfg.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    rid = "rt_strategy_fields"
+    rid = "rt_manifest"
     assert run_plan_main(["--config", str(cfg), "--runtime-id", rid, "--clean"]) == 0
 
-    p = tmp_path / "data" / "store" / "live" / rid / "fill_events.jsonl"
-    assert p.exists()
+    repo = FileRepository(artifacts_root=Path("data/artifacts"))
+    mp = repo.latest_manifest_for_runtime(rid)
+    assert mp is not None
 
-    allowed_ids = {"simple_strategy", "exit", "main"}
+    m = repo.read_json(mp)
+    artifacts = m.get("artifacts")
+    assert isinstance(artifacts, dict)
 
-    for line in p.read_text(encoding="utf-8").splitlines():
-        ev = json.loads(line)
-        assert ev.get("strategy_id") == ev.get("strategy_name")
-        assert ev["strategy_id"] in allowed_ids
-        assert ev["strategy_id"] != "simple_trend"
-        assert isinstance(ev.get("strategy_impl"), str)
-        assert ev["strategy_impl"]
+    # poison the manifest: point current_summary to a missing file
+    artifacts["current_summary"] = str(tmp_path / "missing_current.json")
+    m["artifacts"] = artifacts
+    mp.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError):
+        _ = load_run_from_manifest(repo, mp)

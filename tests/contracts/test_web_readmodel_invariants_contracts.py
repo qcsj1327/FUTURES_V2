@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 
 from scripts.run_plan import main as run_plan_main
+from web.api.runs import get_latest_run
 
 
-def test_events_use_config_strategy_id_and_have_impl(
+def test_web_detail_invariants_router_and_plan_sha(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -35,22 +36,22 @@ def test_events_use_config_strategy_id_and_have_impl(
         },
         "router": {"mode": "priority", "tie_breaker": "priority"},
     }
-
     cfg = tmp_path / "plan.json"
     cfg.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    rid = "rt_strategy_fields"
+    rid = "rt_web_inv"
     assert run_plan_main(["--config", str(cfg), "--runtime-id", rid, "--clean"]) == 0
 
-    p = tmp_path / "data" / "store" / "live" / rid / "fill_events.jsonl"
-    assert p.exists()
+    detail = get_latest_run(runtime_id=rid, artifacts_root=Path("data/artifacts"))
 
-    allowed_ids = {"simple_strategy", "exit", "main"}
+    assert detail["runtime_id"] == rid
+    assert detail["router_mode"] == "priority"
+    assert detail["router_mode_zh"] != "未知路由"
+    assert detail["plan"]["sha256"]
+    assert isinstance(detail["reasons_zh"], list)
 
-    for line in p.read_text(encoding="utf-8").splitlines():
-        ev = json.loads(line)
-        assert ev.get("strategy_id") == ev.get("strategy_name")
-        assert ev["strategy_id"] in allowed_ids
-        assert ev["strategy_id"] != "simple_trend"
-        assert isinstance(ev.get("strategy_impl"), str)
-        assert ev["strategy_impl"]
+    cfg2 = detail["plan"]["config"]
+    assert isinstance(cfg2, dict)
+    router = cfg2.get("router")
+    assert isinstance(router, dict)
+    assert router.get("mode") == detail["router_mode"]
