@@ -156,7 +156,12 @@ def _make_universe_runtime(
     )
 
 
-def orchestrate(*, resolved: ResolvedPlan, clean: bool) -> OrchestrateResult:
+def orchestrate(
+    *,
+    resolved: ResolvedPlan,
+    clean: bool,
+    candidate_id_override: str | None = None,
+) -> OrchestrateResult:
     plan = resolved.plan
     rid = resolved.runtime_id
 
@@ -285,7 +290,7 @@ def orchestrate(*, resolved: ResolvedPlan, clean: bool) -> OrchestrateResult:
             output_dir=plan.datastore.decisions_dir,
         )
 
-    candidate_id = f"cand_{rid}"
+    candidate_id = candidate_id_override or f"cand_{rid}"
 
     if plan.promotion.write_approved:
         approved_path = write_approved_config(
