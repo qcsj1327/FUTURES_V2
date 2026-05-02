@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from web.readmodel.models import RunListItem, RunReadModel
+from web.readmodel.repository import FileRepository
+
+
+def _as_dict(v: Any) -> dict[str, Any]:
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list_str(v: Any) -> list[str]:
+    if not isinstance(v, list):
+        return []
+    return [x for x in v if isinstance(x, str)]
+
+
+def _load_artifact_payload(repo: FileRepository, path_str: Any) -> dict[str, Any]:
+    if not isinstance(path_str, str) or not path_str:
+        raise ValueError("artifact path must be a non-empty string")
+    p = Path(path_str)
+    if not p.exists():
+        raise FileNotFoundError(f"artifact not found: {p}")
+    return repo.read_json(p)
+
+
+def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunReadModel:
+    m = repo.read_json(manifest_path)
+    if str(m.get("kind")) != "promotion_manifest":
+        raise ValueError("not a promotion_manifest")
+
+    runtime_id = str(m.get("runtime_id"))
+    created_at = m.get("created_at")
+    candidate_id = m.get("candidate_id")
+
+    artifacts = _as_dict(m.get("artifacts"))
+    thresholds = _as_dict(m.get("thresholds"))
+
+    # required artifacts
+    cur_payload = _load_artifact_payload(repo, artifacts.get("current_summary"))
+    cand_payload = _load_artifact_payload(repo, artifacts.get("candidate_summary"))
+    dec_payload = _load_artifact_payload(repo, artifacts.get("decision"))
+
+    approved_payload: dict[str, Any] | None = None
+    approved_ref = artifacts.get("approved")
+    if isinstance(approved_ref, str) and approved_ref:
+        p = Path(approved_ref)
+        if p.exists():
+            approved_payload = repo.read_json(p)
+
+    # plan metadata
+    plan = _as_dict(m.get("plan"))
+    plan_path = plan.get("path") if isinstance(plan.get("path"), str) else None
+    plan_sha256 = plan.get("sha256") if isinstance(plan.get("sha256"), str) else None
+    plan_config = _as_dict(plan.get("config"))
+
+    return RunReadModel(
+        runtime_id=runtime_id,
+        created_at=str(created_at) if created_at is not None else None,
+        candidate_id=str(candidate_id) if candidate_id is not None else None,
+        manifest_path=str(manifest_path),
+        plan_path=plan_path,
+        plan_sha256=plan_sha256,
+        plan_config=plan_config,
+        current_summary=cur_payload,
+        candidate_summary=cand_payload,
+        decision=dec_payload,
+        approved=approved_payload,
+        thresholds=thresholds,
+    )
+
+
+def list_runs(repo: FileRepository) -> list[RunListItem]:
+    items: list[RunListItem] = []
+    for p in repo.list_manifest_paths():
+        try:
+            m = repo.read_json(p)
+        except Exception:
+            continue
+        if str(m.get("kind")) != "promotion_manifest":
+            continue
+
+        runtime_id = str(m.get("runtime_id", ""))
+        created_at = str(m.get("created_at")) if m.get("created_at") is not None else None
+
+        plan = _as_dict(m.get("plan"))
+        plan_sha256 = plan.get("sha256") if isinstance(plan.get("sha256"), str) else None
+        cfg = _as_dict(plan.get("config"))
+        router = _as_dict(cfg.get("router"))
+        router_mode = router.get("mode") if isinstance(router.get("mode"), str) else None
+        universe = _as_dict(cfg.get("universe"))
+        universe_symbols = _as_list_str(universe.get("symbols"))
+        strategies_raw = cfg.get("strategies")
+        strategy_names: list[str] = []
+        if isinstance(strategies_raw, list):
+            for s in strategies_raw:
+                if isinstance(s, dict) and isinstance(s.get("name"), str):
+                    strategy_names.append(s["name"])
+
+        approved: bool | None = None
+        artifacts = _as_dict(m.get("artifacts"))
+        if isinstance(artifacts.get("decision"), str) and Path(artifacts["decision"]).exists():
+            dec_payload = repo.read_json(Path(artifacts["decision"]))
+            decision_obj = _as_dict(dec_payload.get("decision"))
+            if isinstance(decision_obj.get("approved"), bool):
+                approved = decision_obj["approved"]
+
+        items.append(
+            RunListItem(
+                runtime_id=runtime_id,
+                created_at=created_at,
+                approved=approved,
+                router_mode=router_mode,
+                universe_symbols=universe_symbols,
+                strategy_names=strategy_names,
+                plan_sha256=plan_sha256,
+                manifest_path=str(p),
+            )
+        )
+
+    # newest first by created_at then filename
+    items.sort(key=lambda x: (x.created_at or "", x.manifest_path))
+    return list(reversed(items))
