@@ -38,9 +38,18 @@
             <input id="router_mode" class="input" placeholder="router_mode" />
           </div>
           <div class="row">
-            <input id="strategy" class="input" placeholder="strategy name" />
-            <button id="btnApply" class="btn primary">筛选</button>
-          </div>
+  <input id="strategy" class="input" placeholder="strategy name" />
+  <button id="btnApply" class="btn primary">筛选</button>
+</div>
+<div class="row">
+  <select id="recentHours" class="select">
+    <option value="">最近: 不限</option>
+    <option value="1">最近 1 小时</option>
+    <option value="6">最近 6 小时</option>
+    <option value="24">最近 24 小时</option>
+    <option value="72">最近 3 天</option>
+  </select>
+</div>
         </div>
 
         <div id="runsList" class="list"></div>

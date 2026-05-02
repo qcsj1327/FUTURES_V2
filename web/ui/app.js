@@ -49,6 +49,29 @@ function setActiveTab(name) {
   });
 }
 
+function parseIso(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function highlight(s, q) {
+  const text = String(s ?? '');
+  const query = String(q ?? '').trim();
+  if (!query) return escapeHtml(text);
+  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig');
+  return escapeHtml(text).replace(re, (m) => `<span class="hltext">${m}</span>`);
+}
+
 function fmtBadge(approved) {
   if (approved === true) return `<span class="badge ok">approved</span>`;
   if (approved === false) return `<span class="badge no">rejected</span>`;
@@ -58,24 +81,68 @@ function fmtBadge(approved) {
 function renderRuns(items) {
   const list = $("runsList");
   list.innerHTML = "";
-  items.forEach((x) => {
+
+  const q = $("q") ? $("q").value : "";
+  const recent = $("recentHours") ? $("recentHours").value : "";
+  let filtered = items.slice();
+
+  if (recent) {
+    const hrs = Number(recent);
+    const now = Date.now();
+    filtered = filtered.filter((x) => {
+      const d = parseIso(x.created_at);
+      if (!d) return true;
+      return now - d.getTime() <= hrs * 3600 * 1000;
+    });
+  }
+
+  filtered.forEach((x) => {
     const card = document.createElement("div");
     card.className = "card";
     if (state.selected && x.runtime_id === state.selected) {
       card.classList.add("selected");
     }
+
+    const ridHtml = highlight(x.runtime_id, q);
+    const routerHtml = highlight(x.router_mode_zh || x.router_mode || "-", q);
+    const stratHtml = highlight((x.strategy_names || []).join(", "), q);
+
     card.innerHTML = `
-      <div class="rid">${x.runtime_id} ${fmtBadge(x.approved)}</div>
+      <div class="rid">${ridHtml} ${fmtBadge(x.approved)}</div>
       <div class="meta">
-        <div>created_at: ${x.created_at || "-"}</div>
-        <div>router: ${x.router_mode_zh || x.router_mode || "-"}</div>
-        <div>symbols: ${(x.universe_symbols || []).join(", ")}</div>
-        <div>strategies: ${(x.strategy_names || []).join(", ")}</div>
+        <div>created_at: ${escapeHtml(x.created_at || "-")}</div>
+        <div>router: ${routerHtml}</div>
+        <div>symbols: ${escapeHtml((x.universe_symbols || []).join(", "))}</div>
+        <div>strategies: ${stratHtml}</div>
+        <div style="margin-top:6px;">
+          <button class="btn small js-copy-link">复制链接</button>
+        </div>
       </div>
     `;
-    card.addEventListener("click", () => selectRun(x.runtime_id));
+
+    card.addEventListener("click", (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest(".js-copy-link") : null;
+      if (btn) return; // handled separately
+      selectRun(x.runtime_id);
+    });
+
+    const btn = card.querySelector(".js-copy-link");
+    if (btn) {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const url = `${location.origin}/ui#rid=${encodeURIComponent(x.runtime_id)}`;
+        await copyText(url);
+      });
+    }
+
     list.appendChild(card);
   });
+}
+
+function getRidFromHash() {
+  const h = (location.hash || '').trim();
+  const m = h.match(/rid=([^&]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 async function loadRuns() {
@@ -92,8 +159,10 @@ async function loadRuns() {
   renderRuns(items);
   $("pageInfo").textContent = `page=${state.page + 1} limit=${state.limit}`;
 
-  // auto-select first item for better UX
-  if (!state.selected && items.length > 0) {
+  const hashRid = getRidFromHash();
+  if (hashRid && items.some((x) => x.runtime_id === hashRid)) {
+    if (state.selected !== hashRid) await selectRun(hashRid);
+  } else if (!state.selected && items.length > 0) {
     await selectRun(items[0].runtime_id);
   }
 }
@@ -265,6 +334,9 @@ function renderEventsTable(rows) {
 
 function wire() {
   $("btnRefreshRuns").onclick = () => loadRuns();
+  const rh = $("recentHours");
+  if (rh) rh.addEventListener('change', () => loadRuns());
+
   $("btnApply").onclick = () => {
     state.page = 0;
     loadRuns();
