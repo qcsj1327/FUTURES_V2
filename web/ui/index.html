@@ -69,7 +69,8 @@
         </div>
 
         <div id="tab-overview" class="tabpane active">
-          <pre id="overview" class="pre"></pre>
+          <div class="jsonbar" data-target="overview">  <div class="muted">Overview</div>  <div class="jsonbar-actions">    <input class="input jsonsearch" placeholder="搜索 key/value..." />    <button class="btn js-expand">展开</button>    <button class="btn js-collapse">折叠</button>  </div></div>
+<div id="overview" class="json"></div>
         </div>
 
         <div id="tab-events" class="tabpane">
@@ -81,6 +82,8 @@
               </select>
               <input id="tail" class="input" value="200" />
               <button id="btnLoadEvents" class="btn primary">加载</button>
+<button id="btnPrevEvents" class="btn">上一页</button>
+<button id="btnNextEvents" class="btn">下一页</button>
             </div>
             <div class="row">
               <input id="since_ts" class="input" placeholder="since_ts (int)" />
@@ -113,11 +116,17 @@
               <tbody id="eventsBody"></tbody>
             </table>
           </div>
+          <div class="row" style="margin-top:10px;">
+            <button id="btnCopyEvent" class="btn">复制选中事件 JSON</button>
+            <button id="btnCopyEventsLink" class="btn">复制当前 Events 查询链接</button>
+          </div>
+          <div id="eventDetail" class="json" style="margin-top:10px; display:none;"></div>
         </div>
 
         <div id="tab-metrics" class="tabpane">
           <div id="metricsCards" class="cards"></div>
-<pre id="metrics" class="pre"></pre>
+<div class="jsonbar" data-target="metrics">  <div class="muted">Metrics</div>  <div class="jsonbar-actions">    <input class="input jsonsearch" placeholder="搜索 key/value..." />    <button class="btn js-expand">展开</button>    <button class="btn js-collapse">折叠</button>  </div></div>
+<div id="metrics" class="json"></div>
         </div>
 
         <div id="tab-manifest" class="tabpane">
@@ -125,7 +134,8 @@
             <button id="btnLoadManifest" class="btn primary">加载 Manifest</button>
             <button id="btnDownloadManifest" class="btn">下载 JSON</button>
           </div>
-          <pre id="manifest" class="pre"></pre>
+          <div class="jsonbar" data-target="manifest">  <div class="muted">Manifest</div>  <div class="jsonbar-actions">    <input class="input jsonsearch" placeholder="搜索 key/value..." />    <button class="btn js-expand">展开</button>    <button class="btn js-collapse">折叠</button>  </div></div>
+<div id="manifest" class="json"></div>
         </div>
       </section>
     </main>

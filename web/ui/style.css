@@ -152,3 +152,46 @@ body {
 .kpi{background:#0f1117;border:1px solid var(--line);border-radius:12px;padding:10px;}
 .kpi .k{color:var(--muted);font-size:12px;}
 .kpi .v{font-size:16px;font-weight:700;margin-top:6px;}
+
+.table tr.selected td { background: rgba(59,130,246,.10); }
+
+.json{
+  background:#0f1117;
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:10px;
+  overflow:auto;
+  font-size:12px;
+  line-height:1.4;
+}
+.json details{ margin-left: 14px; }
+.json summary{ cursor:pointer; color:#93c5fd; }
+.json .kv{ display:flex; gap:8px; padding:2px 0; }
+.json .k{ color: var(--muted); min-width: 160px; }
+.json .v{ color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.json .leaf{ margin-left: 14px; }
+
+.jsonbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin: 8px 0 10px;
+}
+.jsonbar-actions{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.jsonsearch{
+  width: 260px;
+}
+mark.hl{
+  background: rgba(59,130,246,.25);
+  color: var(--text);
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+.linklike{color:#93c5fd;cursor:pointer;}
+.linklike:hover{text-decoration:underline;}
