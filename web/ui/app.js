@@ -96,7 +96,15 @@ function renderRuns(items) {
     });
   }
 
-  filtered.forEach((x) => {
+    if (filtered.length === 0) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<div class="rid">无结果</div><div class="meta"><div>请放宽筛选条件（q/approved/router/strategy/最近N小时）</div></div>`;
+    list.appendChild(card);
+    return;
+  }
+
+filtered.forEach((x) => {
     const card = document.createElement("div");
     card.className = "card";
     if (state.selected && x.runtime_id === state.selected) {
@@ -160,6 +168,10 @@ async function loadRuns() {
   $("pageInfo").textContent = `page=${state.page + 1} limit=${state.limit}`;
 
   const hashRid = getRidFromHash();
+  if (hashRid && !items.some((x) => x.runtime_id === hashRid)) {
+    setStatus(`hash rid not found: ${hashRid}`);
+  }
+
   if (hashRid && items.some((x) => x.runtime_id === hashRid)) {
     if (state.selected !== hashRid) await selectRun(hashRid);
   } else if (!state.selected && items.length > 0) {
