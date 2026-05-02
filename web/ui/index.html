@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>FUTURES_V2 Dashboard</title>
+    <link rel="stylesheet" href="/ui/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="title">FUTURES_V2</div>
+        <div class="subtitle">Web API Dashboard (read-only)</div>
+      </div>
+      <div class="actions">
+        <button id="btnRefreshRuns" class="btn">刷新 Runs</button>
+        <label class="toggle">
+          <input id="autoRefresh" type="checkbox" />
+          <span>自动刷新</span>
+        </label>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel left">
+        <div class="panel-header">
+          <div class="h">Runs</div>
+        </div>
+
+        <div class="filters">
+          <input id="q" class="input" placeholder="q: runtime_id / router / strategy" />
+          <div class="row">
+            <select id="approved" class="select">
+              <option value="">approved: all</option>
+              <option value="true">approved: true</option>
+              <option value="false">approved: false</option>
+            </select>
+            <input id="router_mode" class="input" placeholder="router_mode" />
+          </div>
+          <div class="row">
+            <input id="strategy" class="input" placeholder="strategy name" />
+            <button id="btnApply" class="btn primary">筛选</button>
+          </div>
+        </div>
+
+        <div id="runsList" class="list"></div>
+
+        <div class="pager">
+          <button id="prevPage" class="btn">上一页</button>
+          <div id="pageInfo" class="muted"></div>
+          <button id="nextPage" class="btn">下一页</button>
+        </div>
+      </section>
+
+      <section class="panel right">
+        <div class="panel-header">
+          <div class="h">Detail</div>
+          <div>
+  <div class="muted" id="selectedRid">未选择</div>
+  <div class="muted" id="statusLine"></div>
+</div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="overview">概览</button>
+          <button class="tab" data-tab="events">Events</button>
+          <button class="tab" data-tab="metrics">Metrics</button>
+          <button class="tab" data-tab="manifest">Manifest</button>
+        </div>
+
+        <div id="tab-overview" class="tabpane active">
+          <pre id="overview" class="pre"></pre>
+        </div>
+
+        <div id="tab-events" class="tabpane">
+          <div class="filters compact">
+            <div class="row">
+              <select id="env" class="select">
+                <option value="live">env: live</option>
+                <option value="sandbox">env: sandbox</option>
+              </select>
+              <input id="tail" class="input" value="200" />
+              <button id="btnLoadEvents" class="btn primary">加载</button>
+            </div>
+            <div class="row">
+              <input id="since_ts" class="input" placeholder="since_ts (int)" />
+              <input id="event_type" class="input" placeholder="event_type: order|execution" />
+            </div>
+            <div class="row">
+              <input id="strategy_id" class="input" placeholder="strategy_id" />
+              <input id="success" class="input" placeholder="success: true|false" />
+            </div>
+            <div class="row">
+              <input id="limit" class="input" value="200" />
+              <input id="offset" class="input" value="0" />
+            </div>
+          </div>
+
+          <div class="tablewrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>ts</th>
+                  <th>type</th>
+                  <th>symbol</th>
+                  <th>strategy_id</th>
+                  <th>success</th>
+                  <th>reason_zh</th>
+                  <th>side_zh</th>
+                  <th>pos_zh</th>
+                </tr>
+              </thead>
+              <tbody id="eventsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tab-metrics" class="tabpane">
+          <div id="metricsCards" class="cards"></div>
+<pre id="metrics" class="pre"></pre>
+        </div>
+
+        <div id="tab-manifest" class="tabpane">
+          <div class="row">
+            <button id="btnLoadManifest" class="btn primary">加载 Manifest</button>
+            <button id="btnDownloadManifest" class="btn">下载 JSON</button>
+          </div>
+          <pre id="manifest" class="pre"></pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="/ui/app.js"></script>
+  </body>
+</html>

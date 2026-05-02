@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from web.api.events import get_run_events
 from web.api.health import health
@@ -13,6 +15,13 @@ from web.api.runs import get_latest_run, list_runs
 from web.viewmodels.mapper import events_to_vm
 
 app = FastAPI(title="futures_v2 web", version="0.1.0")
+
+app.mount("/ui", StaticFiles(directory="web/ui", html=True), name="ui")
+
+@app.get("/")
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/ui")
+
 
 
 @app.get("/health")
