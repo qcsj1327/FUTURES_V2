@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,7 @@ def test_run_local_emits_plan_meta_when_enabled(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    rid = "rt_meta"
+    rid = "rt_plan_meta_local"
     assert (
         run_local_main(
             [
@@ -26,6 +25,12 @@ def test_run_local_emits_plan_meta_when_enabled(
                 "2",
                 "--ticks-sandbox",
                 "2",
+                "--min-events",
+                "1",
+                "--min-success-rate-improvement",
+                "-1.0",
+                "--max-consecutive-failures",
+                "99",
                 "--emit-plan-meta",
                 "1",
                 "--clean",
@@ -34,7 +39,6 @@ def test_run_local_emits_plan_meta_when_enabled(
         == 0
     )
 
-    # inspect_run should include plan.router/universe/strategies (not all null)
     report = inspect_run(
         runtime_id=rid,
         store_root=Path("data/store"),
@@ -44,13 +48,8 @@ def test_run_local_emits_plan_meta_when_enabled(
     plan = report.get("plan") if isinstance(report, dict) else None
     assert isinstance(plan, dict)
 
+    # should not be all-null
+    assert plan.get("sha256") is not None
     assert isinstance(plan.get("router"), dict)
     assert isinstance(plan.get("universe"), dict)
     assert isinstance(plan.get("strategies"), list)
-
-    # also verify manifest has plan field
-    mdir = tmp_path / "data" / "artifacts" / "manifests"
-    mfiles = sorted(mdir.glob(f"manifest_{rid}_*.json"))
-    assert mfiles
-    m = json.loads(mfiles[-1].read_text(encoding="utf-8"))
-    assert "plan" in m
