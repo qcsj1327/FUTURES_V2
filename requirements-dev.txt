@@ -1,0 +1,4 @@
+# Development / test dependencies for futures_v2
+httpx
+fastapi
+uvicorn
