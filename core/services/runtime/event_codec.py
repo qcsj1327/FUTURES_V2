@@ -22,7 +22,7 @@ def build_base_event(
         "symbol": symbol,
         "strategy_name": strategy_name,  # legacy, stable = strategy_id
         "strategy_id": strategy_id,      # new
-        "strategy_impl": strategy_impl,  # new (debug)
+        "strategy_impl": (strategy_impl or "unknown"),  # new (debug)
     }
 
 

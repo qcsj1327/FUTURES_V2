@@ -74,7 +74,12 @@ class Runtime:
             if exit_result.success:
                 self.orders_submitted += 1
 
-            self._maybe_append_events(exit_order, exit_result, strategy_name="exit")
+            self._maybe_append_events(
+                exit_order,
+                exit_result,
+                strategy_name="exit",
+                strategy_impl="ExitService",
+            )
             self.state.apply(exit_order, exit_result, strategy_name="exit")
             self._maybe_save_snapshot()
 
@@ -108,7 +113,11 @@ class Runtime:
         if order is not None and exec_result.success:
             self.orders_submitted += 1
 
-        name = getattr(decision, "strategy_name", "main")
+        name = (
+            strategy_name
+            or getattr(decision, "strategy_name", None)
+            or "main"
+        )
         self._maybe_append_events(
             order,
             exec_result,
@@ -135,6 +144,7 @@ class Runtime:
             env=self.environment,
             strategy_name=strategy_name,
             symbol=self.config.symbol,
+            strategy_impl=strategy_impl,
         )
 
         order_payload = encode_order_event(order)
