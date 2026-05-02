@@ -11,10 +11,14 @@ from typing import Any
 from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
 from adapters.storage.datastore_fs import JSONLFileDataStore
-from app.orchestration.run_plan_orchestrator import orchestrate, resolve_plan
+from app.orchestration.run_plan_orchestrator import (
+    orchestrate,
+    resolve_plan,
+)
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from config.defaults import default_plan
+from config.loader import load_plan
 from optimize.promoter.approved_config import write_approved_config
 from optimize.promoter.decision_artifact import write_promotion_decision
 from optimize.promoter.manifest_artifact import write_promotion_manifest
@@ -230,10 +234,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # Build a plan from defaults (or optional config), then apply CLI overrides
     if plan_path is not None:
-        from config.loader import load_plan
         plan = load_plan(plan_path, runtime_id=args.runtime_id)
     else:
-        plan = default_plan(runtime_id=args.runtime_id)
+        plan_path = Path(args.config) if args.config else None
+        if plan_path is not None:
+            plan = load_plan(plan_path, runtime_id=args.runtime_id)
+        else:
+            plan = default_plan(runtime_id=args.runtime_id)
 
     # Optional symbol override: if provided, replace universe and strategy symbols
     sym = args.symbol.strip()
