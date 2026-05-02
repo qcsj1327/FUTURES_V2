@@ -5,9 +5,12 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 
+from web.api.events import get_run_events
 from web.api.health import health
 from web.api.manifests import get_manifest, list_manifests
+from web.api.metrics import get_run_metrics
 from web.api.runs import get_latest_run, list_runs
+from web.viewmodels.mapper import events_to_vm
 
 app = FastAPI(title="futures_v2 web", version="0.1.0")
 
@@ -90,3 +93,21 @@ def run_latest_manifest_route(runtime_id: str) -> dict[str, Any]:
     if mp is None:
         raise HTTPException(status_code=404, detail=f"no manifest for runtime_id={runtime_id}")
     return repo.read_json(mp)
+
+
+@app.get("/runs/{runtime_id}/events")
+def run_events_route(
+    runtime_id: str,
+    env: str = Query(default="live"),
+    tail: int = Query(default=50, ge=1, le=5000),
+) -> dict[str, Any]:
+    payload = get_run_events(runtime_id=runtime_id, env=env, tail=tail)
+    return events_to_vm(payload)
+
+
+@app.get("/runs/{runtime_id}/metrics")
+def run_metrics_route(runtime_id: str) -> dict[str, Any]:
+    try:
+        return get_run_metrics(runtime_id=runtime_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e

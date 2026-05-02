@@ -54,3 +54,28 @@ def run_to_vm(run: RunReadModel) -> dict[str, Any]:
         "approved": run.approved,
         "thresholds": run.thresholds,
     }
+
+
+def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
+    fill_raw = payload.get("fill_events")
+    fill_events = fill_raw if isinstance(fill_raw, list) else []
+
+    order_raw = payload.get("order_events")
+    order_events = order_raw if isinstance(order_raw, list) else []
+
+    def _annotate(ev: Any) -> Any:
+        if not isinstance(ev, dict):
+            return ev
+        r = ev.get("reason") if isinstance(ev.get("reason"), str) else None
+        ev2 = dict(ev)
+        ev2["reason_zh"] = zh_reason(r)
+        return ev2
+
+    return {
+        "runtime_id": payload.get("runtime_id"),
+        "env": payload.get("env"),
+        "tail": payload.get("tail"),
+        "paths": payload.get("paths"),
+        "fill_events": [_annotate(x) for x in fill_events],
+        "order_events": [_annotate(x) for x in order_events],
+    }
