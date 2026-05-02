@@ -5,259 +5,27 @@ import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import cast
+from typing import Any
 
-from adapters.broker.simulated_broker import SimulatedBroker
-from adapters.marketdata.base import MarketDataAdapter
-from adapters.marketdata.live_market_data import LiveFileMarketData
-from adapters.marketdata.simulated_market_data import SimulatedMarketData
-from adapters.marketdata.simulated_market_data_v2 import SimulatedMarketDataV2
-from app.runtime_config import RuntimeConfig
-from app.runtime_factory import RuntimeFactory
-from app.universe_runtime import UniverseRuntime
+from app.orchestration.run_plan_orchestrator import (
+    compute_plan_meta_from_file,
+    orchestrate,
+    resolve_plan,
+)
+from config.defaults import default_plan
 from config.loader import load_plan
-from config.models import RunPlan, StrategySpec
-from core.signal_router.router import RouterConfig
-from optimize.promoter.approved_config import write_approved_config
-from optimize.promoter.decision_artifact import write_promotion_decision
-from optimize.promoter.manifest_artifact import write_promotion_manifest
-from optimize.promoter.promote_from_datastore import promote_from_datastore
-from optimize.promoter.promotion_gate import PromotionThresholds
-from optimize.promoter.summary_artifact import write_summary_artifact
-from research.datastore_replay import replay_execution_events, summarize_execution_events
-from strategies.base.strategy import Strategy
-from strategies.registry import StrategyRegistry
-from strategies.strategy_set import StrategyEntry, StrategySet
 
 
-def _rm_tree(path: Path) -> None:
-    if not path.exists():
-        return
-    for p in sorted(path.rglob("*"), reverse=True):
-        if p.is_file() or p.is_symlink():
-            p.unlink()
-        else:
-            p.rmdir()
-    path.rmdir()
-
-
-def _make_runtime_config(*, default_quantity: float) -> RuntimeConfig:
-    cfg = RuntimeConfig()
-    try:
-        cfg.default_quantity = default_quantity  # type: ignore[misc]
-    except Exception:
-        pass
-    return cfg
-
-
-def _build_market_data(plan: RunPlan) -> MarketDataAdapter:
-    md_mode = plan.adapters.market_data.mode
-    if md_mode == "simulated":
-        return SimulatedMarketData()
-    if md_mode == "simulated_v2":
-        params = plan.adapters.market_data.params
-        seed = int(params.get("seed", 1))
-        drift = float(params.get("drift", 0.0))
-        vol = float(params.get("vol", 0.01))
-        start_prices_any = params.get("start_prices", {})
-        start_prices: dict[str, float] = {}
-        if isinstance(start_prices_any, dict):
-            for k, v in start_prices_any.items():
-                if isinstance(k, str) and isinstance(v, (int, float)):
-                    start_prices[k] = float(v)
-
-        # Expand universe to include base and *_main variants to match execution symbols.
-        base_syms = list(plan.universe.symbols)
-        expanded = list(dict.fromkeys(base_syms + [f"{s}_main" for s in base_syms]))
-        for s in base_syms:
-            if s in start_prices and f"{s}_main" not in start_prices:
-                start_prices[f"{s}_main"] = start_prices[s]
-
-        return SimulatedMarketDataV2(
-            symbols=expanded,
-            seed=seed,
-            start_prices=start_prices,
-            drift=drift,
-            vol=vol,
-        )
-    if md_mode == "live_file":
-        assert plan.adapters.market_data.prices_path is not None
-        return LiveFileMarketData(prices_path=Path(plan.adapters.market_data.prices_path))
-    raise ValueError(f"unknown market_data mode: {md_mode}")
-
-
-def _build_strategy_entries(strategies: list[StrategySpec]) -> list[StrategyEntry]:
-    entries: list[StrategyEntry] = []
-    for s in strategies:
-        strat: Strategy = StrategyRegistry.create(name=s.name, params=s.params)
-        entries.append(
-            StrategyEntry(
-                name=s.name,
-                strategy=strat,
-                symbols=s.symbols,
-                priority=s.priority,
-                params=s.params,
-            )
-        )
-    return entries
-
-
-def run_all(plan: RunPlan, *, clean: bool, plan_meta: dict[str, object]) -> None:
-    store_root = Path(plan.datastore.store_root)
-    approved_dir = Path(plan.datastore.approved_dir)
-    decisions_dir = Path(plan.datastore.decisions_dir)
-    summaries_dir = Path(plan.datastore.summaries_dir)
-    manifests_dir = Path(plan.datastore.manifests_dir)
-
-    if clean:
-        _rm_tree(store_root)
-        _rm_tree(approved_dir)
-        _rm_tree(decisions_dir)
-        _rm_tree(summaries_dir)
-        _rm_tree(manifests_dir)
-
-    cfg = _make_runtime_config(default_quantity=plan.runtime.default_quantity)
-
-    # separate marketdata instances per env
-    md_live = _build_market_data(plan)
-    broker_live = SimulatedBroker(md_live)
-
-    entries = _build_strategy_entries(plan.strategies)
-    sset = StrategySet(entries)
-    priorities = {e.name: e.priority for e in entries}
-    weights = {s.name: s.weight for s in plan.strategies}
-    router_cfg = RouterConfig(mode=plan.router.mode, tie_breaker=plan.router.tie_breaker)
-
-    # -------- Live session --------
-    live_executor = RuntimeFactory.build_live_runtime(
-        config=cfg,
-        runtime_id=plan.runtime.runtime_id,
-        market_data=md_live,
-        broker=broker_live,
-    )
-    uni_live = UniverseRuntime(
-        executor=live_executor,
-        market_data=md_live,
-        universe_symbols=plan.universe.symbols,
-        strategy_set=sset,
-        strategy_priorities=priorities,
-        strategy_weights=weights,
-        router_config=router_cfg,
-    )
-    for _ in range(plan.runtime.ticks_live):
-        uni_live.run_tick()
-
-    # -------- Sandbox session --------
-    md_sandbox = _build_market_data(plan)
-    broker_sandbox = SimulatedBroker(md_sandbox)
-    sandbox_executor = RuntimeFactory.build_sandbox_runtime_from_live(
-        live_executor,
-        market_data=md_sandbox,
-        broker=broker_sandbox,
-        runtime_id=plan.runtime.runtime_id,
-    )
-    uni_sandbox = UniverseRuntime(
-        executor=sandbox_executor,
-        market_data=md_sandbox,
-        universe_symbols=plan.universe.symbols,
-        strategy_set=sset,
-        strategy_priorities=priorities,
-        strategy_weights=weights,
-        router_config=router_cfg,
-    )
-    for _ in range(plan.runtime.ticks_sandbox):
-        uni_sandbox.run_tick()
-
-    # datastore must exist (factory defaults inject FS stores)
-    live_store = live_executor.datastore
-    sandbox_store = sandbox_executor.datastore
-    assert live_store is not None
-    assert sandbox_store is not None
-
-    thresholds = PromotionThresholds(
-        min_events=plan.promotion.min_events,
-        min_success_rate_improvement=plan.promotion.min_success_rate_improvement,
-        max_consecutive_failures=plan.promotion.max_consecutive_failures,
-    )
-    decision = promote_from_datastore(
-        current_store=live_store,
-        current_env="live",
-        candidate_store=sandbox_store,
-        candidate_env="sandbox",
-        thresholds=thresholds,
-    )
-
-    cur_events = replay_execution_events(live_store, env="live")
-    cand_events = replay_execution_events(sandbox_store, env="sandbox")
-    cur_summary = summarize_execution_events(cur_events)
-    cand_summary = summarize_execution_events(cand_events)
-    cur_metrics = asdict(cur_summary)
-    cand_metrics = asdict(cand_summary)
-
-    cur_path = None
-    cand_path = None
-    if plan.promotion.write_summary:
-        cur_path = write_summary_artifact(
-            runtime_id=plan.runtime.runtime_id,
-            role="current",
-            summary=cur_metrics,
-            output_dir=summaries_dir,
-        )
-        cand_path = write_summary_artifact(
-            runtime_id=plan.runtime.runtime_id,
-            role="candidate",
-            summary=cand_metrics,
-            output_dir=summaries_dir,
-        )
-
-    decision_path = None
-    if plan.promotion.write_decision:
-        decision_path = write_promotion_decision(
-            runtime_id=plan.runtime.runtime_id,
-            decision=asdict(decision),
-            thresholds=asdict(thresholds),
-            current_metrics=cur_metrics,
-            candidate_metrics=cand_metrics,
-            output_dir=decisions_dir,
-        )
-
-    candidate_id = f"cand_{plan.runtime.runtime_id}"
-    candidate_config = {
-        "universe": asdict(plan.universe),
-        "strategies": [asdict(s) for s in plan.strategies],
-    }
-
-    approved_path = None
-    if plan.promotion.write_approved:
-        approved_path = write_approved_config(
-            approved=decision.approved,
-            candidate_id=candidate_id,
-            candidate_config=candidate_config,
-            decision_deltas=decision.deltas,
-            thresholds=asdict(thresholds),
-            current_metrics=cur_metrics,
-            candidate_metrics=cand_metrics,
-            output_dir=approved_dir,
-            filename=f"approved_{candidate_id}.json",
-        )
-
-    if plan.promotion.write_manifest:
-        _ = write_promotion_manifest(
-            runtime_id=plan.runtime.runtime_id,
-            candidate_id=candidate_id,
-            candidate_config=candidate_config,
-            thresholds=asdict(thresholds),
-            current_summary_path=cur_path,
-            candidate_summary_path=cand_path,
-            decision_path=decision_path,
-            approved_path=approved_path,
-            plan=cast(dict[str, object], plan_meta["config"]),
-            plan_path=str(plan_meta["path"]) if plan_meta["path"] is not None else None,
-            plan_sha256=str(plan_meta["sha256"]),
-            output_dir=manifests_dir,
-        )
-
-    print(json.dumps(asdict(decision), ensure_ascii=False, indent=2, default=str))
+def _plan_meta_for(plan_path: Path | None, *, plan_obj: Any) -> dict[str, Any] | None:
+    if plan_path is None:
+        # still provide meta for audit consistency when running default plan
+        plan_json = json.dumps(asdict(plan_obj), ensure_ascii=False, sort_keys=True, default=str)
+        return {
+            "path": None,
+            "sha256": hashlib.sha256(plan_json.encode("utf-8")).hexdigest(),
+            "config": json.loads(plan_json),
+        }
+    return compute_plan_meta_from_file(plan_path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -265,26 +33,35 @@ def main(argv: list[str] | None = None) -> int:
         prog="run_plan",
         description="Run a full plan (multi-symbol/multi-strategy) end-to-end.",
     )
-    parser.add_argument("--config", type=str, default="")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="",
+        help="Optional plan json (schema_version=1).",
+    )
     parser.add_argument("--runtime-id", type=str, default="r_plan")
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args(argv)
 
-    plan = load_plan(Path(args.config) if args.config else None, runtime_id=args.runtime_id)
-
-    if args.config:
-        plan_path = args.config
-        raw_bytes = Path(args.config).read_bytes()
-        plan_config = json.loads(raw_bytes.decode("utf-8"))
-        plan_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+    plan_path = Path(args.config) if args.config else None
+    if plan_path is not None:
+        plan = load_plan(plan_path, runtime_id=args.runtime_id)
     else:
-        plan_path = None
-        plan_json = json.dumps(asdict(plan), ensure_ascii=False, sort_keys=True, default=str)
-        plan_config = json.loads(plan_json)
-        plan_sha256 = hashlib.sha256(plan_json.encode("utf-8")).hexdigest()
+        plan = default_plan(runtime_id=args.runtime_id)
 
-    plan_meta: dict[str, object] = {"path": plan_path, "sha256": plan_sha256, "config": plan_config}
-    run_all(plan, clean=args.clean, plan_meta=plan_meta)
+    plan_meta = _plan_meta_for(plan_path, plan_obj=plan)
+    resolved = resolve_plan(plan=plan, plan_meta=plan_meta)
+
+    result = orchestrate(resolved=resolved, clean=args.clean)
+
+    # Keep CLI output stable: print decision if present, else print result
+    if result.decision_path:
+        payload = json.loads(Path(result.decision_path).read_text(encoding="utf-8"))
+        decision = payload.get("decision") if isinstance(payload, dict) else None
+        print(json.dumps(decision, ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(asdict(result), ensure_ascii=False, indent=2, default=str))
+
     return 0
 
 
