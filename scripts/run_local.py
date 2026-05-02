@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from dataclasses import asdict, is_dataclass, replace
 from datetime import UTC, datetime
@@ -201,6 +202,9 @@ def main(argv: list[str] | None = None) -> int:
         help="live | sandbox | promote | all",
     )
     parser.add_argument("--runtime-id", type=str, default="r1")
+    parser.add_argument("--config", type=str, default="")
+    parser.add_argument("--emit-plan-meta", type=int, default=1)
+
     parser.add_argument("--symbol", type=str, default="")
     parser.add_argument("--ticks-live", type=int, default=2)
     parser.add_argument("--ticks-sandbox", type=int, default=2)
@@ -222,8 +226,14 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    # Build a plan from defaults, then apply CLI overrides
-    plan = default_plan(runtime_id=args.runtime_id)
+    plan_path = Path(args.config) if args.config.strip() else None
+
+    # Build a plan from defaults (or optional config), then apply CLI overrides
+    if plan_path is not None:
+        from config.loader import load_plan
+        plan = load_plan(plan_path, runtime_id=args.runtime_id)
+    else:
+        plan = default_plan(runtime_id=args.runtime_id)
 
     # Optional symbol override: if provided, replace universe and strategy symbols
     sym = args.symbol.strip()
@@ -294,7 +304,22 @@ def main(argv: list[str] | None = None) -> int:
         plan = replace(plan, strategies=[s0, *plan.strategies[1:]])
 
     # Run orchestrator
-    resolved = resolve_plan(plan=plan, plan_meta=None)
+    # Build plan_meta for audit/inspect/web (effective plan after overrides)
+    plan_meta = None
+    if int(getattr(args, "emit_plan_meta", 1)) == 1:
+        plan_json = json.dumps(
+            asdict(plan),
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        plan_meta = {
+            "path": str(plan_path) if plan_path is not None else None,
+            "sha256": hashlib.sha256(plan_json.encode("utf-8")).hexdigest(),
+            "config": json.loads(plan_json),
+        }
+
+    resolved = resolve_plan(plan=plan, plan_meta=plan_meta)
     # run_local keeps timestamped candidate_id to avoid collisions and preserve audit semantics
     ts = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
     candidate_id_override = f"cand_{resolved.runtime_id}_{ts}"
