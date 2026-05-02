@@ -8,7 +8,7 @@ import pytest
 from scripts.run_plan import main as run_plan_main
 
 
-def test_events_include_strategy_id_and_strategy_impl(
+def test_events_use_config_strategy_id_and_have_impl(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -25,7 +25,7 @@ def test_events_include_strategy_id_and_strategy_impl(
                 "symbols": ["au", "ag"],
                 "priority": 10,
                 "weight": 1.0,
-            },
+            }
         ],
         "runtime": {"ticks_live": 2, "ticks_sandbox": 2, "default_quantity": 1.0},
         "promotion": {
@@ -35,6 +35,7 @@ def test_events_include_strategy_id_and_strategy_impl(
         },
         "router": {"mode": "priority", "tie_breaker": "priority"},
     }
+
     cfg = tmp_path / "plan.json"
     cfg.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -44,9 +45,12 @@ def test_events_include_strategy_id_and_strategy_impl(
     p = tmp_path / "data" / "store" / "live" / rid / "fill_events.jsonl"
     assert p.exists()
 
+    allowed_ids = {"simple_strategy", "exit", "main"}
+
     for line in p.read_text(encoding="utf-8").splitlines():
         ev = json.loads(line)
-        assert "strategy_name" in ev
-        assert "strategy_id" in ev
-        assert "strategy_impl" in ev
-        assert ev["strategy_id"] == ev["strategy_name"]
+        assert ev.get("strategy_id") == ev.get("strategy_name")
+        assert ev["strategy_id"] in allowed_ids
+        assert ev["strategy_id"] != "simple_trend"
+        assert isinstance(ev.get("strategy_impl"), str)
+        assert ev["strategy_impl"]

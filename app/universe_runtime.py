@@ -40,7 +40,7 @@ class UniverseRuntime:
             self.executor.run(
                 td.decision,
                 strategy_name=td.strategy_name,
-                strategy_impl=getattr(td, "strategy_impl", None),
+                strategy_impl=str(getattr(td, "strategy_impl", "unknown")),
             )
 
         # optional exit per position (best-effort symbol mapping)
