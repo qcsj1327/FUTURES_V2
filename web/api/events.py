@@ -21,6 +21,11 @@ def _tail_jsonl(path: Path, *, n: int) -> list[dict[str, Any]]:
     return out
 
 
+def _ts(ev: dict[str, Any]) -> int:
+    t = ev.get("ts")
+    return int(t) if isinstance(t, int) else 0
+
+
 def get_run_events(
     *,
     runtime_id: str,
@@ -35,6 +40,12 @@ def get_run_events(
     fill_events = _tail_jsonl(fill_path, n=tail)
     order_events = _tail_jsonl(order_path, n=tail)
 
+    # unified timeline, stable sort by (ts, event_type)
+    timeline = sorted(
+        [*order_events, *fill_events],
+        key=lambda x: (_ts(x), str(x.get("event_type", ""))),
+    )
+
     return {
         "runtime_id": runtime_id,
         "env": env,
@@ -45,4 +56,5 @@ def get_run_events(
         },
         "fill_events": fill_events,
         "order_events": order_events,
+        "timeline": timeline,
     }
