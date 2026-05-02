@@ -100,10 +100,25 @@ def run_events_route(
     runtime_id: str,
     env: str = Query(default="live"),
     tail: int = Query(default=50, ge=1, le=5000),
+    since_ts: int = Query(default=-1),
+    event_type: str = Query(default=""),
+    strategy_id: str = Query(default=""),
+    success: str = Query(default=""),
+    limit: int = Query(default=200, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
-    payload = get_run_events(runtime_id=runtime_id, env=env, tail=tail)
+    payload = get_run_events(
+        runtime_id=runtime_id,
+        env=env,
+        tail=tail,
+        since_ts=None if since_ts < 0 else since_ts,
+        event_type=event_type.strip() or None,
+        strategy_id=strategy_id.strip() or None,
+        success=success.strip() or None,
+        limit=limit,
+        offset=offset,
+    )
     return events_to_vm(payload)
-
 
 @app.get("/runs/{runtime_id}/metrics")
 def run_metrics_route(runtime_id: str) -> dict[str, Any]:
