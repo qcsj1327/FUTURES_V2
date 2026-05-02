@@ -9,9 +9,9 @@ def _tail_jsonl(path: Path, *, n: int) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()
-    tail = lines[-n:] if n > 0 else lines
+    tail_lines = lines[-n:] if n > 0 else lines
     out: list[dict[str, Any]] = []
-    for s in tail:
+    for s in tail_lines:
         try:
             v = json.loads(s)
         except Exception:
@@ -57,13 +57,11 @@ def get_run_events(
     fill_events = _tail_jsonl(fill_path, n=tail)
     order_events = _tail_jsonl(order_path, n=tail)
 
-    # unified timeline, stable sort by (ts, event_type)
     timeline_all = sorted(
         [*order_events, *fill_events],
         key=lambda x: (_ts(x), str(x.get("event_type", ""))),
     )
 
-    # apply filters on timeline
     filtered = timeline_all
 
     if since_ts is not None:
@@ -79,7 +77,6 @@ def get_run_events(
 
     sflag = _parse_bool(success or "")
     if sflag is not None:
-        # only execution events carry success
         filtered = [
             ev
             for ev in filtered
@@ -87,7 +84,6 @@ def get_run_events(
             and bool(ev.get("success", False)) is sflag
         ]
 
-    # pagination on filtered timeline
     if limit < 1:
         limit = 1
     if limit > 5000:
