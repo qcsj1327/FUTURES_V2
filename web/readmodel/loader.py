@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from web.readmodel.models import RunListItem, RunReadModel
 from web.readmodel.repository import FileRepository
+
+
+def _manifest_ts(path_str: str) -> str:
+    name = Path(path_str).name
+    m = re.match(r"^manifest_.*_([0-9]{8}T[0-9]{6}Z)\.json$", name)
+    return m.group(1) if m else ""
 
 
 def _as_dict(v: Any) -> dict[str, Any]:
@@ -119,7 +126,13 @@ def list_runs(repo: FileRepository) -> list[RunListItem]:
                 manifest_path=str(p),
             )
         )
-
-    # newest first by created_at then filename
-    items.sort(key=lambda x: (x.created_at or "", x.manifest_path))
-    return list(reversed(items))
+    # newest first by created_at then manifest filename (stable)
+    items.sort(
+        key=lambda x: (
+            _manifest_ts(x.manifest_path),
+            x.runtime_id,
+            Path(x.manifest_path).name,
+        ),
+        reverse=True,
+    )
+    return items
