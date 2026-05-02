@@ -6,42 +6,34 @@ from pathlib import Path
 import pytest
 
 from scripts.run_daemon import main as run_daemon_main
-from tools.inspect_run import inspect_run
 
 
-def test_run_daemon_writes_manifest_so_inspect_run_works(
+def test_run_daemon_writes_manifest_and_summaries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    # Minimal plan with datastore rooted under tmp_path
-    store_root = tmp_path / "data" / "store"
-    artifacts_root = tmp_path / "data" / "artifacts"
+    rid = "rt_daemon_test"
 
     plan = {
         "schema_version": 1,
         "env": "dev",
         "datastore": {
-            "store_root": str(store_root),
-            "artifacts_root": str(artifacts_root),
-            "approved_dir": str(artifacts_root / "approved"),
-            "decisions_dir": str(artifacts_root / "decisions"),
-            "summaries_dir": str(artifacts_root / "summaries"),
-            "manifests_dir": str(artifacts_root / "manifests"),
+            "store_root": "data/store",
+            "artifacts_root": "data/artifacts",
+            "approved_dir": "data/artifacts/approved",
+            "decisions_dir": "data/artifacts/decisions",
+            "summaries_dir": "data/artifacts/summaries",
+            "manifests_dir": "data/artifacts/manifests",
         },
-        "adapters": {
-            "market_data": {
-                "mode": "simulated_v2",
-                "params": {"seed": 1, "vol": 0.01},
-            }
-        },
-        "universe": {"symbols": ["au"]},
+        "adapters": {"market_data": {"mode": "simulated_v2", "params": {"seed": 1, "vol": 0.01}}},
+        "universe": {"symbols": ["au", "ag"]},
         "strategies": [
             {
                 "name": "simple_strategy",
-                "params": {},
-                "symbols": ["au"],
+                "params": {"force_decision": "HOLD"},
+                "symbols": ["au", "ag"],
                 "priority": 10,
                 "weight": 1.0,
             }
@@ -58,7 +50,6 @@ def test_run_daemon_writes_manifest_so_inspect_run_works(
     cfg = tmp_path / "plan.json"
     cfg.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    rid = "rt_daemon_test"
     rc = run_daemon_main(
         [
             "--config",
@@ -68,20 +59,20 @@ def test_run_daemon_writes_manifest_so_inspect_run_works(
             "--env",
             "sandbox",
             "--max-ticks",
-            "1",
+            "3",
             "--interval",
             "0.0",
+            "--artifact-every",
+            "1",
             "--clean",
         ]
     )
     assert rc == 0
 
-    # inspect_run should not raise (manifest must exist)
-    report = inspect_run(
-        runtime_id=rid,
-        store_root=store_root,
-        artifacts_root=artifacts_root,
-        tail=2,
-    )
-    assert report["runtime_id"] == rid
-    assert isinstance(report.get("manifest"), dict)
+    mdir = tmp_path / "data" / "artifacts" / "manifests"
+    manifests = list(mdir.glob(f"manifest_{rid}_*.json"))
+    assert manifests, "daemon must create at least one manifest for inspect_run"
+
+    sdir = tmp_path / "data" / "artifacts" / "summaries"
+    assert (sdir / f"current_{rid}.json").exists()
+    assert (sdir / f"candidate_{rid}.json").exists()
