@@ -4,6 +4,42 @@ from pathlib import Path
 from typing import Any
 
 from web.readmodel.repository import FileRepository
+from web.viewmodels.zh_mapping import zh_reason
+
+
+def _annotate_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    # payload is promotion_summary artifact json, keep original, add *_zh inside summary
+    out = dict(payload)
+
+    summary_raw = out.get("summary")
+    if not isinstance(summary_raw, dict):
+        return out
+
+    summary = dict(summary_raw)
+
+    frc_raw = summary.get("failure_reason_counts")
+    if isinstance(frc_raw, dict):
+        frc_zh: dict[str, int] = {}
+        for k, v in frc_raw.items():
+            if isinstance(k, str) and isinstance(v, int):
+                frc_zh[zh_reason(k)] = v
+        summary["failure_reason_counts_zh"] = frc_zh
+
+    tfr_raw = summary.get("top_failure_reasons")
+    if isinstance(tfr_raw, list):
+        tfr_zh: list[list[Any]] = []
+        for item in tfr_raw:
+            if (
+                isinstance(item, list)
+                and len(item) == 2
+                and isinstance(item[0], str)
+                and isinstance(item[1], int)
+            ):
+                tfr_zh.append([zh_reason(item[0]), item[1]])
+        summary["top_failure_reasons_zh"] = tfr_zh
+
+    out["summary"] = summary
+    return out
 
 
 def get_run_metrics(
@@ -29,9 +65,12 @@ def get_run_metrics(
         p = Path(ref)
         return repo.read_json(p) if p.exists() else {}
 
+    current = _annotate_summary(_load(cur_ref))
+    candidate = _annotate_summary(_load(cand_ref))
+
     return {
         "runtime_id": runtime_id,
         "manifest": str(mp),
-        "current": _load(cur_ref),
-        "candidate": _load(cand_ref),
+        "current": current,
+        "candidate": candidate,
     }
