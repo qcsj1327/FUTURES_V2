@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from adapters.broker.base import BrokerAdapter
 from adapters.broker.fill.fill_quantity_model import FillQuantityModel
-from adapters.broker.fill.slippage_model import SlippageModel
 from adapters.broker.order.order_id_generator import OrderIdGenerator
 from adapters.broker.order.order_tracker import OrderTracker
 from adapters.broker.order.rejection_policy import RejectionPolicy
 from adapters.marketdata.base import MarketDataAdapter
+from core.instruments.cost_model import calculate_trade_cost
+from core.instruments.specs import (
+    InstrumentSpec,
+    InstrumentSpecRegistry,
+    SlippageModel,
+)
 from domain.enums import ExecutionStatus
 from domain.execution import ExecutionOrder, ExecutionResult
 
@@ -42,7 +47,10 @@ class SimulatedBroker(BrokerAdapter):
         fill_delay_ticks: int = 0,
         partial_fill_ratio: float = 1.0,
         max_ticks_to_fill: int | None = None,
+        instrument_specs: InstrumentSpecRegistry | None = None,
     ) -> None:
+        if slippage_rate < 0:
+            raise ValueError("slippage_rate_must_be_non_negative")
         if fill_delay_ticks < 0:
             raise ValueError("fill_delay_ticks must be >= 0")
         if partial_fill_ratio <= 0 or partial_fill_ratio > 1:
@@ -50,10 +58,11 @@ class SimulatedBroker(BrokerAdapter):
         if max_ticks_to_fill is not None and max_ticks_to_fill < 1:
             raise ValueError("max_ticks_to_fill must be >= 1")
         self.market_data = market_data
-        self.slippage_model = SlippageModel(slippage_rate=slippage_rate)
+        self.slippage_rate = slippage_rate
         self.fill_quantity_model = FillQuantityModel(fill_ratio=fill_ratio)
         self.order_id_generator = OrderIdGenerator(prefix=order_id_prefix)
         self.order_tracker = OrderTracker()
+        self.instrument_specs = instrument_specs or InstrumentSpecRegistry()
         self.rejection_policy = rejection_policy or RejectionPolicy(
             reject_next_order=reject_next_order,
             rejected_symbols=rejected_symbols,
@@ -64,6 +73,7 @@ class SimulatedBroker(BrokerAdapter):
         self.max_ticks_to_fill = max_ticks_to_fill
         self._tick = 0
         self._pending: dict[str, _PendingOrder] = {}
+        self._execution_costs: dict[str, dict[str, float | None]] = {}
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         order_id = self.order_id_generator.next_id()
@@ -89,6 +99,20 @@ class SimulatedBroker(BrokerAdapter):
 
         if not order.trade_instrument_id:
             raise ValueError("ExecutionOrder.trade_instrument_id is required")
+        spec = self._spec_for(order)
+        if spec.min_qty is not None and order.quantity < spec.min_qty:
+            self.order_tracker.reject(order_id=order_id, reason="quantity_below_min_qty")
+            return ExecutionResult(
+                success=False,
+                status=ExecutionStatus.REJECTED,
+                ts=ts,
+                order_id=order_id,
+                fill_price=None,
+                reason="quantity_below_min_qty",
+                filled_quantity=None,
+                remaining_quantity=order.quantity,
+                avg_fill_price=None,
+            )
 
         if self._delayed_enabled():
             self._pending[order_id] = _PendingOrder(order=order, submit_tick=self._tick)
@@ -105,6 +129,9 @@ class SimulatedBroker(BrokerAdapter):
             )
 
         return self._fill_order(order_id=order_id, order=order, quantity_ratio=None, ts=ts)
+
+    def cost_fields(self, order_id: str) -> dict[str, float | None]:
+        return dict(self._execution_costs.get(order_id, {}))
 
     def poll_order_updates(self, tick: int) -> list[OrderLifecycleUpdate]:
         self._tick = tick
@@ -188,15 +215,20 @@ class SimulatedBroker(BrokerAdapter):
         ts: int,
     ) -> ExecutionResult:
         symbol = order.instrument_id
+        spec = self._spec_for(order)
         market_price = self.market_data.get_last_quote(symbol).price
-        fill_price = self.slippage_model.apply(
-            market_price=market_price,
-            side=order.side,
-        )
         if quantity_ratio is None:
             fill_quantity = self.fill_quantity_model.apply(order.quantity)
         else:
             fill_quantity = FillQuantityModel(fill_ratio=quantity_ratio).apply(order.quantity)
+        cost = calculate_trade_cost(
+            spec=spec,
+            side=order.side,
+            qty=fill_quantity.filled_quantity,
+            market_price=market_price,
+        )
+        fill_price = cost.fill_price
+        self._execution_costs[order_id] = cost.to_event_fields()
 
         self.order_tracker.fill(
             order_id=order_id,
@@ -218,4 +250,13 @@ class SimulatedBroker(BrokerAdapter):
             filled_quantity=fill_quantity.filled_quantity,
             remaining_quantity=fill_quantity.remaining_quantity,
             avg_fill_price=fill_price,
+        )
+
+    def _spec_for(self, order: ExecutionOrder) -> InstrumentSpec:
+        spec = self.instrument_specs.get(order.instrument_id)
+        if self.slippage_rate == 0:
+            return spec
+        return replace(
+            spec,
+            slippage_model=SlippageModel(mode="bps", value=self.slippage_rate * 10_000.0),
         )
