@@ -11,22 +11,30 @@ from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
 
 
-def positive_int(value: object, *, name: str, default: int) -> int:
+def strict_positive_int(params: dict[str, object], name: str) -> int:
+    value = params.get(name)
     if isinstance(value, bool) or not isinstance(value, int):
-        return default
-    return max(1, value)
+        raise ValueError(f"{name} must be positive int")
+    if value < 1:
+        raise ValueError(f"{name} must be positive int")
+    return value
 
 
-def positive_float(value: object, *, default: float) -> float:
+def strict_positive_float(params: dict[str, object], name: str) -> float:
+    value = params.get(name)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return default
-    return max(0.0, float(value))
+        raise ValueError(f"{name} must be positive number")
+    out = float(value)
+    if out <= 0.0:
+        raise ValueError(f"{name} must be positive number")
+    return out
 
 
-def direction_param(value: object) -> str:
+def strict_direction(params: dict[str, object], name: str) -> str:
+    value = params.get(name)
     if value in {"long", "short", "both"}:
         return str(value)
-    return "both"
+    raise ValueError(f"{name} must be long|short|both")
 
 
 def mean(values: Iterable[float]) -> float:

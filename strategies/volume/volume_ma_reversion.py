@@ -10,10 +10,10 @@ from strategies.volume._common import (
     RollingSeries,
     hold,
     mean,
-    positive_float,
-    positive_int,
     signal,
     stdev,
+    strict_positive_float,
+    strict_positive_int,
 )
 
 
@@ -29,10 +29,10 @@ class VolumeMAReversion(Strategy):
     @classmethod
     def from_params(cls, params: dict[str, object]) -> VolumeMAReversion:
         return cls(
-            window=positive_int(params.get("window"), name="window", default=50),
-            z_entry=positive_float(params.get("z_entry"), default=2.0),
-            z_exit=positive_float(params.get("z_exit"), default=0.5),
-            low_vol_mult=positive_float(params.get("low_vol_mult"), default=0.8),
+            window=strict_positive_int(params, "window"),
+            z_entry=strict_positive_float(params, "z_entry"),
+            z_exit=strict_positive_float(params, "z_exit"),
+            low_vol_mult=strict_positive_float(params, "low_vol_mult"),
         )
 
     def _series(self, symbol: str) -> RollingSeries:

@@ -52,7 +52,7 @@
       "weight": 0.7
     },
     {
-      "name": "volume_guard",
+      "name": "volume_observer_guard",
       "params": {
         "vol_window": 5,
         "min_vol_mult": 0.8

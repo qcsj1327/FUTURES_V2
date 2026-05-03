@@ -6,8 +6,8 @@ from typing import Any
 from strategies.base.simple_strategy import StrategyEngine
 from strategies.base.strategy import Strategy
 from strategies.parametrized_strategy import ParametrizedStrategy
-from strategies.volume.volume_guard import VolumeGuard
 from strategies.volume.volume_ma_reversion import VolumeMAReversion
+from strategies.volume.volume_observer_guard import VolumeObserverGuard
 from strategies.volume.volume_spike_breakout import VolumeSpikeBreakout
 from strategies.volume.volume_trend_filter import VolumeTrendFilter
 
@@ -24,7 +24,7 @@ class StrategyRegistry:
         "volume_spike_breakout": VolumeSpikeBreakout.from_params,
         "volume_ma_reversion": VolumeMAReversion.from_params,
         "volume_trend_filter": VolumeTrendFilter.from_params,
-        "volume_guard": VolumeGuard.from_params,
+        "volume_observer_guard": VolumeObserverGuard.from_params,
     }
 
     def __init__(self) -> None:
