@@ -31,6 +31,25 @@ def _call_with_supported_kwargs(fn: Any, /, *args: Any, **kwargs: Any) -> Any:
 def build_market_data(plan: RunPlan) -> MarketDataAdapter:
     mode = plan.adapters.market_data.mode
 
+    if mode == "tqkq":
+        params = plan.adapters.market_data.params
+        tq_symbols = params.get("tq_symbols")
+        if not isinstance(tq_symbols, dict):
+            raise ValueError("tqkq requires params.tq_symbols mapping")
+        mapping: dict[str, str] = {}
+        for k, v in tq_symbols.items():
+            if isinstance(k, str) and isinstance(v, str) and k and v:
+                mapping[k] = v
+        if not mapping:
+            raise ValueError("tqkq requires non-empty tq_symbols mapping")
+        import os
+        user = os.environ.get("TQKQ_USER", "").strip()
+        passwd = os.environ.get("TQKQ_PASS", "").strip()
+        if not user or not passwd:
+            raise ValueError("TQKQ_USER/TQKQ_PASS must be set in environment")
+        from adapters.marketdata.tqkq_market_data import TqKqMarketData
+        return TqKqMarketData(tq_symbols=mapping, auth_user=user, auth_pass=passwd)
+
     if mode == "live_file":
         prices_path = plan.adapters.market_data.prices_path
         if prices_path is None:

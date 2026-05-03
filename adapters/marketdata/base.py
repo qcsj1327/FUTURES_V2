@@ -13,7 +13,7 @@ class MarketQuote:
     symbol: str
     price: float
     volume: float | None
-    ts: int
+    ts: int | None
 
 
 class MarketDataAdapter(ABC):
