@@ -15,7 +15,15 @@ def test_run_plan_with_live_file_marketdata_runs(
     monkeypatch.chdir(tmp_path)
 
     prices = tmp_path / "prices.json"
-    prices.write_text(json.dumps({"au": 100.0, "ag": 50.0}), encoding="utf-8")
+    prices.write_text(
+        json.dumps(
+            {
+                "au": {"price": 100.0, "volume": 10.0, "ts": 1},
+                "ag": {"price": 50.0, "volume": 20.0, "ts": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     plan = {
         "schema_version": 1,
