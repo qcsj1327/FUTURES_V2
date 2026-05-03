@@ -28,16 +28,18 @@ def _call_with_supported_kwargs(fn: Any, /, *args: Any, **kwargs: Any) -> Any:
     return fn(*args, **filtered)
 
 
-def _build_market_data(plan: RunPlan) -> MarketDataAdapter:
+def build_market_data(plan: RunPlan) -> MarketDataAdapter:
     mode = plan.adapters.market_data.mode
 
     if mode == "live_file":
-        if plan.adapters.market_data.prices_path is None:
+        prices_path = plan.adapters.market_data.prices_path
+        if prices_path is None:
             raise ValueError("live_file requires prices_path")
-        return LiveFileMarketData(Path(plan.adapters.market_data.prices_path))
+        return LiveFileMarketData(Path(prices_path))
 
     if mode == "simulated_v2":
         params = plan.adapters.market_data.params
+
         seed_raw = params.get("seed", 1)
         seed = int(seed_raw) if isinstance(seed_raw, (int, float)) else 1
 
@@ -54,7 +56,6 @@ def _build_market_data(plan: RunPlan) -> MarketDataAdapter:
                 if isinstance(k, str) and isinstance(v, (int, float)):
                     start_prices[k] = float(v)
 
-        # v2 universe needs *_main to match execution instruments
         symbols: list[str] = list(plan.universe.symbols)
         for s in list(symbols):
             if not s.endswith("_main"):
@@ -71,7 +72,7 @@ def _build_market_data(plan: RunPlan) -> MarketDataAdapter:
     return SimulatedMarketData()
 
 
-def _build_strategy_set(plan: RunPlan) -> tuple[StrategySet, dict[str, int], dict[str, float]]:
+def build_strategy_set(plan: RunPlan) -> tuple[StrategySet, dict[str, int], dict[str, float]]:
     entries: list[StrategyEntry] = []
     for s in plan.strategies:
         impl = create_strategy(name=s.name, params=s.params)
@@ -88,6 +89,27 @@ def _build_strategy_set(plan: RunPlan) -> tuple[StrategySet, dict[str, int], dic
     priorities = {e.name: e.priority for e in entries}
     weights = {s.name: float(s.weight) for s in plan.strategies}
     return StrategySet(entries), priorities, weights
+
+
+def make_universe_runtime(
+    *,
+    executor: Any,
+    market_data: MarketDataAdapter,
+    plan: RunPlan,
+    strategy_set: StrategySet,
+    priorities: dict[str, int],
+    weights: dict[str, float],
+) -> UniverseRuntime:
+    router_config = RouterConfig(mode=plan.router.mode, tie_breaker=plan.router.tie_breaker)
+    return UniverseRuntime(
+        executor=executor,
+        market_data=market_data,
+        universe_symbols=list(plan.universe.symbols),
+        strategy_set=strategy_set,
+        strategy_priorities=priorities,
+        strategy_weights=weights,
+        router_config=router_config,
+    )
 
 
 @dataclass
@@ -111,15 +133,17 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
     env_root = store_root / env
     env_root.mkdir(parents=True, exist_ok=True)
 
-    market_data = _build_market_data(plan)
+    market_data = build_market_data(plan)
     broker = SimulatedBroker(market_data)
 
     datastore = JSONLFileDataStore(root_dir=env_root, env=env, runtime_id=runtime_id)
-
     cfg = RuntimeConfig()
 
-    # always create a live runtime for cloning sandbox (if needed)
-    live_store = JSONLFileDataStore(root_dir=store_root / "live", env="live", runtime_id=runtime_id)
+    live_store = JSONLFileDataStore(
+        root_dir=store_root / "live",
+        env="live",
+        runtime_id=runtime_id,
+    )
     live_runtime = _call_with_supported_kwargs(
         RuntimeFactory.build_live_runtime,
         config=cfg,
@@ -141,17 +165,14 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
             datastore=datastore,
         )
 
-    strategy_set, priorities, weights = _build_strategy_set(plan)
-    router_config = RouterConfig(mode=plan.router.mode, tie_breaker=plan.router.tie_breaker)
-
-    universe = UniverseRuntime(
+    strategy_set, priorities, weights = build_strategy_set(plan)
+    universe = make_universe_runtime(
         executor=executor,
         market_data=market_data,
-        universe_symbols=list(plan.universe.symbols),
+        plan=plan,
         strategy_set=strategy_set,
-        strategy_priorities=priorities,
-        strategy_weights=weights,
-        router_config=router_config,
+        priorities=priorities,
+        weights=weights,
     )
 
     return UniverseSession(

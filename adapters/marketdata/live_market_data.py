@@ -7,15 +7,21 @@ from pathlib import Path
 from adapters.marketdata.base import MarketDataAdapter
 
 
+def _base_symbol(symbol: str) -> str:
+    return symbol[:-5] if symbol.endswith("_main") else symbol
+
+
 @dataclass
 class LiveFileMarketData(MarketDataAdapter):
     """
     Read-only 'live' market data adapter backed by a JSON file.
 
-    File format:
-      {"au": 100.0, "ag": 50.0, ...}
+    Preferred file format (canonical):
+      {"au": 100.0, "ag": 50.0}
 
-    External process can update this file continuously from real market feeds.
+    Alias semantics:
+      - "au_main" is treated as an alias of "au"
+      - If both "au" and "au_main" exist in the file, they must be equal.
     """
 
     prices_path: Path
@@ -31,17 +37,42 @@ class LiveFileMarketData(MarketDataAdapter):
                 continue
             if isinstance(v, (int, float)):
                 out[k] = float(v)
+
+        # If both base and *_main are present, enforce equality (no pollution).
+        for k, v in list(out.items()):
+            if k.endswith("_main"):
+                base = _base_symbol(k)
+                if base in out and out[base] != v:
+                    raise ValueError(f"price mismatch: {base}={out[base]} vs {k}={v}")
         return out
+
+    def _resolve_one(self, prices: dict[str, float], symbol: str) -> float:
+        if symbol in prices:
+            return prices[symbol]
+
+        base = _base_symbol(symbol)
+        alt = base if symbol.endswith("_main") else f"{symbol}_main"
+
+        if alt in prices:
+            return prices[alt]
+        if base in prices:
+            return prices[base]
+
+        raise KeyError(f"missing price for symbol={symbol}")
 
     def get_last_price(self, symbol: str) -> float:
         prices = self._read_prices()
-        if symbol not in prices:
-            raise KeyError(f"missing price for symbol={symbol}")
-        return prices[symbol]
+        return self._resolve_one(prices, symbol)
 
     def get_last_prices(self, symbols: list[str]) -> dict[str, float]:
         prices = self._read_prices()
-        missing = [s for s in symbols if s not in prices]
+        out: dict[str, float] = {}
+        missing: list[str] = []
+        for s in symbols:
+            try:
+                out[s] = self._resolve_one(prices, s)
+            except KeyError:
+                missing.append(s)
         if missing:
             raise KeyError(f"missing prices: {missing}")
-        return {s: prices[s] for s in symbols}
+        return out

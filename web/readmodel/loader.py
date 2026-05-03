@@ -14,7 +14,7 @@ def _manifest_ts(path_str: str) -> str:
     return m.group(1) if m else ""
 
 
-def _as_dict(v: Any) -> dict[str, Any]:
+def _as_dict(v: Any) -> dict[str, Any] | None:
     return v if isinstance(v, dict) else {}
 
 
@@ -24,15 +24,15 @@ def _as_list_str(v: Any) -> list[str]:
     return [x for x in v if isinstance(x, str)]
 
 
-def _load_artifact_payload(repo: FileRepository, path_str: Any) -> dict[str, Any]:
-    if not isinstance(path_str, str) or not path_str:
+def _load_artifact_payload(repo: FileRepository, path_str: Any) -> dict[str, Any] | None:
+    if path_str is None:
+        return None
+    if not isinstance(path_str, str) or not path_str.strip():
         raise ValueError("artifact path must be a non-empty string")
     p = Path(path_str)
     if not p.exists():
         raise FileNotFoundError(f"artifact not found: {p}")
     return repo.read_json(p)
-
-
 def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunReadModel:
     m = repo.read_json(manifest_path)
     if str(m.get("kind")) != "promotion_manifest":
@@ -49,6 +49,8 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
     cur_payload = _load_artifact_payload(repo, artifacts.get("current_summary"))
     cand_payload = _load_artifact_payload(repo, artifacts.get("candidate_summary"))
     dec_payload = _load_artifact_payload(repo, artifacts.get("decision"))
+    if dec_payload is None:
+        dec_payload = {}
 
     approved_payload: dict[str, Any] | None = None
     approved_ref = artifacts.get("approved")
