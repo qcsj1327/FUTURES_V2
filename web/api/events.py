@@ -53,12 +53,14 @@ def get_run_events(
     base = store_root / env / runtime_id
     fill_path = base / "fill_events.jsonl"
     order_path = base / "order_events.jsonl"
+    roll_path = base / "roll_events.jsonl"
 
     fill_events = _tail_jsonl(fill_path, n=tail)
     order_events = _tail_jsonl(order_path, n=tail)
+    roll_events = _tail_jsonl(roll_path, n=tail)
 
     timeline_all = sorted(
-        [*order_events, *fill_events],
+        [*order_events, *fill_events, *roll_events],
         key=lambda x: (_ts(x), str(x.get("event_type", ""))),
     )
 
@@ -108,9 +110,11 @@ def get_run_events(
         "paths": {
             "fill_events": str(fill_path),
             "order_events": str(order_path),
+            "roll_events": str(roll_path),
         },
         "fill_events": fill_events,
         "order_events": order_events,
+        "roll_events": roll_events,
         "timeline_total": len(timeline_all),
         "timeline_filtered_total": len(filtered),
         "timeline": page,

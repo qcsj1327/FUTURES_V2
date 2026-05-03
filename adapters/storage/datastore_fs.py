@@ -45,6 +45,10 @@ class JSONLFileDataStore(DataStore):
         self._assert_env(env)
         self._append_jsonl("fill_events.jsonl", event)
 
+    def append_roll_event(self, event: dict[str, Any], *, env: str) -> None:
+        self._assert_env(env)
+        self._append_jsonl("roll_events.jsonl", event)
+
     def save_portfolio_snapshot(self, *, ts: int, portfolio: Any, env: str) -> None:
         self._assert_env(env)
         base_dir = self._dir(create=True)
@@ -106,6 +110,10 @@ class JSONLFileDataStore(DataStore):
     def read_fill_events(self, *, env: str) -> list[dict[str, Any]]:
         self._assert_env(env)
         return self._read_jsonl("fill_events.jsonl")
+
+    def read_roll_events(self, *, env: str) -> list[dict[str, Any]]:
+        self._assert_env(env)
+        return self._read_jsonl("roll_events.jsonl")
 
     def append_metrics(self, *, ts: int, metrics: Mapping[str, Any], env: str) -> None:
         self._assert_env(env)

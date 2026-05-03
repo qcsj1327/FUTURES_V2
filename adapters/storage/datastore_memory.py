@@ -20,6 +20,7 @@ class MemoryDataStore(DataStore):
         super().__init__(env=env, runtime_id=runtime_id)
         self.order_events: list[dict[str, Any]] = []
         self.fill_events: list[dict[str, Any]] = []
+        self.roll_events: list[dict[str, Any]] = []
         self.snapshots: list[_Snapshot] = []
         self.metrics: list[tuple[int, Mapping[str, Any]]] = []
 
@@ -30,6 +31,10 @@ class MemoryDataStore(DataStore):
     def append_fill_event(self, event: dict[str, Any], *, env: str) -> None:
         self._assert_env(env)
         self.fill_events.append(event)
+
+    def append_roll_event(self, event: dict[str, Any], *, env: str) -> None:
+        self._assert_env(env)
+        self.roll_events.append(event)
 
     def save_portfolio_snapshot(self, *, ts: int, portfolio: Any, env: str) -> None:
         self._assert_env(env)
@@ -53,3 +58,6 @@ class MemoryDataStore(DataStore):
         self._assert_env(env)
         return list(self.fill_events)
 
+    def read_roll_events(self, *, env: str) -> list[dict[str, Any]]:
+        self._assert_env(env)
+        return list(self.roll_events)

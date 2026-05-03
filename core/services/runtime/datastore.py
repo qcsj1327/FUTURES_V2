@@ -42,6 +42,9 @@ class DataStore(ABC):
     def append_fill_event(self, event: dict[str, Any], *, env: str) -> None: ...
 
     @abstractmethod
+    def append_roll_event(self, event: dict[str, Any], *, env: str) -> None: ...
+
+    @abstractmethod
     def save_portfolio_snapshot(self, *, ts: int, portfolio: Any, env: str) -> None: ...
 
     @abstractmethod
@@ -55,3 +58,6 @@ class DataStore(ABC):
 
     @abstractmethod
     def read_fill_events(self, *, env: str) -> list[dict[str, Any]]: ...
+
+    @abstractmethod
+    def read_roll_events(self, *, env: str) -> list[dict[str, Any]]: ...

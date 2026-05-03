@@ -26,6 +26,24 @@ class RouterSpec:
 
 
 @dataclass(frozen=True)
+class TradingSessionSpec:
+    start: str
+    end: str
+
+
+@dataclass(frozen=True)
+class RollPolicySpec:
+    mode: str = "fixed_contract"
+    contracts: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class InstrumentsSpec:
+    trading_sessions: dict[str, list[TradingSessionSpec]] = field(default_factory=dict)
+    roll_policy: RollPolicySpec = field(default_factory=RollPolicySpec)
+
+
+@dataclass(frozen=True)
 class MarketDataSpec:
     mode: str = "simulated"  # simulated | simulated_v2 | live_file | tqkq
     prices_path: str | None = None
@@ -79,3 +97,4 @@ class RunPlan:
     datastore: DataStoreSpec
     promotion: PromotionSpec
     router: RouterSpec
+    instruments: InstrumentsSpec = field(default_factory=InstrumentsSpec)

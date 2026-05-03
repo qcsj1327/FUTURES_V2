@@ -15,6 +15,9 @@ from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from app.universe_runtime import UniverseRuntime
 from config.models import RunPlan
+from core.instruments.calendar import TradingCalendar, TradingSession
+from core.instruments.resolver import InstrumentResolver
+from core.instruments.roll_policy import RollPolicy
 from core.signal_router.router import RouterConfig
 from strategies.registry import create_strategy
 from strategies.strategy_set import StrategyEntry, StrategySet
@@ -118,6 +121,28 @@ def build_strategy_set(plan: RunPlan) -> tuple[StrategySet, dict[str, int], dict
     return StrategySet(entries), priorities, weights
 
 
+def build_instrument_services(
+    *,
+    plan: RunPlan,
+    runtime_id: str,
+    env: Env,
+    datastore: JSONLFileDataStore,
+) -> tuple[TradingCalendar, InstrumentResolver]:
+    sessions = {
+        sym: [TradingSession(start=s.start, end=s.end) for s in items]
+        for sym, items in plan.instruments.trading_sessions.items()
+    }
+    calendar = TradingCalendar(sessions_by_symbol=sessions)
+    policy = RollPolicy(
+        mode=plan.instruments.roll_policy.mode,
+        contracts=dict(plan.instruments.roll_policy.contracts),
+        runtime_id=runtime_id,
+        env=env,
+        sink=datastore,
+    )
+    return calendar, InstrumentResolver(roll_policy=policy)
+
+
 def make_universe_runtime(
     *,
     executor: Any,
@@ -165,6 +190,12 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
 
     datastore = JSONLFileDataStore(root_dir=env_root, env=env, runtime_id=runtime_id)
     cfg = RuntimeConfig()
+    calendar, resolver = build_instrument_services(
+        plan=plan,
+        runtime_id=runtime_id,
+        env=env,
+        datastore=datastore,
+    )
 
     live_store = JSONLFileDataStore(
         root_dir=store_root / "live",
@@ -178,6 +209,8 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
         market_data=market_data,
         broker=broker,
         datastore=live_store,
+        trading_calendar=calendar,
+        instrument_resolver=resolver,
     )
 
     if env == "live":
@@ -190,6 +223,8 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
             market_data=market_data,
             broker=broker,
             datastore=datastore,
+            trading_calendar=calendar,
+            instrument_resolver=resolver,
         )
 
     strategy_set, priorities, weights = build_strategy_set(plan)

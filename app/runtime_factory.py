@@ -11,6 +11,8 @@ from adapters.marketdata.simulated_market_data import SimulatedMarketData
 from adapters.storage.datastore_fs import JSONLFileDataStore
 from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
+from core.instruments.calendar import TradingCalendar
+from core.instruments.resolver import InstrumentResolver
 from core.services.runtime.datastore import DataStore
 from core.services.runtime.state_clone import clone_state_engine
 from core.state.state_engine import StateEngine
@@ -29,6 +31,8 @@ class RuntimeFactory:
         environment: str = "live",
         datastore: DataStore | None = None,
         runtime_id: str | None = None,
+        trading_calendar: TradingCalendar | None = None,
+        instrument_resolver: InstrumentResolver | None = None,
     ) -> Runtime:
         return Runtime(
             config,
@@ -39,6 +43,8 @@ class RuntimeFactory:
             environment=environment,
             datastore=datastore,
             runtime_id=runtime_id,
+            trading_calendar=trading_calendar,
+            instrument_resolver=instrument_resolver,
         )
 
     @staticmethod
@@ -51,6 +57,8 @@ class RuntimeFactory:
         strategy: Strategy | None = None,
         datastore: DataStore | None = None,
         runtime_id: str | None = None,
+        trading_calendar: TradingCalendar | None = None,
+        instrument_resolver: InstrumentResolver | None = None,
     ) -> Runtime:
         rid = runtime_id or config.runtime_id
         if datastore is None:
@@ -68,6 +76,8 @@ class RuntimeFactory:
             environment="live",
             datastore=datastore,
             runtime_id=rid,
+            trading_calendar=trading_calendar,
+            instrument_resolver=instrument_resolver,
         )
 
     @staticmethod
@@ -84,6 +94,8 @@ class RuntimeFactory:
         strategy: Strategy | None = None,
         datastore: DataStore | None = None,
         runtime_id: str | None = None,
+        trading_calendar: TradingCalendar | None = None,
+        instrument_resolver: InstrumentResolver | None = None,
     ) -> Runtime:
         market_data = SimulatedMarketData()
         broker = SimulatedBroker(
@@ -115,6 +127,8 @@ class RuntimeFactory:
             environment="sandbox",
             datastore=datastore,
             runtime_id=rid,
+            trading_calendar=trading_calendar,
+            instrument_resolver=instrument_resolver,
         )
 
     @staticmethod
@@ -127,6 +141,8 @@ class RuntimeFactory:
         strategy: Strategy | None = None,
         datastore: DataStore | None = None,
         runtime_id: str | None = None,
+        trading_calendar: TradingCalendar | None = None,
+        instrument_resolver: InstrumentResolver | None = None,
     ) -> Runtime:
         sandbox_market_data = market_data or SimulatedMarketData()
         sandbox_broker = broker or SimulatedBroker(sandbox_market_data)
@@ -160,4 +176,6 @@ class RuntimeFactory:
             environment="sandbox",
             datastore=datastore,
             runtime_id=rid,
+            trading_calendar=trading_calendar,
+            instrument_resolver=instrument_resolver,
         )

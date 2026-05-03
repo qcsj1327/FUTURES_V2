@@ -3,7 +3,9 @@ from __future__ import annotations
 from config.models import (
     AdaptersSpec,
     DataStoreSpec,
+    InstrumentsSpec,
     PromotionSpec,
+    RollPolicySpec,
     RouterSpec,
     RunPlan,
     RuntimeSpec,
@@ -37,6 +39,12 @@ def default_plan(*, runtime_id: str) -> RunPlan:
         ),
         datastore=DataStoreSpec(),
         router=RouterSpec(mode="priority", tie_breaker="priority"),
+        instruments=InstrumentsSpec(
+            roll_policy=RollPolicySpec(
+                mode="fixed_contract",
+                contracts={"au": "au_main", "ag": "ag_main"},
+            ),
+        ),
         promotion=PromotionSpec(
             min_events=1,
             min_success_rate_improvement=-1.0,

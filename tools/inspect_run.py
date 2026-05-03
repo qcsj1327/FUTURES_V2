@@ -11,6 +11,7 @@ from typing import Any
 class StoreStats:
     fill_events_lines: int
     order_events_lines: int
+    roll_events_lines: int
     portfolio_snapshots_lines: int
     snapshot_pkls: int
 
@@ -76,6 +77,7 @@ def _store_stats(store_dir: Path) -> StoreStats:
     return StoreStats(
         fill_events_lines=_count_lines(store_dir / "fill_events.jsonl"),
         order_events_lines=_count_lines(store_dir / "order_events.jsonl"),
+        roll_events_lines=_count_lines(store_dir / "roll_events.jsonl"),
         portfolio_snapshots_lines=_count_lines(store_dir / "portfolio_snapshots.jsonl"),
         snapshot_pkls=snap_pkls,
     )
@@ -149,6 +151,7 @@ def inspect_run(
                 "tail": {
                     "fill_events": _tail_jsonl(live_dir / "fill_events.jsonl", tail),
                     "order_events": _tail_jsonl(live_dir / "order_events.jsonl", tail),
+                    "roll_events": _tail_jsonl(live_dir / "roll_events.jsonl", tail),
                 },
             },
             "sandbox": {
@@ -157,6 +160,7 @@ def inspect_run(
                 "tail": {
                     "fill_events": _tail_jsonl(sandbox_dir / "fill_events.jsonl", tail),
                     "order_events": _tail_jsonl(sandbox_dir / "order_events.jsonl", tail),
+                    "roll_events": _tail_jsonl(sandbox_dir / "roll_events.jsonl", tail),
                 },
             },
         },
