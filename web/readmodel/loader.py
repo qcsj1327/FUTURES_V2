@@ -33,15 +33,16 @@ def _load_artifact_payload(
     name: str = "artifact",
 ) -> dict[str, Any]:
     if not isinstance(path_str, str) or not path_str.strip():
+        if warnings is not None:
+            warnings.append(f"missing_{name}")
+            return {}
         if required:
-            if warnings is not None:
-                warnings.append(f"missing_{name}_path")
-                return {}
             raise ValueError("artifact path must be a non-empty string")
         return {}
     p = Path(path_str)
     if not p.exists():
         if warnings is not None:
+            warnings.append(f"missing_{name}")
             warnings.append(f"missing_{name}_file:{p}")
             return {}
         raise FileNotFoundError(f"artifact not found: {p}")
@@ -92,7 +93,9 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
         if p.exists():
             approved_payload = repo.read_json(p)
         else:
-            warnings.append(f"missing_approved_file:{p}")
+            warnings.append("missing_approved")
+    else:
+        warnings.append("missing_approved")
 
     # plan metadata
     plan = _as_dict(m.get("plan"))

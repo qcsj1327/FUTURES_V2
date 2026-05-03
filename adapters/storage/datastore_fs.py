@@ -25,13 +25,14 @@ class JSONLFileDataStore(DataStore):
         super().__init__(env=env, runtime_id=runtime_id)
         self.root_dir = root_dir
 
-    def _dir(self) -> Path:
+    def _dir(self, *, create: bool) -> Path:
         d = self.root_dir / self.runtime_id
-        d.mkdir(parents=True, exist_ok=True)
+        if create:
+            d.mkdir(parents=True, exist_ok=True)
         return d
 
     def _append_jsonl(self, filename: str, obj: Any) -> None:
-        path = self._dir() / filename
+        path = self._dir(create=True) / filename
         line = json.dumps(obj, ensure_ascii=False, default=str)
         with path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
@@ -46,7 +47,7 @@ class JSONLFileDataStore(DataStore):
 
     def save_portfolio_snapshot(self, *, ts: int, portfolio: Any, env: str) -> None:
         self._assert_env(env)
-        base_dir = self._dir()
+        base_dir = self._dir(create=True)
         snap_dir = base_dir / "snapshots"
         snap_dir.mkdir(parents=True, exist_ok=True)
         filename = f"portfolio_{ts}.pkl"
@@ -62,7 +63,7 @@ class JSONLFileDataStore(DataStore):
 
     def load_latest_portfolio_snapshot(self, *, env: str) -> Any | None:
         self._assert_env(env)
-        base_dir = self._dir()
+        base_dir = self._dir(create=False)
         index_path = base_dir / "portfolio_snapshots.jsonl"
         if not index_path.exists():
             return None
@@ -86,7 +87,7 @@ class JSONLFileDataStore(DataStore):
 
 
     def _read_jsonl(self, filename: str) -> list[dict[str, Any]]:
-        path = self._dir() / filename
+        path = self._dir(create=False) / filename
         if not path.exists():
             return []
         out: list[dict[str, Any]] = []

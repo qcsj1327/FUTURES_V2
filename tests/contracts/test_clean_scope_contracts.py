@@ -51,3 +51,30 @@ def test_clean_only_removes_current_runtime_artifacts(
 
     assert run_plan_main(["--config", str(cfg), "--runtime-id", "rt_clean", "--clean"]) == 0
     assert all(p.exists() for p in keep_manifests)
+
+
+def test_clean_artifacts_match_runtime_id_exactly(tmp_path: Path) -> None:
+    from app.orchestration.run_cleanup import clean_runtime_paths
+
+    artifacts = tmp_path / "artifacts"
+    store = tmp_path / "store"
+    files = [
+        artifacts / "manifests" / "manifest_rt1_20260101T000000Z.json",
+        artifacts / "manifests" / "manifest_rt10_20260101T000000Z.json",
+        artifacts / "summaries" / "current_rt1.json",
+        artifacts / "summaries" / "current_rt10.json",
+        artifacts / "summaries" / "candidate_rt1.json",
+        artifacts / "summaries" / "candidate_rt10.json",
+        artifacts / "decisions" / "decision_rt1_20260101T000000Z.json",
+        artifacts / "decisions" / "decision_rt10_20260101T000000Z.json",
+        artifacts / "approved" / "approved_cand_rt1.json",
+        artifacts / "approved" / "approved_cand_rt10.json",
+    ]
+    for p in files:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
+
+    clean_runtime_paths(runtime_id="rt1", store_root=store, artifacts_root=artifacts)
+
+    assert not any(p.exists() for p in files if "rt1" in p.name and "rt10" not in p.name)
+    assert all(p.exists() for p in files if "rt10" in p.name)

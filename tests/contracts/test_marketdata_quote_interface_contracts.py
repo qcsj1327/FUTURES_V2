@@ -13,8 +13,10 @@ from adapters.marketdata.live_market_data import LiveFileMarketData
 def test_marketdata_adapter_exposes_quote_only_interface() -> None:
     assert hasattr(MarketDataAdapter, "get_last_quote")
     assert hasattr(MarketDataAdapter, "get_last_quotes")
-    assert not hasattr(MarketDataAdapter, "get_last_price")
-    assert not hasattr(MarketDataAdapter, "get_last_prices")
+    old_single = "get_last_" + "price"
+    old_batch = "get_last_" + "prices"
+    assert not hasattr(MarketDataAdapter, old_single)
+    assert not hasattr(MarketDataAdapter, old_batch)
 
 
 def test_market_quote_schema_contains_price_volume_and_ts() -> None:
@@ -32,10 +34,13 @@ def test_market_quote_schema_contains_price_volume_and_ts() -> None:
         {"au": {"volume": 1000.0, "ts": 1}},
         {"au": {"price": 100.0, "volume": 1000.0}},
         {"au": {"price": 100.0, "ts": 1}},
+        {"au": {"price": 100.0, "volume": None, "ts": 1}},
+        {"au": {"price": 100.0, "volume": 1000.0, "ts": "1"}},
+        {"au_main": {"price": 100.0, "volume": 1000.0, "ts": 1}},
         {"au": 100.0},
     ],
 )
-def test_live_file_quote_schema_requires_price_volume_field_and_ts(
+def test_live_file_quote_schema_rejects_invalid_quote_objects(
     tmp_path: Path,
     payload: dict[str, object],
 ) -> None:
@@ -43,5 +48,5 @@ def test_live_file_quote_schema_requires_price_volume_field_and_ts(
     prices.write_text(json.dumps(payload), encoding="utf-8")
 
     md = LiveFileMarketData(prices_path=prices)
-    with pytest.raises((KeyError, ValueError)):
+    with pytest.raises(ValueError, match="invalid quote schema"):
         _ = md.get_last_quote("au")

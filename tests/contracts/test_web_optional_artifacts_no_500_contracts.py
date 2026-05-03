@@ -72,4 +72,5 @@ def test_run_detail_tolerates_daemon_manifest_without_decision_or_approved(
     assert payload["runtime_id"] == rid
     assert payload["decision"] == {}
     assert payload["approved"] is None
-    assert "candidate_summary" not in " ".join(payload.get("warnings", []))
+    warnings = set(payload.get("warnings", []))
+    assert {"missing_candidate_summary", "missing_decision", "missing_approved"} <= warnings

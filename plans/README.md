@@ -18,8 +18,8 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 `adapters.market_data.mode = "live_file"` 时，系统从一个 JSON 文件读取最新价：
 
 - 推荐格式：只写 **基础 symbol**（例如 `au`, `ag`）
-- 交易/执行层可能会请求 `*_main`（例如 `au_main`），`LiveFileMarketData` 会将其视为 `au` 的别名读取
-- 如果文件里同时出现 `au` 和 `au_main`，两者 **必须相等**，否则认为数据源污染/不一致，直接报错
+- 交易/执行层可能会请求 `*_main`（例如 `au_main`），`LiveFileMarketData` 会将其映射到 base symbol 读取
+- 文件里只允许 base symbol；出现任何 `*_main` key 都认为数据源污染，直接报错
 
 示例（推荐）：
 

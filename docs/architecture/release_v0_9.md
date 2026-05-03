@@ -14,7 +14,7 @@ Tag：v0.9-multisymbol-multistrategy
 1.1 多品种 Universe 执行
 
 * 新增 app/universe_runtime.py：单 tick 内对 universe.symbols 获取价格快照并执行多品种决策。
-* MarketDataAdapter 增加批量接口 get_last_prices(symbols) -> dict[str, float]：
+* MarketDataAdapter 增加批量 quote 接口，返回每个 symbol 的 price/volume/ts：
     * adapters/marketdata/base.py
     * adapters/marketdata/simulated_market_data.py
 
@@ -186,4 +186,3 @@ Web/ReadModel 应读取 manifests + artifacts，并可做 code→中文映射（
 * live 行情与 live broker 尚未实现（目前 simulated）
 * StrategyEngine 本身未按 params 内部建模，参数通过 wrapper 生效（终局可升级为每策略 schema/validator）
 * research legacy replay 仍通过 lazy bindings 间接使用 app（静态越层为 0，运行时仍复用 app）
-

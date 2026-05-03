@@ -46,3 +46,10 @@ def test_fs_datastore_isolation_live_not_touched_by_sandbox(tmp_path: Path) -> N
     assert not live_snap.exists()
     assert sandbox_snap.exists()
     assert sandbox_snap.read_text(encoding="utf-8").strip() != ""
+
+
+def test_loading_missing_snapshot_does_not_create_runtime_dir(tmp_path: Path) -> None:
+    store = JSONLFileDataStore(root_dir=tmp_path / "live", env="live", runtime_id="rt_empty")
+
+    assert store.load_latest_portfolio_snapshot(env="live") is None
+    assert not (tmp_path / "live" / "rt_empty").exists()

@@ -27,7 +27,6 @@ def run_list_item_to_vm(item: RunListItem) -> dict[str, Any]:
 
 def run_to_vm(run: RunReadModel) -> dict[str, Any]:
     decision_payload = run.decision
-    decision_payload = run.decision
     if not isinstance(decision_payload, dict):
         decision_payload = {}
     decision_raw = decision_payload.get("decision")
