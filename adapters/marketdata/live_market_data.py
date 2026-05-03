@@ -19,26 +19,34 @@ class LiveFileMarketData(MarketDataAdapter):
 
     prices_path: Path
 
+    def _invalid_schema(self, symbol: str, reason: str) -> ValueError:
+        return ValueError(f"invalid quote schema for symbol={symbol}: {reason}")
+
     def _quote_from_payload(self, symbol: str, payload: dict[str, Any]) -> MarketQuote:
+        if symbol.endswith("_main"):
+            raise self._invalid_schema(symbol, "trade alias keys are not allowed")
+
         price = payload.get("price")
         if not isinstance(price, (int, float)):
-            raise ValueError(f"quote.price required for symbol={symbol}")
+            raise self._invalid_schema(symbol, "price must be number")
 
         if "volume" not in payload:
-            raise ValueError(f"quote.volume required for symbol={symbol}")
+            raise self._invalid_schema(symbol, "volume is required")
         volume = payload["volume"]
-        if volume is not None and not isinstance(volume, (int, float)):
-            raise ValueError(f"quote.volume must be number|null for symbol={symbol}")
+        if not isinstance(volume, (int, float)):
+            raise self._invalid_schema(symbol, "volume must be number")
 
-        ts = payload.get("ts")
-        if not isinstance(ts, int):
-            raise ValueError(f"quote.ts required for symbol={symbol}")
+        if "ts" not in payload:
+            raise self._invalid_schema(symbol, "ts is required")
+        ts_raw = payload["ts"]
+        if ts_raw is not None and not isinstance(ts_raw, int):
+            raise self._invalid_schema(symbol, "ts must be int|null")
 
         return MarketQuote(
             symbol=base_symbol(symbol),
             price=float(price),
-            volume=None if volume is None else float(volume),
-            ts=ts,
+            volume=float(volume),
+            ts=0 if ts_raw is None else ts_raw,
         )
 
     def _read_quotes(self) -> dict[str, MarketQuote]:
@@ -48,25 +56,15 @@ class LiveFileMarketData(MarketDataAdapter):
 
         out: dict[str, MarketQuote] = {}
         for k, v in data.items():
-            if isinstance(k, str) and isinstance(v, dict):
-                out[k] = self._quote_from_payload(k, v)
-
-        for k, quote in list(out.items()):
-            if k.endswith("_main"):
-                base = base_symbol(k)
-                if base in out and out[base] != quote:
-                    raise ValueError(f"quote mismatch: {base}={out[base]} vs {k}={quote}")
+            if not isinstance(k, str):
+                continue
+            if not isinstance(v, dict):
+                raise self._invalid_schema(k, "quote must be object")
+            out[k] = self._quote_from_payload(k, v)
         return out
 
     def _resolve_one(self, quotes: dict[str, MarketQuote], symbol: str) -> MarketQuote:
-        if symbol in quotes:
-            return quotes[symbol]
-
         base = base_symbol(symbol)
-        alt = base if symbol.endswith("_main") else f"{symbol}_main"
-
-        if alt in quotes:
-            return quotes[alt]
         if base in quotes:
             return quotes[base]
 

@@ -22,10 +22,17 @@ def clean_runtime_paths(
 ) -> None:
     remove_tree(store_root / "live" / runtime_id)
     remove_tree(store_root / "sandbox" / runtime_id)
-    for subdir in ("summaries", "decisions", "approved", "manifests"):
+    patterns = {
+        "summaries": [f"current_{runtime_id}.json", f"candidate_{runtime_id}.json"],
+        "decisions": [f"decision_{runtime_id}_*.json"],
+        "approved": [f"approved_cand_{runtime_id}.json", f"approved_cand_{runtime_id}_*.json"],
+        "manifests": [f"manifest_{runtime_id}_*.json"],
+    }
+    for subdir, globs in patterns.items():
         root = artifacts_root / subdir
         if not root.exists():
             continue
-        for p in root.glob(f"*{runtime_id}*.json"):
-            if p.is_file():
-                p.unlink()
+        for pattern in globs:
+            for p in root.glob(pattern):
+                if p.is_file():
+                    p.unlink()
