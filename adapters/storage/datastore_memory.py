@@ -22,6 +22,7 @@ class MemoryDataStore(DataStore):
         self.fill_events: list[dict[str, Any]] = []
         self.roll_events: list[dict[str, Any]] = []
         self.rank_events: list[dict[str, Any]] = []
+        self.order_lifecycle_events: list[dict[str, Any]] = []
         self.snapshots: list[_Snapshot] = []
         self.metrics: list[tuple[int, Mapping[str, Any]]] = []
 
@@ -40,6 +41,10 @@ class MemoryDataStore(DataStore):
     def append_rank_event(self, event: dict[str, Any], *, env: str) -> None:
         self._assert_env(env)
         self.rank_events.append(event)
+
+    def append_order_lifecycle_event(self, event: dict[str, Any], *, env: str) -> None:
+        self._assert_env(env)
+        self.order_lifecycle_events.append(event)
 
     def save_portfolio_snapshot(self, *, ts: int, portfolio: Any, env: str) -> None:
         self._assert_env(env)
@@ -70,3 +75,7 @@ class MemoryDataStore(DataStore):
     def read_rank_events(self, *, env: str) -> list[dict[str, Any]]:
         self._assert_env(env)
         return list(self.rank_events)
+
+    def read_order_lifecycle_events(self, *, env: str) -> list[dict[str, Any]]:
+        self._assert_env(env)
+        return list(self.order_lifecycle_events)
