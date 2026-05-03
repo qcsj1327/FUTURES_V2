@@ -475,12 +475,30 @@ function wire() {
   });
 
   // auto refresh
+  let autoRefreshBusy = false;
   setInterval(() => {
     if (!$("autoRefresh").checked) return;
-    loadRuns().catch(() => {});
-    if (state.selected) {
-      loadOverview().catch(() => {});
-    }
+    if (autoRefreshBusy) return;
+    autoRefreshBusy = true;
+
+    const active = document.querySelector(".tab.active");
+    const tab = active ? active.dataset.tab : "overview";
+    const refreshDetail =
+      tab === "events"
+        ? loadEvents
+        : tab === "metrics"
+          ? loadMetrics
+          : tab === "manifest"
+            ? loadManifest
+            : loadOverview;
+
+    Promise.resolve()
+      .then(() => loadRuns())
+      .then(() => (state.selected ? refreshDetail() : null))
+      .catch(() => {})
+      .finally(() => {
+        autoRefreshBusy = false;
+      });
   }, 3000);
 }
 
