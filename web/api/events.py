@@ -43,7 +43,7 @@ def get_run_events(
     store_root: Path = Path("data/store"),
     # filters
     since_ts: int | None = None,
-    event_type: str | None = None,  # order|execution
+    event_type: str | None = None,  # order|execution|roll|rank
     strategy_id: str | None = None,
     success: str | None = None,  # true|false (execution only)
     # pagination (timeline)
@@ -54,13 +54,15 @@ def get_run_events(
     fill_path = base / "fill_events.jsonl"
     order_path = base / "order_events.jsonl"
     roll_path = base / "roll_events.jsonl"
+    rank_path = base / "rank_events.jsonl"
 
     fill_events = _tail_jsonl(fill_path, n=tail)
     order_events = _tail_jsonl(order_path, n=tail)
     roll_events = _tail_jsonl(roll_path, n=tail)
+    rank_events = _tail_jsonl(rank_path, n=tail)
 
     timeline_all = sorted(
-        [*order_events, *fill_events, *roll_events],
+        [*order_events, *fill_events, *roll_events, *rank_events],
         key=lambda x: (_ts(x), str(x.get("event_type", ""))),
     )
 
@@ -111,10 +113,12 @@ def get_run_events(
             "fill_events": str(fill_path),
             "order_events": str(order_path),
             "roll_events": str(roll_path),
+            "rank_events": str(rank_path),
         },
         "fill_events": fill_events,
         "order_events": order_events,
         "roll_events": roll_events,
+        "rank_events": rank_events,
         "timeline_total": len(timeline_all),
         "timeline_filtered_total": len(filtered),
         "timeline": page,
