@@ -27,7 +27,7 @@ def _artifact_dirs(artifacts_root: Path) -> dict[str, Path]:
 def write_daemon_artifacts(
     *,
     runtime_id: str,
-    env: str,  # live|sandbox
+    env: str,
     store_root: Path,
     artifacts_root: Path,
     candidate_id: str,
@@ -40,34 +40,17 @@ def write_daemon_artifacts(
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
 
-    # Read events from env store
-    store = JSONLFileDataStore(
-        root_dir=store_root / env,
-        env=env,
-        runtime_id=runtime_id,
-    )
-    events = store.read_fill_events(env=env)
-    metrics = asdict(summarize_execution_events(events))
+    store = JSONLFileDataStore(root_dir=store_root / env, env=env, runtime_id=runtime_id)
+    metrics = asdict(summarize_execution_events(store.read_fill_events(env=env)))
 
     current_path: Path | None = None
-    candidate_path: Path | None = None
-
-    if write_summary:
-        # daemon 单环境：为了兼容 inspect_run / web readmodel，
-        # 直接把同一份 metrics 写入 current_* 与 candidate_* 两个稳定路径。
+    if write_summary or write_manifest:
         current_path = write_summary_artifact(
             runtime_id=runtime_id,
             role="current",
             summary=metrics,
             output_dir=dirs["summaries"],
             filename=f"current_{runtime_id}.json",
-        )
-        candidate_path = write_summary_artifact(
-            runtime_id=runtime_id,
-            role="candidate",
-            summary=metrics,
-            output_dir=dirs["summaries"],
-            filename=f"candidate_{runtime_id}.json",
         )
 
     manifest_path: Path | None = None
@@ -81,30 +64,13 @@ def write_daemon_artifacts(
             plan_path = cast(str | None, plan_meta.get("path"))
             plan_sha256 = cast(str | None, plan_meta.get("sha256"))
 
-        # 如果 summary 还没写，本次强制写一次（manifest 的签名要求 summary_path）
-        if current_path is None or candidate_path is None:
-            current_path = write_summary_artifact(
-                runtime_id=runtime_id,
-                role="current",
-                summary=metrics,
-                output_dir=dirs["summaries"],
-                filename=f"current_{runtime_id}.json",
-            )
-            candidate_path = write_summary_artifact(
-                runtime_id=runtime_id,
-                role="candidate",
-                summary=metrics,
-                output_dir=dirs["summaries"],
-                filename=f"candidate_{runtime_id}.json",
-            )
-
         manifest_path = write_promotion_manifest(
             runtime_id=runtime_id,
             candidate_id=candidate_id,
             candidate_config={"env": env},
             thresholds=asdict(thresholds),
             current_summary_path=current_path,
-            candidate_summary_path=candidate_path,
+            candidate_summary_path=None,
             decision_path=None,
             approved_path=None,
             plan=plan_cfg,
@@ -112,10 +78,12 @@ def write_daemon_artifacts(
             plan_sha256=plan_sha256,
             output_dir=dirs["manifests"],
             filename=f"manifest_{runtime_id}_{_now_tag()}.json",
+            run_mode="daemon",
+            env=env,
         )
 
     return {
         "current_summary_path": current_path,
-        "candidate_summary_path": candidate_path,
+        "candidate_summary_path": None,
         "manifest_path": manifest_path,
     }
