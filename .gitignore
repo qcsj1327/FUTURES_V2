@@ -56,3 +56,4 @@ plan.json
 # local editor / env
 .vscode/
 .env
+.codex/
