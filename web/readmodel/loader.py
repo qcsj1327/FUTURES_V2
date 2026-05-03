@@ -14,7 +14,7 @@ def _manifest_ts(path_str: str) -> str:
     return m.group(1) if m else ""
 
 
-def _as_dict(v: Any) -> dict[str, Any] | None:
+def _as_dict(v: Any) -> dict[str, Any]:
     return v if isinstance(v, dict) else {}
 
 
@@ -24,11 +24,16 @@ def _as_list_str(v: Any) -> list[str]:
     return [x for x in v if isinstance(x, str)]
 
 
-def _load_artifact_payload(repo: FileRepository, path_str: Any) -> dict[str, Any] | None:
-    if path_str is None:
-        return None
+def _load_artifact_payload(
+    repo: FileRepository,
+    path_str: Any,
+    *,
+    required: bool = True,
+) -> dict[str, Any]:
     if not isinstance(path_str, str) or not path_str.strip():
-        raise ValueError("artifact path must be a non-empty string")
+        if required:
+            raise ValueError("artifact path must be a non-empty string")
+        return {}
     p = Path(path_str)
     if not p.exists():
         raise FileNotFoundError(f"artifact not found: {p}")
@@ -46,9 +51,9 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
     thresholds = _as_dict(m.get("thresholds"))
 
     # required artifacts
-    cur_payload = _load_artifact_payload(repo, artifacts.get("current_summary"))
-    cand_payload = _load_artifact_payload(repo, artifacts.get("candidate_summary"))
-    dec_payload = _load_artifact_payload(repo, artifacts.get("decision"))
+    cur_payload = _load_artifact_payload(repo, artifacts.get("current_summary"), required=True)
+    cand_payload = _load_artifact_payload(repo, artifacts.get("candidate_summary"), required=True)
+    dec_payload = _load_artifact_payload(repo, artifacts.get("decision"), required=False)
     if dec_payload is None:
         dec_payload = {}
 
