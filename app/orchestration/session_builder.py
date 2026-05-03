@@ -161,6 +161,11 @@ def make_universe_runtime(
         strategy_priorities=priorities,
         strategy_weights=weights,
         router_config=router_config,
+        active_top_n=plan.runtime.active_top_n,
+        rank_window=plan.runtime.rank_window,
+        rank_metric=plan.runtime.rank_metric,
+        rank_refresh_every=plan.runtime.rank_refresh_every,
+        rank_emit_events=plan.runtime.rank_emit_events,
     )
 
 

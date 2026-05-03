@@ -45,6 +45,9 @@ class DataStore(ABC):
     def append_roll_event(self, event: dict[str, Any], *, env: str) -> None: ...
 
     @abstractmethod
+    def append_rank_event(self, event: dict[str, Any], *, env: str) -> None: ...
+
+    @abstractmethod
     def save_portfolio_snapshot(self, *, ts: int, portfolio: Any, env: str) -> None: ...
 
     @abstractmethod
@@ -61,3 +64,6 @@ class DataStore(ABC):
 
     @abstractmethod
     def read_roll_events(self, *, env: str) -> list[dict[str, Any]]: ...
+
+    @abstractmethod
+    def read_rank_events(self, *, env: str) -> list[dict[str, Any]]: ...

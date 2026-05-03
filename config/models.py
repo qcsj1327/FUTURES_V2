@@ -63,6 +63,11 @@ class RuntimeSpec:
     default_quantity: float
     stop_loss: float | None = None
     take_profit: float | None = None
+    active_top_n: int = 0
+    rank_window: int = 20
+    rank_metric: str = "signal_strength"
+    rank_refresh_every: int = 1
+    rank_emit_events: int = 1
 
 
 @dataclass(frozen=True)
