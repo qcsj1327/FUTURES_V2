@@ -8,12 +8,12 @@ from domain.signal import SignalDecision
 from strategies.base.strategy import Strategy
 from strategies.volume._common import (
     RollingSeries,
-    direction_param,
     hold,
     mean,
-    positive_float,
-    positive_int,
     signal,
+    strict_direction,
+    strict_positive_float,
+    strict_positive_int,
 )
 
 
@@ -28,14 +28,10 @@ class VolumeTrendFilter(Strategy):
     @classmethod
     def from_params(cls, params: dict[str, object]) -> VolumeTrendFilter:
         return cls(
-            momentum_window=positive_int(
-                params.get("momentum_window"),
-                name="momentum_window",
-                default=20,
-            ),
-            vol_window=positive_int(params.get("vol_window"), name="vol_window", default=50),
-            min_vol_mult=positive_float(params.get("min_vol_mult"), default=1.0),
-            direction=direction_param(params.get("direction")),
+            momentum_window=strict_positive_int(params, "momentum_window"),
+            vol_window=strict_positive_int(params, "vol_window"),
+            min_vol_mult=strict_positive_float(params, "min_vol_mult"),
+            direction=strict_direction(params, "direction"),
         )
 
     def _series(self, symbol: str) -> RollingSeries:

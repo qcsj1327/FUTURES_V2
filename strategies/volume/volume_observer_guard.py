@@ -5,20 +5,26 @@ from dataclasses import dataclass, field
 from adapters.marketdata.base import MarketQuote
 from domain.signal import SignalDecision
 from strategies.base.strategy import Strategy
-from strategies.volume._common import RollingSeries, hold, mean, positive_float, positive_int
+from strategies.volume._common import (
+    RollingSeries,
+    hold,
+    mean,
+    strict_positive_float,
+    strict_positive_int,
+)
 
 
 @dataclass
-class VolumeGuard(Strategy):
+class VolumeObserverGuard(Strategy):
     vol_window: int = 50
     min_vol_mult: float = 1.0
     _state: dict[str, RollingSeries] = field(default_factory=dict, init=False)
 
     @classmethod
-    def from_params(cls, params: dict[str, object]) -> VolumeGuard:
+    def from_params(cls, params: dict[str, object]) -> VolumeObserverGuard:
         return cls(
-            vol_window=positive_int(params.get("vol_window"), name="vol_window", default=50),
-            min_vol_mult=positive_float(params.get("min_vol_mult"), default=1.0),
+            vol_window=strict_positive_int(params, "vol_window"),
+            min_vol_mult=strict_positive_float(params, "min_vol_mult"),
         )
 
     def _series(self, symbol: str) -> RollingSeries:
@@ -31,7 +37,7 @@ class VolumeGuard(Strategy):
         if quote.volume is None:
             series.append(quote)
             return hold(
-                strategy_name="volume_guard",
+                strategy_name="volume_observer_guard",
                 symbol=symbol,
                 quote=quote,
                 reason="missing_volume",
@@ -40,7 +46,7 @@ class VolumeGuard(Strategy):
         if len(series.volumes) < self.vol_window:
             series.append(quote)
             return hold(
-                strategy_name="volume_guard",
+                strategy_name="volume_observer_guard",
                 symbol=symbol,
                 quote=quote,
                 reason="warming_up",
@@ -50,7 +56,7 @@ class VolumeGuard(Strategy):
         blocked = quote.volume < vol_ma * self.min_vol_mult
         series.append(quote)
         return hold(
-            strategy_name="volume_guard",
+            strategy_name="volume_observer_guard",
             symbol=symbol,
             quote=quote,
             reason="low_volume_blocked" if blocked else "volume_ok",

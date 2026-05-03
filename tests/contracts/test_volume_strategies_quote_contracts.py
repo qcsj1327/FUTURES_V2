@@ -3,8 +3,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from adapters.marketdata.base import MarketQuote
-from domain.enums import Decision
+from core.signal_router.router import RouterConfig, route
+from domain.enums import Decision, Side, SignalStrength
+from domain.signal import SignalDecision
 from strategies.registry import StrategyRegistry
+from strategies.strategy_set import TaggedDecision
 
 STRATEGY_PARAMS: dict[str, dict[str, object]] = {
     "volume_spike_breakout": {
@@ -25,7 +28,7 @@ STRATEGY_PARAMS: dict[str, dict[str, object]] = {
         "min_vol_mult": 0.8,
         "direction": "both",
     },
-    "volume_guard": {
+    "volume_observer_guard": {
         "vol_window": 5,
         "min_vol_mult": 0.8,
     },
@@ -73,3 +76,45 @@ def test_volume_strategy_rolling_state_is_deterministic() -> None:
 
     for name in STRATEGY_PARAMS:
         assert decisions_for(name, quotes) == decisions_for(name, quotes)
+
+
+def test_volume_strategy_params_are_strict() -> None:
+    for name in STRATEGY_PARAMS:
+        bad_params = dict(STRATEGY_PARAMS[name])
+        first_key = next(iter(bad_params))
+        bad_params.pop(first_key)
+        try:
+            StrategyRegistry.create(name=name, params=bad_params)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{name} accepted missing param {first_key}")
+
+
+def test_volume_observer_guard_does_not_override_higher_priority_strategy() -> None:
+    quote = MarketQuote(symbol="au", price=100.0, volume=1.0, ts=1)
+    observer = StrategyRegistry.create(
+        name="volume_observer_guard",
+        params=STRATEGY_PARAMS["volume_observer_guard"],
+    ).generate("au", quote)
+    active = SignalDecision(
+        decision=Decision.OPEN_LONG,
+        side=Side.BUY,
+        strength=SignalStrength.STRONG,
+        confidence=1.0,
+        reason="active_signal",
+        strategy_name="active",
+        symbol="au",
+    )
+
+    selected = route(
+        [
+            TaggedDecision("active", active),
+            TaggedDecision("volume_observer_guard", observer),
+        ],
+        config=RouterConfig(mode="priority", tie_breaker="priority"),
+        priorities={"active": 1, "volume_observer_guard": 100},
+        weights={"active": 1.0, "volume_observer_guard": 1.0},
+    )
+
+    assert selected[0].strategy_name == "active"

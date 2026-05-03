@@ -8,12 +8,12 @@ from domain.signal import SignalDecision
 from strategies.base.strategy import Strategy
 from strategies.volume._common import (
     RollingSeries,
-    direction_param,
     hold,
     mean,
-    positive_float,
-    positive_int,
     signal,
+    strict_direction,
+    strict_positive_float,
+    strict_positive_int,
 )
 
 
@@ -28,14 +28,10 @@ class VolumeSpikeBreakout(Strategy):
     @classmethod
     def from_params(cls, params: dict[str, object]) -> VolumeSpikeBreakout:
         return cls(
-            window=positive_int(params.get("window"), name="window", default=50),
-            spike_mult=positive_float(params.get("spike_mult"), default=2.0),
-            breakout_lookback=positive_int(
-                params.get("breakout_lookback"),
-                name="breakout_lookback",
-                default=20,
-            ),
-            direction=direction_param(params.get("direction")),
+            window=strict_positive_int(params, "window"),
+            spike_mult=strict_positive_float(params, "spike_mult"),
+            breakout_lookback=strict_positive_int(params, "breakout_lookback"),
+            direction=strict_direction(params, "direction"),
         )
 
     def _series(self, symbol: str) -> RollingSeries:
