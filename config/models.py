@@ -51,8 +51,15 @@ class MarketDataSpec:
 
 
 @dataclass(frozen=True)
+class BrokerSpec:
+    mode: str = "simulated"
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class AdaptersSpec:
     market_data: MarketDataSpec = field(default_factory=MarketDataSpec)
+    broker: BrokerSpec = field(default_factory=BrokerSpec)
 
 
 @dataclass(frozen=True)

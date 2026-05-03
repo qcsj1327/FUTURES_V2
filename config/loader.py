@@ -8,6 +8,7 @@ from typing import Any
 from config.defaults import default_plan
 from config.models import (
     AdaptersSpec,
+    BrokerSpec,
     DataStoreSpec,
     InstrumentsSpec,
     MarketDataSpec,
@@ -318,7 +319,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     adapters_raw = raw.get("adapters", {})
     if not isinstance(adapters_raw, dict):
         raise ValueError("adapters must be an object")
-    _assert_keys(adapters_raw, {"market_data"}, where="adapters")
+    _assert_keys(adapters_raw, {"market_data", "broker"}, where="adapters")
 
     md_raw = adapters_raw.get("market_data", {})
     if not isinstance(md_raw, dict):
@@ -349,7 +350,23 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             mode=md_mode,
             prices_path=prices_path,
             params=dict(md_params),
-        )
+        ),
+        broker=BrokerSpec(),
+    )
+
+    broker_raw = adapters_raw.get("broker", {})
+    if not isinstance(broker_raw, dict):
+        raise ValueError("adapters.broker must be an object")
+    _assert_keys(broker_raw, {"mode", "params"}, where="adapters.broker")
+    broker_mode = str(broker_raw.get("mode", "simulated"))
+    if broker_mode != "simulated":
+        raise ValueError(f"invalid adapters.broker.mode: {broker_mode}")
+    broker_params = broker_raw.get("params", {})
+    if not isinstance(broker_params, dict):
+        raise ValueError("adapters.broker.params must be object")
+    adapters = AdaptersSpec(
+        market_data=adapters.market_data,
+        broker=BrokerSpec(mode=broker_mode, params=dict(broker_params)),
     )
 
     return RunPlan(

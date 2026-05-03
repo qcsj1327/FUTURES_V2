@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from adapters.broker.base import BrokerAdapter
 from adapters.marketdata.base import MarketDataAdapter
@@ -20,9 +20,19 @@ from core.services.runtime.event_codec import (
 from core.services.trade.exit_service import ExitService
 from core.state.state_engine import StateEngine
 from core.trigger.trigger_engine import TriggerEngine
+from domain.enums import ExecutionStatus
+from domain.execution import ExecutionOrder, ExecutionResult
 from domain.signal import SignalDecision
 from strategies.base.simple_strategy import StrategyEngine
 from strategies.base.strategy import Strategy
+
+
+@dataclass(frozen=True)
+class _PendingOrderContext:
+    order: ExecutionOrder
+    strategy_name: str
+    strategy_impl: str | None
+    symbol: str
 
 
 class Runtime:
@@ -72,6 +82,7 @@ class Runtime:
         self.datastore = datastore
         self.orders_submitted = 0
         self._tick = 0
+        self._pending_order_contexts: dict[str, _PendingOrderContext] = {}
 
     def run_market_once(
         self,
@@ -98,18 +109,13 @@ class Runtime:
                 continue
 
             exit_result = self.execution.broker.submit_order(exit_order)
-            if exit_result.success:
-                self.orders_submitted += 1
-
-            self._maybe_append_events(
+            self.record_broker_result(
                 exit_order,
                 exit_result,
                 strategy_name="exit",
                 strategy_impl="ExitService",
                 symbol=position.instrument_id,
             )
-            self.state.apply(exit_order, exit_result, strategy_name="exit")
-            self._maybe_save_snapshot()
 
     def run(
         self,
@@ -171,23 +177,109 @@ class Runtime:
         risk_decision = self.risk.evaluate(allocation, portfolio=self.state.portfolio)
 
         order, exec_result = self.execution.execute(risk_decision)
-        if order is not None and exec_result.success:
-            self.orders_submitted += 1
 
         name = (
             strategy_name
             or getattr(decision, "strategy_name", None)
             or "main"
         )
-        self._maybe_append_events(
+        if order is None:
+            self._maybe_append_events(
+                order,
+                exec_result,
+                strategy_name=name,
+                strategy_impl=strategy_impl,
+                symbol=decision.symbol,
+            )
+            self.state.apply(order, exec_result)
+            self._maybe_save_snapshot()
+            return
+
+        self.record_broker_result(
             order,
             exec_result,
             strategy_name=name,
             strategy_impl=strategy_impl,
             symbol=decision.symbol,
         )
+
+    def record_broker_result(
+        self,
+        order: ExecutionOrder,
+        exec_result: ExecutionResult,
+        *,
+        strategy_name: str,
+        strategy_impl: str | None = None,
+        symbol: str | None = None,
+    ) -> None:
+        event_symbol = symbol or order.instrument_id
+        self._maybe_append_order_lifecycle_event(
+            order,
+            exec_result,
+            strategy_name=strategy_name,
+            strategy_impl=strategy_impl,
+            symbol=event_symbol,
+        )
+        self._maybe_append_events(
+            order,
+            exec_result,
+            strategy_name=strategy_name,
+            strategy_impl=strategy_impl,
+            symbol=event_symbol,
+        )
+
+        if exec_result.order_id is not None and exec_result.status == ExecutionStatus.SUBMITTED:
+            self._pending_order_contexts[exec_result.order_id] = _PendingOrderContext(
+                order=order,
+                strategy_name=strategy_name,
+                strategy_impl=strategy_impl,
+                symbol=event_symbol,
+            )
+            self._maybe_save_snapshot()
+            return
+
+        if exec_result.success:
+            self.orders_submitted += 1
+
         self.state.apply(order, exec_result)
         self._maybe_save_snapshot()
+
+    def poll_order_lifecycle(self, tick: int) -> None:
+        poll = getattr(self.execution.broker, "poll_order_updates", None)
+        if not callable(poll):
+            return
+        for update in poll(tick):
+            order = update.order
+            result = update.result
+            order_id = result.order_id
+            ctx = self._pending_order_contexts.get(order_id or "")
+            strategy_name = ctx.strategy_name if ctx is not None else "unknown"
+            strategy_impl = ctx.strategy_impl if ctx is not None else None
+            symbol = ctx.symbol if ctx is not None else order.instrument_id
+
+            self._maybe_append_order_lifecycle_event(
+                order,
+                result,
+                strategy_name=strategy_name,
+                strategy_impl=strategy_impl,
+                symbol=symbol,
+            )
+            if result.status == ExecutionStatus.PARTIALLY_FILLED:
+                continue
+            if result.status == ExecutionStatus.FILLED:
+                self.orders_submitted += 1
+                self._maybe_append_events(
+                    order,
+                    result,
+                    strategy_name=strategy_name,
+                    strategy_impl=strategy_impl,
+                    symbol=symbol,
+                    write_order_event=False,
+                )
+                self.state.apply(order, result, strategy_name=strategy_name)
+                self._maybe_save_snapshot()
+            if order_id is not None:
+                self._pending_order_contexts.pop(order_id, None)
 
     def _maybe_append_events(
         self,
@@ -197,6 +289,7 @@ class Runtime:
         strategy_name: str,
         strategy_impl: str | None = None,
         symbol: str | None = None,
+        write_order_event: bool = True,
     ) -> None:
         if self.datastore is None:
             return
@@ -211,15 +304,59 @@ class Runtime:
         )
 
         order_payload = encode_order_event(order)
-        if order_payload:
+        if write_order_event and order_payload:
             self.datastore.append_order_event(
                 {**base, **order_payload},
                 env=self.environment,
             )
 
+        if getattr(exec_result, "status", None) == ExecutionStatus.SUBMITTED:
+            return
+
         exec_payload = encode_execution_event(exec_result)
         self.datastore.append_fill_event(
             {**base, **exec_payload},
+            env=self.environment,
+        )
+
+    def _maybe_append_order_lifecycle_event(
+        self,
+        order: ExecutionOrder,
+        exec_result: ExecutionResult,
+        *,
+        strategy_name: str,
+        strategy_impl: str | None = None,
+        symbol: str | None = None,
+    ) -> None:
+        if self.datastore is None or exec_result.order_id is None:
+            return
+        status = getattr(exec_result.status, "value", str(exec_result.status))
+        if exec_result.reason == "expired":
+            status = "expired"
+        base = build_base_event(
+            ts=exec_result.ts if exec_result.ts is not None else self._tick,
+            runtime_id=self.runtime_id,
+            env=self.environment,
+            strategy_name=strategy_name,
+            symbol=symbol or order.instrument_id,
+            strategy_impl=strategy_impl,
+        )
+        self.datastore.append_order_lifecycle_event(
+            {
+                **base,
+                "event_type": "order_lifecycle",
+                "order_id": exec_result.order_id,
+                "status": status,
+                "instrument_id": order.instrument_id,
+                "trade_instrument_id": order.trade_instrument_id,
+                "side": getattr(order.side, "value", order.side),
+                "position_side": getattr(order.position_side, "value", order.position_side),
+                "quantity": order.quantity,
+                "filled_quantity": exec_result.filled_quantity,
+                "remaining_quantity": exec_result.remaining_quantity,
+                "avg_fill_price": exec_result.avg_fill_price,
+                "reason": exec_result.reason,
+            },
             env=self.environment,
         )
 
