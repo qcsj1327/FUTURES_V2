@@ -102,6 +102,20 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
     return SimulatedMarketData()
 
 
+def build_broker(plan: RunPlan, market_data: MarketDataAdapter) -> SimulatedBroker:
+    params = plan.adapters.broker.params
+    fill_delay_ticks = int(params.get("fill_delay_ticks", 0))
+    partial_fill_ratio = float(params.get("partial_fill_ratio", 1.0))
+    max_ticks_raw = params.get("max_ticks_to_fill")
+    max_ticks_to_fill = int(max_ticks_raw) if max_ticks_raw is not None else None
+    return SimulatedBroker(
+        market_data,
+        fill_delay_ticks=fill_delay_ticks,
+        partial_fill_ratio=partial_fill_ratio,
+        max_ticks_to_fill=max_ticks_to_fill,
+    )
+
+
 def build_strategy_set(plan: RunPlan) -> tuple[StrategySet, dict[str, int], dict[str, float]]:
     entries: list[StrategyEntry] = []
     for s in plan.strategies:
@@ -191,7 +205,7 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
     env_root.mkdir(parents=True, exist_ok=True)
 
     market_data = build_market_data(plan)
-    broker = SimulatedBroker(market_data)
+    broker = build_broker(plan, market_data)
 
     datastore = JSONLFileDataStore(root_dir=env_root, env=env, runtime_id=runtime_id)
     cfg = RuntimeConfig()

@@ -119,6 +119,23 @@ class OrderTracker:
         self._write(updated)
         return updated
 
+    def cancel(self, *, order_id: str, reason: str) -> OrderRecord:
+        record = self._get(order_id)
+        updated = OrderRecord(
+            order_id=record.order_id,
+            instrument_id=record.instrument_id,
+            trade_instrument_id=record.trade_instrument_id,
+            side=record.side,
+            position_side=record.position_side,
+            requested_quantity=record.requested_quantity,
+            filled_quantity=record.filled_quantity,
+            remaining_quantity=record.remaining_quantity,
+            status=OrderStatus.CANCELED,
+            reason=reason,
+        )
+        self._write(updated)
+        return updated
+
     def get(self, order_id: str) -> OrderRecord:
         return self._get(order_id)
 
