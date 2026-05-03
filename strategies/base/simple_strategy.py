@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from adapters.marketdata.base import MarketQuote
 from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
 from strategies.base.strategy import Strategy
 
 
 class StrategyEngine(Strategy):
-    def generate(self, symbol: str, price: float) -> SignalDecision:
+    def generate(self, symbol: str, quote: MarketQuote) -> SignalDecision:
         # 极简策略：价格 > 100 做多，否则观望
-        if price > 100:
+        if quote.price > 100:
             return SignalDecision(
                 decision=Decision.OPEN_LONG,
                 side=Side.BUY,

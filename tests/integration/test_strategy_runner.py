@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from adapters.marketdata.base import MarketQuote
 from core.strategy_runner.strategy_runner import StrategyRunner
 from strategies.base.simple_strategy import StrategyEngine
 from strategies.registry import StrategyRegistry
@@ -12,7 +13,7 @@ def test_strategy_runner_collects_signals() -> None:
 
     runner = StrategyRunner(registry)
 
-    signals = runner.run("au", 120)
+    signals = runner.run("au", MarketQuote(symbol="au", price=120.0, volume=1000.0, ts=1))
 
     assert len(signals) == 2
     assert all(s.symbol == "au" for s in signals)

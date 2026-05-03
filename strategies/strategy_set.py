@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from adapters.marketdata.base import MarketQuote
 from domain.signal import SignalDecision
 from strategies.base.strategy import Strategy
 
@@ -33,13 +34,13 @@ class StrategySet:
             return str(base.__class__.__name__)
         return str(s.__class__.__name__)
 
-    def generate(self, prices: dict[str, float]) -> list[TaggedDecision]:
+    def generate(self, quotes: dict[str, MarketQuote]) -> list[TaggedDecision]:
         out: list[TaggedDecision] = []
         for entry in self.entries:
             impl = self._impl_name(entry.strategy)
             for sym in entry.symbols:
-                if sym not in prices:
+                if sym not in quotes:
                     continue
-                d = entry.strategy.generate(sym, prices[sym])
+                d = entry.strategy.generate(sym, quotes[sym])
                 out.append(TaggedDecision(entry.name, d, impl))
         return out

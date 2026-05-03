@@ -60,7 +60,7 @@ class SimulatedBroker(BrokerAdapter):
             )
 
         symbol = order.trade_instrument_id or order.instrument_id
-        market_price = self.market_data.get_last_price(symbol)
+        market_price = self.market_data.get_last_quote(symbol).price
         fill_price = self.slippage_model.apply(
             market_price=market_price,
             side=order.side,

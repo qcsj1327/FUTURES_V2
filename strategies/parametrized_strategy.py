@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import is_dataclass, replace
 from typing import Any
 
+from adapters.marketdata.base import MarketQuote
 from domain.enums import Decision
 from domain.signal import SignalDecision
 from strategies.base.strategy import Strategy
@@ -21,8 +22,8 @@ class ParametrizedStrategy(Strategy):
         self._base = base
         self._params = dict(params)
 
-    def generate(self, symbol: str, price: float) -> SignalDecision:
-        d = self._base.generate(symbol, price)
+    def generate(self, symbol: str, quote: MarketQuote) -> SignalDecision:
+        d = self._base.generate(symbol, quote)
 
         by_symbol = self._params.get("by_symbol")
         if isinstance(by_symbol, dict):

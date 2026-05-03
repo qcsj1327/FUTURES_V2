@@ -3,76 +3,88 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from adapters.marketdata.base import MarketDataAdapter
-
-
-def _base_symbol(symbol: str) -> str:
-    return symbol[:-5] if symbol.endswith("_main") else symbol
+from adapters.marketdata.base import MarketDataAdapter, MarketQuote, base_symbol
 
 
 @dataclass
 class LiveFileMarketData(MarketDataAdapter):
     """
-    Read-only 'live' market data adapter backed by a JSON file.
+    Read-only market data adapter backed by a JSON quote file.
 
-    Preferred file format (canonical):
-      {"au": 100.0, "ag": 50.0}
-
-    Alias semantics:
-      - "au_main" is treated as an alias of "au"
-      - If both "au" and "au_main" exist in the file, they must be equal.
+    Canonical format:
+      {"au": {"price": 100.0, "volume": 1234.0, "ts": 1710000000}}
     """
 
     prices_path: Path
 
-    def _read_prices(self) -> dict[str, float]:
+    def _quote_from_payload(self, symbol: str, payload: dict[str, Any]) -> MarketQuote:
+        price = payload.get("price")
+        if not isinstance(price, (int, float)):
+            raise ValueError(f"quote.price required for symbol={symbol}")
+
+        if "volume" not in payload:
+            raise ValueError(f"quote.volume required for symbol={symbol}")
+        volume = payload["volume"]
+        if volume is not None and not isinstance(volume, (int, float)):
+            raise ValueError(f"quote.volume must be number|null for symbol={symbol}")
+
+        ts = payload.get("ts")
+        if not isinstance(ts, int):
+            raise ValueError(f"quote.ts required for symbol={symbol}")
+
+        return MarketQuote(
+            symbol=base_symbol(symbol),
+            price=float(price),
+            volume=None if volume is None else float(volume),
+            ts=ts,
+        )
+
+    def _read_quotes(self) -> dict[str, MarketQuote]:
         data = json.loads(self.prices_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
-            raise ValueError("prices file must be a JSON object")
+            raise ValueError("market data file must be a JSON object")
 
-        out: dict[str, float] = {}
+        out: dict[str, MarketQuote] = {}
         for k, v in data.items():
-            if not isinstance(k, str):
-                continue
-            if isinstance(v, (int, float)):
-                out[k] = float(v)
+            if isinstance(k, str) and isinstance(v, dict):
+                out[k] = self._quote_from_payload(k, v)
 
-        # If both base and *_main are present, enforce equality (no pollution).
-        for k, v in list(out.items()):
+        for k, quote in list(out.items()):
             if k.endswith("_main"):
-                base = _base_symbol(k)
-                if base in out and out[base] != v:
-                    raise ValueError(f"price mismatch: {base}={out[base]} vs {k}={v}")
+                base = base_symbol(k)
+                if base in out and out[base] != quote:
+                    raise ValueError(f"quote mismatch: {base}={out[base]} vs {k}={quote}")
         return out
 
-    def _resolve_one(self, prices: dict[str, float], symbol: str) -> float:
-        if symbol in prices:
-            return prices[symbol]
+    def _resolve_one(self, quotes: dict[str, MarketQuote], symbol: str) -> MarketQuote:
+        if symbol in quotes:
+            return quotes[symbol]
 
-        base = _base_symbol(symbol)
+        base = base_symbol(symbol)
         alt = base if symbol.endswith("_main") else f"{symbol}_main"
 
-        if alt in prices:
-            return prices[alt]
-        if base in prices:
-            return prices[base]
+        if alt in quotes:
+            return quotes[alt]
+        if base in quotes:
+            return quotes[base]
 
-        raise KeyError(f"missing price for symbol={symbol}")
+        raise KeyError(f"missing quote for symbol={symbol}")
 
-    def get_last_price(self, symbol: str) -> float:
-        prices = self._read_prices()
-        return self._resolve_one(prices, symbol)
+    def get_last_quote(self, symbol: str) -> MarketQuote:
+        quotes = self._read_quotes()
+        return self._resolve_one(quotes, symbol)
 
-    def get_last_prices(self, symbols: list[str]) -> dict[str, float]:
-        prices = self._read_prices()
-        out: dict[str, float] = {}
+    def get_last_quotes(self, symbols: list[str]) -> dict[str, MarketQuote]:
+        quotes = self._read_quotes()
+        out: dict[str, MarketQuote] = {}
         missing: list[str] = []
         for s in symbols:
             try:
-                out[s] = self._resolve_one(prices, s)
+                out[s] = self._resolve_one(quotes, s)
             except KeyError:
                 missing.append(s)
         if missing:
-            raise KeyError(f"missing prices: {missing}")
+            raise KeyError(f"missing quotes: {missing}")
         return out

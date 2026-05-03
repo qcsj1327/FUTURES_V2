@@ -56,14 +56,14 @@ class Runtime:
         stop_loss: float | None = None,
         take_profit: float | None = None,
     ) -> None:
-        price = self.market_data.get_last_price(self.config.symbol)
-        decision = self.strategy.generate(self.config.symbol, price)
+        quote = self.market_data.get_last_quote(self.config.symbol)
+        decision = self.strategy.generate(self.config.symbol, quote)
         self.run(decision)
 
         for position in list(self.state.portfolio.positions.values()):
             exit_order = self.exit_service.create_exit_order(
                 position=position,
-                current_price=price,
+                current_price=quote.price,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
             )
