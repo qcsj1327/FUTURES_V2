@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "env": "dev",
+  "adapters": {
+    "market_data": {
+      "mode": "simulated_v2",
+      "params": {
+        "seed": 42,
+        "drift": 0.0001,
+        "vol": 0.02,
+        "start_prices": {
+          "au": 450.0
+        },
+        "start_volumes": {
+          "au": 1000.0
+        }
+      }
+    }
+  },
+  "universe": {
+    "symbols": [
+      "au"
+    ]
+  },
+  "strategies": [
+    {
+      "name": "volume_spike_breakout",
+      "params": {
+        "window": 5,
+        "spike_mult": 1.5,
+        "breakout_lookback": 3,
+        "direction": "both"
+      },
+      "symbols": [
+        "au"
+      ],
+      "priority": 10,
+      "weight": 1.0
+    },
+    {
+      "name": "volume_trend_filter",
+      "params": {
+        "momentum_window": 3,
+        "vol_window": 5,
+        "min_vol_mult": 0.8,
+        "direction": "both"
+      },
+      "symbols": [
+        "au"
+      ],
+      "priority": 20,
+      "weight": 0.7
+    },
+    {
+      "name": "volume_guard",
+      "params": {
+        "vol_window": 5,
+        "min_vol_mult": 0.8
+      },
+      "symbols": [
+        "au"
+      ],
+      "priority": 30,
+      "weight": 0.3
+    }
+  ],
+  "runtime": {
+    "ticks_live": 6,
+    "ticks_sandbox": 6,
+    "default_quantity": 1.0
+  },
+  "promotion": {
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0,
+    "max_consecutive_failures": 99
+  },
+  "router": {
+    "mode": "priority",
+    "tie_breaker": "priority"
+  }
+}
