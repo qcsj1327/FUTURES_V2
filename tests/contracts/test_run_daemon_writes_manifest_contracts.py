@@ -75,4 +75,4 @@ def test_run_daemon_writes_manifest_and_summaries(
 
     sdir = tmp_path / "data" / "artifacts" / "summaries"
     assert (sdir / f"current_{rid}.json").exists()
-    assert (sdir / f"candidate_{rid}.json").exists()
+    assert not (sdir / f"candidate_{rid}.json").exists()

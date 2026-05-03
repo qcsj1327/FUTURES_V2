@@ -26,6 +26,8 @@ def write_promotion_manifest(
     plan_sha256: str | None = None,
     output_dir: Path | None = None,
     filename: str | None = None,
+    run_mode: str = "batch",
+    env: str | None = None,
 ) -> Path:
     out_dir = output_dir or Path("data/artifacts/manifests")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -38,6 +40,8 @@ def write_promotion_manifest(
         "schema_version": 1,
         "created_at": _utc_now_iso(),
         "runtime_id": runtime_id,
+        "run_mode": run_mode,
+        "env": env,
         "candidate_id": candidate_id,
         "candidate_config": dict(candidate_config),
         "thresholds": dict(thresholds),

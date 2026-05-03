@@ -29,15 +29,25 @@ def _load_artifact_payload(
     path_str: Any,
     *,
     required: bool = True,
+    warnings: list[str] | None = None,
+    name: str = "artifact",
 ) -> dict[str, Any]:
     if not isinstance(path_str, str) or not path_str.strip():
         if required:
+            if warnings is not None:
+                warnings.append(f"missing_{name}_path")
+                return {}
             raise ValueError("artifact path must be a non-empty string")
         return {}
     p = Path(path_str)
     if not p.exists():
+        if warnings is not None:
+            warnings.append(f"missing_{name}_file:{p}")
+            return {}
         raise FileNotFoundError(f"artifact not found: {p}")
     return repo.read_json(p)
+
+
 def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunReadModel:
     m = repo.read_json(manifest_path)
     if str(m.get("kind")) != "promotion_manifest":
@@ -49,11 +59,29 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
 
     artifacts = _as_dict(m.get("artifacts"))
     thresholds = _as_dict(m.get("thresholds"))
+    warnings: list[str] = []
 
-    # required artifacts
-    cur_payload = _load_artifact_payload(repo, artifacts.get("current_summary"), required=True)
-    cand_payload = _load_artifact_payload(repo, artifacts.get("candidate_summary"), required=True)
-    dec_payload = _load_artifact_payload(repo, artifacts.get("decision"), required=False)
+    cur_payload = _load_artifact_payload(
+        repo,
+        artifacts.get("current_summary"),
+        required=True,
+        warnings=warnings,
+        name="current_summary",
+    )
+    cand_payload = _load_artifact_payload(
+        repo,
+        artifacts.get("candidate_summary"),
+        required=False,
+        warnings=warnings,
+        name="candidate_summary",
+    )
+    dec_payload = _load_artifact_payload(
+        repo,
+        artifacts.get("decision"),
+        required=False,
+        warnings=warnings,
+        name="decision",
+    )
     if dec_payload is None:
         dec_payload = {}
 
@@ -63,6 +91,8 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
         p = Path(approved_ref)
         if p.exists():
             approved_payload = repo.read_json(p)
+        else:
+            warnings.append(f"missing_approved_file:{p}")
 
     # plan metadata
     plan = _as_dict(m.get("plan"))
@@ -83,6 +113,7 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
         decision=dec_payload,
         approved=approved_payload,
         thresholds=thresholds,
+        warnings=warnings,
     )
 
 

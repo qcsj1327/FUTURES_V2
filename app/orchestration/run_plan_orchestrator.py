@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import Any, cast
 
 from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.storage.datastore_fs import JSONLFileDataStore
+from app.orchestration.run_cleanup import clean_runtime_paths
 from app.orchestration.session_builder import (
     build_market_data,
     build_strategy_set,
@@ -64,11 +64,6 @@ def compute_plan_meta_from_file(path: Path) -> dict[str, Any]:
     }
 
 
-def _rm_tree(p: Path) -> None:
-    if p.exists():
-        shutil.rmtree(p)
-
-
 def orchestrate(
     *,
     resolved: ResolvedPlan,
@@ -84,8 +79,7 @@ def orchestrate(
     sandbox_root = store_root / "sandbox"
 
     if clean:
-        _rm_tree(store_root)
-        _rm_tree(artifacts_root)
+        clean_runtime_paths(runtime_id=rid, store_root=store_root, artifacts_root=artifacts_root)
 
     plan.datastore.approved_dir.mkdir(parents=True, exist_ok=True)
     plan.datastore.decisions_dir.mkdir(parents=True, exist_ok=True)

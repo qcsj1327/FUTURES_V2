@@ -10,7 +10,7 @@ from web.readmodel.loader import load_run_from_manifest
 from web.readmodel.repository import FileRepository
 
 
-def test_readmodel_fails_if_manifest_points_to_missing_artifact(
+def test_readmodel_reports_warning_if_manifest_points_to_missing_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -56,5 +56,6 @@ def test_readmodel_fails_if_manifest_points_to_missing_artifact(
     m["artifacts"] = artifacts
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    with pytest.raises(FileNotFoundError):
-        _ = load_run_from_manifest(repo, mp)
+    run = load_run_from_manifest(repo, mp)
+    assert run.current_summary == {}
+    assert any("missing_current_summary_file" in w for w in run.warnings)

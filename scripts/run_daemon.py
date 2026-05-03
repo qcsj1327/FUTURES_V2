@@ -3,23 +3,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 from app.orchestration.daemon_runner import DaemonSession, run_loop
+from app.orchestration.run_cleanup import clean_runtime_paths
 from app.orchestration.session_builder import Env, build_universe_session
 from config.defaults import default_plan
 from config.loader import load_plan
 from config.models import RunPlan
 from optimize.promoter.promotion_gate import PromotionThresholds
-
-
-def _rm_tree(p: Path) -> None:
-    if p.exists():
-        shutil.rmtree(p)
 
 
 def _plan_meta_for(path: Path | None, *, plan_obj: RunPlan) -> dict[str, Any]:
@@ -66,8 +61,11 @@ def main(argv: list[str] | None = None) -> int:
     env_typed = cast(Env, env)
 
     if args.clean:
-        _rm_tree(plan.datastore.store_root / env / args.runtime_id)
-        _rm_tree(plan.datastore.artifacts_root)
+        clean_runtime_paths(
+            runtime_id=args.runtime_id,
+            store_root=plan.datastore.store_root,
+            artifacts_root=plan.datastore.artifacts_root,
+        )
 
     # Session builder returns UniverseRuntime (single-env)
     uni = build_universe_session(plan=plan, env=env_typed, runtime_id=args.runtime_id)

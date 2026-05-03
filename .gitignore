@@ -22,6 +22,7 @@ logs/*
 !data/artifacts/.gitkeep
 !data/raw/.gitkeep
 !data/replay/.gitkeep
+!data/replay/test_signals.csv
 !logs/.gitkeep
 
 # Python cache
