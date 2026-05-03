@@ -1,0 +1,3 @@
+decision,side,strength,confidence,reason,signal_id,strategy_name,symbol,instrument_id,trade_instrument_id,runtime_id,ts,bar_ts,bar_time,position_side
+open_long,buy,strong,1.0,test_signal,sig_1,replay_strategy,au,au,au_main,r_replay,1,1,2026-01-01T00:00:00Z,long
+open_long,buy,strong,1.0,test_signal,sig_2,replay_strategy,au,au,au_main,r_replay,2,2,2026-01-01T00:01:00Z,long

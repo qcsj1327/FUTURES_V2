@@ -35,3 +35,4 @@ class RunReadModel:
     approved: dict[str, Any] | None
 
     thresholds: dict[str, Any]
+    warnings: list[str]
