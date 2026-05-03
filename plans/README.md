@@ -33,6 +33,19 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 
 `universe.symbols` 和 strategy `symbols` 只能写 base symbol，例如 `au`，不能写合约月或 `*_main`。
 
+## runtime Top-N 调度
+
+`runtime.active_top_n` 默认为 `0`，表示不启用，保持全品种执行链路。设置为大于 `0` 时，每个 tick 只允许排名前 N 的 base symbol 进入执行链路，其余品种只更新行情和调度缓存，不写 `order_events.jsonl` / `fill_events.jsonl`。
+
+相关字段：
+
+- `rank_window`：quote 动量/成交量排名窗口，默认 `20`。
+- `rank_metric`：`signal_strength` 或 `quote_momentum_volume`，默认 `signal_strength`。
+- `rank_refresh_every`：每隔多少 tick 刷新 active symbols，默认 `1`。
+- `rank_emit_events`：`1` 时写 `rank_events.jsonl`，供 inspect/web 读取。
+
+示例：`plans/dev.topn.json`。
+
 示例（推荐）：
 
 ```json

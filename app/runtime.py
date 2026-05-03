@@ -106,6 +106,7 @@ class Runtime:
                 exit_result,
                 strategy_name="exit",
                 strategy_impl="ExitService",
+                symbol=position.instrument_id,
             )
             self.state.apply(exit_order, exit_result, strategy_name="exit")
             self._maybe_save_snapshot()
@@ -183,6 +184,7 @@ class Runtime:
             exec_result,
             strategy_name=name,
             strategy_impl=strategy_impl,
+            symbol=decision.symbol,
         )
         self.state.apply(order, exec_result)
         self._maybe_save_snapshot()
@@ -194,6 +196,7 @@ class Runtime:
         *,
         strategy_name: str,
         strategy_impl: str | None = None,
+        symbol: str | None = None,
     ) -> None:
         if self.datastore is None:
             return
@@ -203,7 +206,7 @@ class Runtime:
             runtime_id=self.runtime_id,
             env=self.environment,
             strategy_name=strategy_name,
-            symbol=self.config.symbol,
+            symbol=symbol or self.config.symbol,
             strategy_impl=strategy_impl,
         )
 

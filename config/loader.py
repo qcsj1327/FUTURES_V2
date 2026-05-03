@@ -118,7 +118,18 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         raise ValueError("runtime must be an object")
     _assert_keys(
         runtime_raw,
-        {"ticks_live", "ticks_sandbox", "default_quantity", "stop_loss", "take_profit"},
+        {
+            "ticks_live",
+            "ticks_sandbox",
+            "default_quantity",
+            "stop_loss",
+            "take_profit",
+            "active_top_n",
+            "rank_window",
+            "rank_metric",
+            "rank_refresh_every",
+            "rank_emit_events",
+        },
         where="runtime",
     )
     ticks_live = int(runtime_raw.get("ticks_live", base.runtime.ticks_live))
@@ -126,6 +137,21 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     default_quantity = float(runtime_raw.get("default_quantity", base.runtime.default_quantity))
     stop_loss = runtime_raw.get("stop_loss", base.runtime.stop_loss)
     take_profit = runtime_raw.get("take_profit", base.runtime.take_profit)
+    active_top_n = int(runtime_raw.get("active_top_n", base.runtime.active_top_n))
+    rank_window = int(runtime_raw.get("rank_window", base.runtime.rank_window))
+    rank_metric = str(runtime_raw.get("rank_metric", base.runtime.rank_metric))
+    rank_refresh_every = int(runtime_raw.get("rank_refresh_every", base.runtime.rank_refresh_every))
+    rank_emit_events = int(runtime_raw.get("rank_emit_events", base.runtime.rank_emit_events))
+    if active_top_n < 0:
+        raise ValueError("runtime.active_top_n must be >= 0")
+    if rank_window < 1:
+        raise ValueError("runtime.rank_window must be >= 1")
+    if rank_metric not in {"signal_strength", "quote_momentum_volume"}:
+        raise ValueError("runtime.rank_metric must be signal_strength or quote_momentum_volume")
+    if rank_refresh_every < 1:
+        raise ValueError("runtime.rank_refresh_every must be >= 1")
+    if rank_emit_events not in {0, 1}:
+        raise ValueError("runtime.rank_emit_events must be 0 or 1")
     runtime = RuntimeSpec(
         runtime_id=runtime_id,
         ticks_live=ticks_live,
@@ -133,6 +159,11 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         default_quantity=default_quantity,
         stop_loss=stop_loss if stop_loss is None else float(stop_loss),
         take_profit=take_profit if take_profit is None else float(take_profit),
+        active_top_n=active_top_n,
+        rank_window=rank_window,
+        rank_metric=rank_metric,
+        rank_refresh_every=rank_refresh_every,
+        rank_emit_events=rank_emit_events,
     )
 
     # datastore (optional override paths)
