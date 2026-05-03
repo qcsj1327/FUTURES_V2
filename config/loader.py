@@ -244,7 +244,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             prices_path = str(pp)
     if prices_path is not None and not isinstance(prices_path, str):
         raise ValueError("adapters.market_data.prices_path must be str")
-    if md_mode not in {"simulated", "simulated_v2", "live_file"}:
+    if md_mode not in {"tqkq","simulated", "simulated_v2", "live_file"}:
         raise ValueError(f"invalid adapters.market_data.mode: {md_mode}")
     if md_mode == "live_file" and not prices_path:
         raise ValueError("adapters.market_data.prices_path required for live_file")

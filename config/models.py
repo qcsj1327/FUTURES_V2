@@ -27,7 +27,7 @@ class RouterSpec:
 
 @dataclass(frozen=True)
 class MarketDataSpec:
-    mode: str = "simulated"  # simulated | simulated_v2 | live_file
+    mode: str = "simulated"  # simulated | simulated_v2 | live_file | tqkq
     prices_path: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
 
