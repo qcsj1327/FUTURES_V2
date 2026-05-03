@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from adapters.marketdata.base import MarketQuote
 from domain.signal import SignalDecision
 
 
 class Strategy(ABC):
     @abstractmethod
-    def generate(self, symbol: str, price: float) -> SignalDecision:
+    def generate(self, symbol: str, quote: MarketQuote) -> SignalDecision:
         pass
