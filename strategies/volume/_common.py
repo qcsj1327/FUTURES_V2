@@ -82,7 +82,7 @@ def signal(
         strategy_name=strategy_name,
         symbol=symbol,
         instrument_id=symbol,
-        trade_instrument_id=f"{symbol}_main",
+        trade_instrument_id=None,
         ts=quote.ts,
         bar_ts=quote.ts,
         bar_time=str(quote.ts),

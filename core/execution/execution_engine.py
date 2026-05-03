@@ -26,6 +26,9 @@ class ExecutionEngine:
         if decision.position_side is None:
             return None, self._rejected("missing_position_side")
 
+        if not decision.trade_instrument_id:
+            return None, self._rejected("missing_trade_instrument_id")
+
         if decision.decision == Decision.OPEN_LONG:
             if decision.side != Side.BUY or decision.position_side != PositionSide.LONG:
                 return None, self._rejected("invalid_open_long_contract")

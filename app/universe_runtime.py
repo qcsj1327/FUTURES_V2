@@ -37,10 +37,15 @@ class UniverseRuntime:
         )
 
         for td in final_tagged:
+            base = self.executor.instrument_resolver.base_symbol(
+                td.decision.symbol or td.decision.instrument_id or td.strategy_name
+            )
+            quote = quotes.get(base)
             self.executor.run(
                 td.decision,
                 strategy_name=td.strategy_name,
                 strategy_impl=str(getattr(td, "strategy_impl", "unknown")),
+                market_ts=quote.ts if quote is not None else None,
             )
 
         # optional exit per position (best-effort symbol mapping)
@@ -51,6 +56,10 @@ class UniverseRuntime:
         for pos in list(self.executor.state.portfolio.positions.values()):
             sym = getattr(pos, "instrument_id", None) or getattr(pos, "trade_instrument_id", None)
             if not isinstance(sym, str) or sym not in quotes:
+                continue
+            raw_quote_ts = quotes[sym].ts
+            quote_ts: int = raw_quote_ts if raw_quote_ts is not None else self.executor._tick
+            if not self.executor.trading_calendar.is_trading_time(sym, quote_ts):
                 continue
 
             exit_order = self.executor.exit_service.create_exit_order(

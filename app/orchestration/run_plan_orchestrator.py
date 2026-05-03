@@ -11,6 +11,7 @@ from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.storage.datastore_fs import JSONLFileDataStore
 from app.orchestration.run_cleanup import clean_runtime_paths
 from app.orchestration.session_builder import (
+    build_instrument_services,
     build_market_data,
     build_strategy_set,
     make_universe_runtime,
@@ -93,6 +94,12 @@ def orchestrate(
     broker_live = SimulatedBroker(md_live)
     cfg = RuntimeConfig()
     live_store = JSONLFileDataStore(root_dir=live_root, env="live", runtime_id=rid)
+    live_calendar, live_resolver = build_instrument_services(
+        plan=plan,
+        runtime_id=rid,
+        env="live",
+        datastore=live_store,
+    )
 
     live_executor = RuntimeFactory.build_live_runtime(
         config=cfg,
@@ -100,6 +107,8 @@ def orchestrate(
         market_data=md_live,
         broker=broker_live,
         datastore=live_store,
+        trading_calendar=live_calendar,
+        instrument_resolver=live_resolver,
     )
 
     uni_live = make_universe_runtime(
@@ -117,6 +126,12 @@ def orchestrate(
     md_sandbox = build_market_data(plan)
     broker_sandbox = SimulatedBroker(md_sandbox)
     sandbox_store = JSONLFileDataStore(root_dir=sandbox_root, env="sandbox", runtime_id=rid)
+    sandbox_calendar, sandbox_resolver = build_instrument_services(
+        plan=plan,
+        runtime_id=rid,
+        env="sandbox",
+        datastore=sandbox_store,
+    )
 
     sandbox_executor = RuntimeFactory.build_sandbox_runtime_from_live(
         live_executor,
@@ -124,6 +139,8 @@ def orchestrate(
         market_data=md_sandbox,
         broker=broker_sandbox,
         datastore=sandbox_store,
+        trading_calendar=sandbox_calendar,
+        instrument_resolver=sandbox_resolver,
     )
 
     uni_sandbox = make_universe_runtime(

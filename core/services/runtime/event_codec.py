@@ -34,6 +34,8 @@ def encode_order_event(order: object | None) -> dict[str, Any]:
         d = order.__dict__
         return {
             "event_type": "order",
+            "instrument_id": d.get("instrument_id"),
+            "trade_instrument_id": d.get("trade_instrument_id"),
             "side": getattr(d.get("side"), "value", d.get("side")),
             "position_side": getattr(d.get("position_side"), "value", d.get("position_side")),
             "quantity": d.get("quantity"),
@@ -42,6 +44,8 @@ def encode_order_event(order: object | None) -> dict[str, Any]:
 
     return {
         "event_type": "order",
+        "instrument_id": getattr(order, "instrument_id", None),
+        "trade_instrument_id": getattr(order, "trade_instrument_id", None),
         "side": getattr(getattr(order, "side", None), "value", getattr(order, "side", None)),
         "position_side": getattr(
             getattr(order, "position_side", None),

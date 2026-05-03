@@ -9,12 +9,15 @@ from config.defaults import default_plan
 from config.models import (
     AdaptersSpec,
     DataStoreSpec,
+    InstrumentsSpec,
     MarketDataSpec,
     PromotionSpec,
+    RollPolicySpec,
     RouterSpec,
     RunPlan,
     RuntimeSpec,
     StrategySpec,
+    TradingSessionSpec,
     UniverseSpec,
 )
 
@@ -47,6 +50,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             "promotion",
             "router",
             "adapters",
+            "instruments",
         },
         where="root",
     )
@@ -66,6 +70,8 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     symbols = universe_raw.get("symbols", asdict(base.universe)["symbols"])
     if not isinstance(symbols, list) or not all(isinstance(s, str) for s in symbols):
         raise ValueError("universe.symbols must be list[str]")
+    if any(s.endswith("_main") for s in symbols):
+        raise ValueError("universe.symbols must use base symbols")
     universe = UniverseSpec(symbols=list(symbols))
 
     # strategies
@@ -90,6 +96,8 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         ss = sraw.get("symbols", [])
         if not isinstance(ss, list) or not all(isinstance(x, str) for x in ss):
             raise ValueError(f"strategy[{i}].symbols must be list[str]")
+        if any(x.endswith("_main") for x in ss):
+            raise ValueError(f"strategy[{i}].symbols must use base symbols")
         priority = sraw.get("priority", 100)
         weight = sraw.get("weight", 1.0)
         strategies.append(
@@ -218,6 +226,62 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     if router.tie_breaker not in allowed_tie_breakers:
         raise ValueError(f"invalid router.tie_breaker: {router.tie_breaker}")
 
+    instruments_raw = raw.get("instruments", {})
+    if not isinstance(instruments_raw, dict):
+        raise ValueError("instruments must be an object")
+    _assert_keys(instruments_raw, {"trading_sessions", "roll_policy"}, where="instruments")
+
+    sessions_raw = instruments_raw.get("trading_sessions", {})
+    if not isinstance(sessions_raw, dict):
+        raise ValueError("instruments.trading_sessions must be object")
+    trading_sessions: dict[str, list[TradingSessionSpec]] = {}
+    for sym, sessions in sessions_raw.items():
+        if not isinstance(sym, str) or sym.endswith("_main"):
+            raise ValueError("instruments.trading_sessions keys must be base symbols")
+        if not isinstance(sessions, list):
+            raise ValueError(f"instruments.trading_sessions.{sym} must be list")
+        parsed_sessions: list[TradingSessionSpec] = []
+        for i, session in enumerate(sessions):
+            if not isinstance(session, dict):
+                raise ValueError(f"instruments.trading_sessions.{sym}[{i}] must be object")
+            _assert_keys(
+                session,
+                {"start", "end"},
+                where=f"instruments.trading_sessions.{sym}[{i}]",
+            )
+            start = session.get("start")
+            end = session.get("end")
+            if not isinstance(start, str) or not isinstance(end, str):
+                raise ValueError(f"instruments.trading_sessions.{sym}[{i}] start/end required")
+            parsed_sessions.append(TradingSessionSpec(start=start, end=end))
+        trading_sessions[sym] = parsed_sessions
+    if not trading_sessions:
+        trading_sessions = dict(base.instruments.trading_sessions)
+
+    roll_raw = instruments_raw.get("roll_policy", {})
+    if not isinstance(roll_raw, dict):
+        raise ValueError("instruments.roll_policy must be object")
+    _assert_keys(roll_raw, {"mode", "contracts"}, where="instruments.roll_policy")
+    roll_mode = str(roll_raw.get("mode", base.instruments.roll_policy.mode))
+    if roll_mode not in {"fixed_contract", "fixed_main"}:
+        raise ValueError(f"invalid instruments.roll_policy.mode: {roll_mode}")
+    contracts_raw = roll_raw.get("contracts", base.instruments.roll_policy.contracts)
+    if not isinstance(contracts_raw, dict):
+        raise ValueError("instruments.roll_policy.contracts must be object")
+    contracts: dict[str, str] = {}
+    for sym, contract in contracts_raw.items():
+        if not isinstance(sym, str) or sym.endswith("_main"):
+            raise ValueError("instruments.roll_policy.contracts keys must be base symbols")
+        if not isinstance(contract, str) or not contract:
+            raise ValueError(f"instruments.roll_policy.contracts.{sym} must be non-empty str")
+        contracts[sym] = contract
+    for sym in universe.symbols:
+        if sym not in contracts:
+            raise ValueError(f"missing instruments.roll_policy.contracts.{sym}")
+    instruments = InstrumentsSpec(
+        trading_sessions=trading_sessions,
+        roll_policy=RollPolicySpec(mode=roll_mode, contracts=contracts),
+    )
 
     # adapters
     adapters_raw = raw.get("adapters", {})
@@ -267,4 +331,5 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         datastore=datastore,
         promotion=promotion,
         router=router,
+        instruments=instruments,
     )
