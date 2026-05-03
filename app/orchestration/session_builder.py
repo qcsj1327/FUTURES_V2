@@ -18,6 +18,7 @@ from config.models import RunPlan
 from core.instruments.calendar import TradingCalendar, TradingSession
 from core.instruments.resolver import InstrumentResolver
 from core.instruments.roll_policy import RollPolicy
+from core.instruments.specs import InstrumentSpecRegistry
 from core.signal_router.router import RouterConfig
 from strategies.registry import create_strategy
 from strategies.strategy_set import StrategyEntry, StrategySet
@@ -113,6 +114,7 @@ def build_broker(plan: RunPlan, market_data: MarketDataAdapter) -> SimulatedBrok
         fill_delay_ticks=fill_delay_ticks,
         partial_fill_ratio=partial_fill_ratio,
         max_ticks_to_fill=max_ticks_to_fill,
+        instrument_specs=InstrumentSpecRegistry.with_overrides(plan.instruments.specs),
     )
 
 
