@@ -4,7 +4,7 @@ import pytest
 
 from adapters.broker.base import BrokerAdapter
 from adapters.broker.simulated_broker import SimulatedBroker
-from adapters.marketdata.base import MarketDataAdapter
+from adapters.marketdata.base import MarketDataAdapter, MarketQuote
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
 from app.runtime import Runtime
 from app.runtime_config import RuntimeConfig
@@ -14,8 +14,8 @@ from domain.execution import ExecutionOrder, ExecutionResult
 
 
 class FixedMarketData(MarketDataAdapter):
-    def get_last_price(self, symbol: str) -> float:
-        return 101.0
+    def get_last_quote(self, symbol: str) -> MarketQuote:
+        return MarketQuote(symbol=symbol, price=101.0, volume=1000.0, ts=1)
 
 
 class RecordingBroker(BrokerAdapter):

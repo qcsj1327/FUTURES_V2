@@ -56,6 +56,13 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
                 if isinstance(k, str) and isinstance(v, (int, float)):
                     start_prices[k] = float(v)
 
+        volumes = params.get("start_volumes", {})
+        start_volumes: dict[str, float] = {}
+        if isinstance(volumes, dict):
+            for k, v in volumes.items():
+                if isinstance(k, str) and isinstance(v, (int, float)):
+                    start_volumes[k] = float(v)
+
         symbols: list[str] = list(plan.universe.symbols)
         for s in list(symbols):
             if not s.endswith("_main"):
@@ -67,6 +74,7 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
             drift=drift,
             vol=vol,
             start_prices=start_prices,
+            start_volumes=start_volumes,
         )
 
     return SimulatedMarketData()

@@ -27,8 +27,8 @@ class UniverseRuntime:
         self.router_config = router_config
 
     def run_tick(self) -> None:
-        prices = self.market_data.get_last_prices(self.symbols)
-        tagged = self.strategy_set.generate(prices)
+        quotes = self.market_data.get_last_quotes(self.symbols)
+        tagged = self.strategy_set.generate(quotes)
         final_tagged = route(
             tagged,
             config=self.router_config,
@@ -50,12 +50,12 @@ class UniverseRuntime:
 
         for pos in list(self.executor.state.portfolio.positions.values()):
             sym = getattr(pos, "instrument_id", None) or getattr(pos, "trade_instrument_id", None)
-            if not isinstance(sym, str) or sym not in prices:
+            if not isinstance(sym, str) or sym not in quotes:
                 continue
 
             exit_order = self.executor.exit_service.create_exit_order(
                 position=pos,
-                current_price=prices[sym],
+                current_price=quotes[sym].price,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
             )

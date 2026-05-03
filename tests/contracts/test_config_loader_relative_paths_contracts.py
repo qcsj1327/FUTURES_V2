@@ -65,7 +65,10 @@ def test_loader_resolves_datastore_paths_relative_to_plan_dir(
 def test_loader_resolves_live_file_prices_path_relative_to_plan_dir(tmp_path: Path) -> None:
     plan_dir = tmp_path / "plan_dir"
     plan_dir.mkdir()
-    (plan_dir / "prices.json").write_text('{"au": 100.0}', encoding="utf-8")
+    (plan_dir / "prices.json").write_text(
+        '{"au": {"price": 100.0, "volume": 1000.0, "ts": 1}}',
+        encoding="utf-8",
+    )
 
     plan = {
         "schema_version": 1,
