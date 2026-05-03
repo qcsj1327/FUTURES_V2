@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "env": "dev",
+  "adapters": {
+    "market_data": {
+      "mode": "simulated_v2",
+      "params": {
+        "seed": 16,
+        "drift": 0.0001,
+        "vol": 0.01,
+        "start_prices": {
+          "au": 450.0,
+          "ag": 5500.0,
+          "cu": 68000.0,
+          "rb": 3900.0,
+          "zn": 21000.0
+        },
+        "start_volumes": {
+          "au": 1000.0,
+          "ag": 1200.0,
+          "cu": 1300.0,
+          "rb": 900.0,
+          "zn": 1100.0
+        }
+      }
+    },
+    "broker": {
+      "mode": "simulated",
+      "params": {
+        "fill_delay_ticks": 2,
+        "partial_fill_ratio": 0.5,
+        "max_ticks_to_fill": 8
+      }
+    }
+  },
+  "universe": {
+    "symbols": [
+      "au",
+      "ag",
+      "cu",
+      "rb",
+      "zn"
+    ]
+  },
+  "strategies": [
+    {
+      "name": "simple_strategy",
+      "params": {},
+      "symbols": [
+        "au",
+        "ag",
+        "cu",
+        "rb",
+        "zn"
+      ],
+      "priority": 10,
+      "weight": 1.0
+    }
+  ],
+  "instruments": {
+    "roll_policy": {
+      "mode": "fixed_contract",
+      "contracts": {
+        "au": "SHFE.au2406",
+        "ag": "SHFE.ag2406",
+        "cu": "SHFE.cu2406",
+        "rb": "SHFE.rb2406",
+        "zn": "SHFE.zn2406"
+      }
+    }
+  },
+  "runtime": {
+    "ticks_live": 30,
+    "ticks_sandbox": 0,
+    "default_quantity": 1.0,
+    "active_top_n": 3,
+    "rank_window": 5,
+    "rank_metric": "quote_momentum_volume",
+    "rank_refresh_every": 1,
+    "rank_emit_events": 1
+  },
+  "promotion": {
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0,
+    "max_consecutive_failures": 99
+  },
+  "router": {
+    "mode": "priority",
+    "tie_breaker": "priority"
+  }
+}
