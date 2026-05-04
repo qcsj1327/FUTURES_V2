@@ -21,6 +21,7 @@ def test_plans_examples_exist() -> None:
     assert (root / "plans" / "dev.risk_pending_guard.json").exists()
     assert (root / "plans" / "dev.tqkq_sim_expire.json").exists()
     assert (root / "plans" / "dev.tqkq_live_dryrun.json").exists()
+    assert (root / "plans" / "dev.tqkq_live_submit.json").exists()
     assert (root / "plans" / "dev.topn_switch_calendar_v2.json").exists()
     assert (root / "plans" / "dev.topn_switch_calendar.json").exists()
     assert (root / "plans" / "dev.portfolio_risk_v1.json").exists()

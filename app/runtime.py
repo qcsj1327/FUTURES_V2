@@ -8,6 +8,7 @@ from app.runtime_config import RuntimeConfig
 from core.execution.execution_engine import ExecutionEngine
 from core.execution.lifecycle_reasons import (
     BLOCKED_BY_PENDING_ORDER,
+    CANCELED,
     DUPLICATE_SAME_TICK,
     EXPIRED,
     NEW,
@@ -323,6 +324,9 @@ class Runtime:
             strategy_impl=strategy_impl,
             symbol=event_symbol,
         )
+        if exec_result.status == ExecutionStatus.REJECTED:
+            self._maybe_save_snapshot()
+            return
         self._maybe_append_events(
             order,
             exec_result,
@@ -450,6 +454,8 @@ class Runtime:
             return
         status = status_override or self._lifecycle_status(exec_result)
         reason = validate_lifecycle_reason(exec_result.reason)
+        if reason == CANCELED:
+            status = "CANCELED"
         if reason == EXPIRED:
             status = "EXPIRED"
         base = build_base_event(
@@ -498,6 +504,8 @@ class Runtime:
     def _lifecycle_status(self, exec_result: ExecutionResult) -> str:
         if exec_result.reason == DUPLICATE_SAME_TICK:
             return "REJECTED"
+        if exec_result.reason == CANCELED:
+            return "CANCELED"
         if exec_result.reason == EXPIRED:
             return "EXPIRED"
         if exec_result.status == ExecutionStatus.SUBMITTED:
