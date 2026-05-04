@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from core.execution.lifecycle_reasons import (
+    QUANTITY_REJECTED,
+    REJECT_NEXT_ORDER,
+    REJECTED_SYMBOL,
+)
 from domain.execution import ExecutionOrder
 
 
@@ -25,16 +30,16 @@ class RejectionPolicy:
     def reject_reason(self, order: ExecutionOrder) -> str | None:
         if self.reject_next_order:
             self.reject_next_order = False
-            return "reject_next_order"
+            return REJECT_NEXT_ORDER
 
         if self._matches_symbol(order):
-            return "rejected_symbol"
+            return REJECTED_SYMBOL
 
         if (
             self.reject_above_quantity is not None
             and order.quantity > self.reject_above_quantity
         ):
-            return "quantity_rejected"
+            return QUANTITY_REJECTED
 
         return None
 

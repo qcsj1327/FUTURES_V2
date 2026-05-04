@@ -627,10 +627,7 @@ def _validate_broker_params(*, broker_mode: str, params: dict[str, Any]) -> None
         "max_partial_steps",
         "max_ticks_to_fill",
         "no_fill",
-        "paper_no_fill",
     }
     extra = set(params) - allowed
     if extra:
         raise ValueError(f"unknown keys at adapters.broker.params: {sorted(extra)}")
-    if broker_mode != "tqkq_sim" and "paper_no_fill" in params:
-        raise ValueError("adapters.broker.params.paper_no_fill requires broker.mode=tqkq_sim")

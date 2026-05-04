@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from core.execution.lifecycle_reasons import RISK_POSITION_LIMIT
 from scripts.run_plan import main as run_plan_main
 from web.api.events import get_run_events
 
@@ -69,7 +70,7 @@ def test_position_limit_rejects_without_order_or_fill_growth(
     order_events = _events(base / "order_events.jsonl")
     fill_events = _events(base / "fill_events.jsonl")
 
-    rejected = [e for e in lifecycle if e.get("reason") == "risk_position_limit"]
+    rejected = [e for e in lifecycle if e.get("reason") == RISK_POSITION_LIMIT]
     assert len(order_events) == 1
     assert len(fill_events) == 1
     assert rejected
@@ -83,4 +84,4 @@ def test_position_limit_rejects_without_order_or_fill_growth(
         tail=50,
     )
     reasons = {e.get("reason") for e in api_payload["timeline"]}
-    assert "risk_position_limit" in reasons
+    assert RISK_POSITION_LIMIT in reasons
