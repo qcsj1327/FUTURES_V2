@@ -33,6 +33,9 @@ class _PendingOrderContext:
     strategy_name: str
     strategy_impl: str | None
     symbol: str
+    submitted_tick: int
+    filled_quantity: float = 0.0
+    remaining_quantity: float | None = None
 
 
 class Runtime:
@@ -83,6 +86,8 @@ class Runtime:
         self.orders_submitted = 0
         self._tick = 0
         self._pending_order_contexts: dict[str, _PendingOrderContext] = {}
+        self.max_pending_ticks: int | None = None
+        self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
 
     def run_market_once(
         self,
@@ -213,6 +218,47 @@ class Runtime:
         symbol: str | None = None,
     ) -> None:
         event_symbol = symbol or order.instrument_id
+        if self._is_duplicate_order(order):
+            duplicate = ExecutionResult(
+                success=False,
+                status=ExecutionStatus.REJECTED,
+                ts=self._tick,
+                order_id=exec_result.order_id,
+                reason="duplicate_order_same_tick",
+                filled_quantity=0.0,
+                remaining_quantity=order.quantity,
+                avg_fill_price=None,
+                fill_price=None,
+            )
+            self._maybe_append_order_lifecycle_event(
+                order,
+                duplicate,
+                strategy_name=strategy_name,
+                strategy_impl=strategy_impl,
+                symbol=event_symbol,
+            )
+            self._maybe_save_snapshot()
+            return
+
+        self._remember_order_key(order)
+        self._maybe_append_order_lifecycle_event(
+            order,
+            ExecutionResult(
+                success=False,
+                status=ExecutionStatus.SUBMITTED,
+                ts=self._tick,
+                order_id=exec_result.order_id,
+                reason="new",
+                filled_quantity=0.0,
+                remaining_quantity=order.quantity,
+                avg_fill_price=None,
+                fill_price=None,
+            ),
+            strategy_name=strategy_name,
+            strategy_impl=strategy_impl,
+            symbol=event_symbol,
+            status_override="NEW",
+        )
         self._maybe_append_order_lifecycle_event(
             order,
             exec_result,
@@ -234,6 +280,9 @@ class Runtime:
                 strategy_name=strategy_name,
                 strategy_impl=strategy_impl,
                 symbol=event_symbol,
+                submitted_tick=self._tick,
+                filled_quantity=0.0,
+                remaining_quantity=order.quantity,
             )
             self._maybe_save_snapshot()
             return
@@ -245,6 +294,7 @@ class Runtime:
         self._maybe_save_snapshot()
 
     def poll_order_lifecycle(self, tick: int) -> None:
+        self._expire_pending_orders(tick)
         poll = getattr(self.execution.broker, "poll_order_updates", None)
         if not callable(poll):
             return
@@ -265,6 +315,12 @@ class Runtime:
                 symbol=symbol,
             )
             if result.status == ExecutionStatus.PARTIALLY_FILLED:
+                if order_id is not None and ctx is not None:
+                    self._pending_order_contexts[order_id] = replace(
+                        ctx,
+                        filled_quantity=float(result.filled_quantity or 0.0),
+                        remaining_quantity=result.remaining_quantity,
+                    )
                 continue
             if result.status == ExecutionStatus.FILLED:
                 self.orders_submitted += 1
@@ -329,12 +385,13 @@ class Runtime:
         strategy_name: str,
         strategy_impl: str | None = None,
         symbol: str | None = None,
+        status_override: str | None = None,
     ) -> None:
         if self.datastore is None or exec_result.order_id is None:
             return
-        status = getattr(exec_result.status, "value", str(exec_result.status))
+        status = status_override or self._lifecycle_status(exec_result)
         if exec_result.reason == "expired":
-            status = "expired"
+            status = "EXPIRED"
         base = build_base_event(
             ts=exec_result.ts if exec_result.ts is not None else self._tick,
             runtime_id=self.runtime_id,
@@ -371,6 +428,71 @@ class Runtime:
             return {}
         payload = costs(order_id)
         return payload if isinstance(payload, dict) else {}
+
+    def _lifecycle_status(self, exec_result: ExecutionResult) -> str:
+        if exec_result.reason == "duplicate_order_same_tick":
+            return "REJECTED"
+        if exec_result.reason == "expired":
+            return "EXPIRED"
+        if exec_result.status == ExecutionStatus.SUBMITTED:
+            return "SUBMITTED"
+        if exec_result.status == ExecutionStatus.PARTIALLY_FILLED:
+            return "PARTIAL"
+        if exec_result.status == ExecutionStatus.FILLED:
+            return "FILLED"
+        if exec_result.status == ExecutionStatus.REJECTED:
+            return "REJECTED"
+        return str(exec_result.status).upper()
+
+    def _order_key(self, order: ExecutionOrder) -> tuple[str, str, str, str | None]:
+        return (
+            order.instrument_id,
+            getattr(order.side, "value", str(order.side)),
+            getattr(order.position_side, "value", str(order.position_side)),
+            order.trade_instrument_id,
+        )
+
+    def _is_duplicate_order(self, order: ExecutionOrder) -> bool:
+        return self._order_key(order) in self._order_keys_by_tick.get(self._tick, set())
+
+    def _remember_order_key(self, order: ExecutionOrder) -> None:
+        self._order_keys_by_tick.setdefault(self._tick, set()).add(self._order_key(order))
+        for old_tick in list(self._order_keys_by_tick):
+            if old_tick != self._tick:
+                del self._order_keys_by_tick[old_tick]
+
+    def _expire_pending_orders(self, tick: int) -> None:
+        if self.max_pending_ticks is None:
+            return
+        for order_id, ctx in list(self._pending_order_contexts.items()):
+            if tick - ctx.submitted_tick < self.max_pending_ticks:
+                continue
+            result = ExecutionResult(
+                success=False,
+                status=ExecutionStatus.REJECTED,
+                ts=tick,
+                order_id=order_id,
+                reason="expired",
+                filled_quantity=0.0,
+                remaining_quantity=(
+                    ctx.remaining_quantity
+                    if ctx.remaining_quantity is not None
+                    else ctx.order.quantity
+                ),
+                avg_fill_price=None,
+                fill_price=None,
+            )
+            self._maybe_append_order_lifecycle_event(
+                ctx.order,
+                result,
+                strategy_name=ctx.strategy_name,
+                strategy_impl=ctx.strategy_impl,
+                symbol=ctx.symbol,
+            )
+            cancel = getattr(self.execution.broker, "cancel_order", None)
+            if callable(cancel):
+                cancel(order_id, reason="expired")
+            self._pending_order_contexts.pop(order_id, None)
 
     def _maybe_save_snapshot(self) -> None:
         if self.datastore is None:

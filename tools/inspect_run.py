@@ -51,6 +51,15 @@ def _tail_jsonl(path: Path, n: int) -> list[dict[str, Any]]:
     return out
 
 
+def _jsonl_statuses(path: Path) -> list[str]:
+    statuses: set[str] = set()
+    for row in _tail_jsonl(path, 5000):
+        status = row.get("status")
+        if isinstance(status, str) and status:
+            statuses.add(status)
+    return sorted(statuses)
+
+
 def _find_latest_manifest(*, runtime_id: str, manifests_dir: Path) -> Path | None:
     if not manifests_dir.exists():
         return None
@@ -154,6 +163,28 @@ def inspect_run(
             "path": str(manifest_path),
             "created_at": manifest.get("created_at"),
             "candidate_id": manifest.get("candidate_id"),
+        },
+        "event_stats": {
+            "live": _store_stats(live_dir).__dict__,
+            "sandbox": _store_stats(sandbox_dir).__dict__,
+        },
+        "event_statuses": {
+            "live_order_lifecycle_statuses": _jsonl_statuses(
+                live_dir / "order_lifecycle_events.jsonl",
+            ),
+            "sandbox_order_lifecycle_statuses": _jsonl_statuses(
+                sandbox_dir / "order_lifecycle_events.jsonl",
+            ),
+        },
+        "event_tail": {
+            "live_order_lifecycle_events": _tail_jsonl(
+                live_dir / "order_lifecycle_events.jsonl",
+                tail,
+            ),
+            "sandbox_order_lifecycle_events": _tail_jsonl(
+                sandbox_dir / "order_lifecycle_events.jsonl",
+                tail,
+            ),
         },
         "plan": {
             "path": plan_meta.get("path"),

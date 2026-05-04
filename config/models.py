@@ -82,6 +82,11 @@ class RuntimeSpec:
 
 
 @dataclass(frozen=True)
+class ExecutionSpec:
+    max_pending_ticks: int | None = None
+
+
+@dataclass(frozen=True)
 class DataStoreSpec:
     store_root: Path = Path("data/store")
     artifacts_root: Path = Path("data/artifacts")
@@ -113,4 +118,5 @@ class RunPlan:
     datastore: DataStoreSpec
     promotion: PromotionSpec
     router: RouterSpec
+    execution: ExecutionSpec = field(default_factory=ExecutionSpec)
     instruments: InstrumentsSpec = field(default_factory=InstrumentsSpec)

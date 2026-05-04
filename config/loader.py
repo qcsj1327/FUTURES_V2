@@ -10,6 +10,7 @@ from config.models import (
     AdaptersSpec,
     BrokerSpec,
     DataStoreSpec,
+    ExecutionSpec,
     InstrumentsSpec,
     MarketDataSpec,
     PromotionSpec,
@@ -54,6 +55,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             "router",
             "adapters",
             "instruments",
+            "execution",
         },
         where="root",
     )
@@ -254,6 +256,19 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         write_approved=bool(promo_raw.get("write_approved", base.promotion.write_approved)),
     )
 
+    execution_raw = raw.get("execution", {})
+    if not isinstance(execution_raw, dict):
+        raise ValueError("execution must be an object")
+    _assert_keys(execution_raw, {"max_pending_ticks"}, where="execution")
+    max_pending_raw = execution_raw.get(
+        "max_pending_ticks",
+        base.execution.max_pending_ticks,
+    )
+    max_pending_ticks = None if max_pending_raw is None else int(max_pending_raw)
+    if max_pending_ticks is not None and max_pending_ticks < 1:
+        raise ValueError("execution.max_pending_ticks must be >= 1")
+    execution = ExecutionSpec(max_pending_ticks=max_pending_ticks)
+
     # router
     router_raw = raw.get("router", {})
     if not isinstance(router_raw, dict):
@@ -401,6 +416,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     broker_params = broker_raw.get("params", {})
     if not isinstance(broker_params, dict):
         raise ValueError("adapters.broker.params must be object")
+    _validate_broker_params(broker_mode=broker_mode, params=broker_params)
     runtime, adapters, instruments = _normalize_runtime_mode(
         runtime=runtime,
         runtime_mode_explicit=runtime_mode_explicit,
@@ -426,6 +442,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         datastore=datastore,
         promotion=promotion,
         router=router,
+        execution=execution,
         instruments=instruments,
     )
 
@@ -576,3 +593,19 @@ def _validate_tqkq_sim_contracts(instruments: InstrumentsSpec) -> None:
             "adapters.broker.mode=tqkq_sim requires real contracts: "
             f"{invalid_contracts}"
         )
+
+
+def _validate_broker_params(*, broker_mode: str, params: dict[str, Any]) -> None:
+    allowed = {
+        "fill_delay_ticks",
+        "partial_fill_ratio",
+        "max_partial_steps",
+        "max_ticks_to_fill",
+        "no_fill",
+        "paper_no_fill",
+    }
+    extra = set(params) - allowed
+    if extra:
+        raise ValueError(f"unknown keys at adapters.broker.params: {sorted(extra)}")
+    if broker_mode != "tqkq_sim" and "paper_no_fill" in params:
+        raise ValueError("adapters.broker.params.paper_no_fill requires broker.mode=tqkq_sim")

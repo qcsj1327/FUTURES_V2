@@ -125,6 +125,7 @@ def orchestrate(
         trading_calendar=live_calendar,
         instrument_resolver=live_resolver,
     )
+    live_executor.max_pending_ticks = plan.execution.max_pending_ticks
 
     uni_live = make_universe_runtime(
         executor=live_executor,
@@ -175,6 +176,7 @@ def orchestrate(
         trading_calendar=sandbox_calendar,
         instrument_resolver=sandbox_resolver,
     )
+    sandbox_executor.max_pending_ticks = plan.execution.max_pending_ticks
 
     uni_sandbox = make_universe_runtime(
         executor=sandbox_executor,

@@ -31,6 +31,7 @@ class _PendingOrder:
     order: ExecutionOrder
     submit_tick: int
     partial_emitted: bool = False
+    partial_steps: int = 0
 
 
 class SimulatedBroker(BrokerAdapter):
@@ -46,7 +47,9 @@ class SimulatedBroker(BrokerAdapter):
         fill_ratio: float = 1.0,
         fill_delay_ticks: int = 0,
         partial_fill_ratio: float = 1.0,
+        max_partial_steps: int = 1,
         max_ticks_to_fill: int | None = None,
+        no_fill: bool = False,
         instrument_specs: InstrumentSpecRegistry | None = None,
     ) -> None:
         if slippage_rate < 0:
@@ -57,6 +60,8 @@ class SimulatedBroker(BrokerAdapter):
             raise ValueError("partial_fill_ratio must be > 0 and <= 1")
         if max_ticks_to_fill is not None and max_ticks_to_fill < 1:
             raise ValueError("max_ticks_to_fill must be >= 1")
+        if max_partial_steps < 1:
+            raise ValueError("max_partial_steps must be >= 1")
         self.market_data = market_data
         self.slippage_rate = slippage_rate
         self.fill_quantity_model = FillQuantityModel(fill_ratio=fill_ratio)
@@ -70,16 +75,33 @@ class SimulatedBroker(BrokerAdapter):
         )
         self.fill_delay_ticks = fill_delay_ticks
         self.partial_fill_ratio = partial_fill_ratio
+        self.max_partial_steps = max_partial_steps
         self.max_ticks_to_fill = max_ticks_to_fill
+        self.no_fill = no_fill
         self._tick = 0
         self._pending: dict[str, _PendingOrder] = {}
         self._execution_costs: dict[str, dict[str, float | None]] = {}
+        self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         order_id = self.order_id_generator.next_id()
         ts = self._now_ts()
 
         self.order_tracker.create(order_id=order_id, order=order)
+        if self._is_duplicate_order(order):
+            self.order_tracker.reject(order_id=order_id, reason="duplicate_order_same_tick")
+            return ExecutionResult(
+                success=False,
+                status=ExecutionStatus.REJECTED,
+                ts=ts,
+                order_id=order_id,
+                fill_price=None,
+                reason="duplicate_order_same_tick",
+                filled_quantity=0.0,
+                remaining_quantity=order.quantity,
+                avg_fill_price=None,
+            )
+        self._remember_order_key(order)
         self.order_tracker.submit(order_id)
 
         reject_reason = self.rejection_policy.reject_reason(order)
@@ -162,15 +184,22 @@ class SimulatedBroker(BrokerAdapter):
 
             if age < self.fill_delay_ticks:
                 continue
+            if self.no_fill:
+                continue
 
-            if self.partial_fill_ratio < 1.0 and not pending.partial_emitted:
+            if (
+                self.partial_fill_ratio < 1.0
+                and pending.partial_steps < self.max_partial_steps
+            ):
+                pending.partial_steps += 1
+                ratio = min(0.999999, self.partial_fill_ratio * pending.partial_steps)
                 updates.append(
                     OrderLifecycleUpdate(
                         order=pending.order,
                         result=self._fill_order(
                             order_id=order_id,
                             order=pending.order,
-                            quantity_ratio=self.partial_fill_ratio,
+                            quantity_ratio=ratio,
                             ts=self._tick,
                         ),
                     )
@@ -204,7 +233,13 @@ class SimulatedBroker(BrokerAdapter):
             self.fill_delay_ticks > 0
             or self.partial_fill_ratio < 1.0
             or self.max_ticks_to_fill is not None
+            or self.no_fill
         )
+
+    def cancel_order(self, order_id: str, *, reason: str = "canceled") -> None:
+        pending = self._pending.pop(order_id, None)
+        if pending is not None:
+            self.order_tracker.cancel(order_id=order_id, reason=reason)
 
     def _fill_order(
         self,
@@ -260,3 +295,20 @@ class SimulatedBroker(BrokerAdapter):
             spec,
             slippage_model=SlippageModel(mode="bps", value=self.slippage_rate * 10_000.0),
         )
+
+    def _order_key(self, order: ExecutionOrder) -> tuple[str, str, str, str | None]:
+        return (
+            order.instrument_id,
+            getattr(order.side, "value", str(order.side)),
+            getattr(order.position_side, "value", str(order.position_side)),
+            order.trade_instrument_id,
+        )
+
+    def _is_duplicate_order(self, order: ExecutionOrder) -> bool:
+        return self._order_key(order) in self._order_keys_by_tick.get(self._tick, set())
+
+    def _remember_order_key(self, order: ExecutionOrder) -> None:
+        self._order_keys_by_tick.setdefault(self._tick, set()).add(self._order_key(order))
+        for old_tick in list(self._order_keys_by_tick):
+            if old_tick != self._tick:
+                del self._order_keys_by_tick[old_tick]

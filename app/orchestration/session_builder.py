@@ -153,18 +153,23 @@ def build_broker_with_specs(
                 instrument_specs
                 or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
             ),
+            paper_no_fill=bool(plan.adapters.broker.params.get("paper_no_fill", False)),
         )
 
     params = plan.adapters.broker.params
     fill_delay_ticks = int(params.get("fill_delay_ticks", 0))
     partial_fill_ratio = float(params.get("partial_fill_ratio", 1.0))
+    max_partial_steps = int(params.get("max_partial_steps", 1))
     max_ticks_raw = params.get("max_ticks_to_fill")
     max_ticks_to_fill = int(max_ticks_raw) if max_ticks_raw is not None else None
+    no_fill = bool(params.get("no_fill", False))
     return SimulatedBroker(
         market_data,
         fill_delay_ticks=fill_delay_ticks,
         partial_fill_ratio=partial_fill_ratio,
+        max_partial_steps=max_partial_steps,
         max_ticks_to_fill=max_ticks_to_fill,
+        no_fill=no_fill,
         instrument_specs=(
             instrument_specs
             or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
@@ -326,6 +331,7 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
         trading_calendar=calendar,
         instrument_resolver=resolver,
     )
+    live_runtime.max_pending_ticks = plan.execution.max_pending_ticks
 
     if env == "live":
         executor = live_runtime
@@ -340,6 +346,7 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
             trading_calendar=calendar,
             instrument_resolver=resolver,
         )
+        executor.max_pending_ticks = plan.execution.max_pending_ticks
 
     strategy_set, priorities, weights = build_strategy_set(plan)
     universe = make_universe_runtime(
