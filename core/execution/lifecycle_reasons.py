@@ -5,6 +5,10 @@ ORDER_SUBMITTED = "order_submitted"
 SIMULATED_PARTIAL_FILL = "simulated_partial_fill"
 SIMULATED_FILL = "simulated_fill"
 TQKQ_SIM_FILL = "tqkq_sim_fill"
+TQKQ_LIVE_PARTIAL_FILL = "tqkq_live_partial_fill"
+TQKQ_LIVE_FILL = "tqkq_live_fill"
+TQKQ_LIVE_REJECTED = "tqkq_live_rejected"
+CANCELED = "canceled"
 EXPIRED = "expired"
 RISK_POSITION_LIMIT = "risk_position_limit"
 RISK_MAX_RISK_RATIO = "risk_max_risk_ratio"
@@ -27,6 +31,10 @@ ALLOWED_LIFECYCLE_REASONS = frozenset(
         SIMULATED_PARTIAL_FILL,
         SIMULATED_FILL,
         TQKQ_SIM_FILL,
+        TQKQ_LIVE_PARTIAL_FILL,
+        TQKQ_LIVE_FILL,
+        TQKQ_LIVE_REJECTED,
+        CANCELED,
         EXPIRED,
         RISK_POSITION_LIMIT,
         RISK_MAX_RISK_RATIO,
