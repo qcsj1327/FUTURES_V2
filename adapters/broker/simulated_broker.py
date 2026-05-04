@@ -109,7 +109,6 @@ class SimulatedBroker(BrokerAdapter):
                 remaining_quantity=order.quantity,
                 avg_fill_price=None,
             )
-        self._remember_order_key(order)
         self.order_tracker.submit(order_id)
 
         reject_reason = self.rejection_policy.reject_reason(order)
@@ -144,6 +143,7 @@ class SimulatedBroker(BrokerAdapter):
                 avg_fill_price=None,
             )
 
+        self._remember_order_key(order)
         if self._delayed_enabled():
             self._pending[order_id] = _PendingOrder(order=order, submit_tick=self._tick)
             return ExecutionResult(
