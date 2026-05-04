@@ -49,7 +49,11 @@ def default_plan(*, runtime_id: str) -> RunPlan:
         datastore=DataStoreSpec(),
         router=RouterSpec(mode="priority", tie_breaker="priority"),
         execution=ExecutionSpec(max_pending_ticks=None),
-        risk=RiskSpec(max_position_qty_by_symbol={}),
+        risk=RiskSpec(
+            max_position_qty_by_symbol={},
+            max_risk_ratio=None,
+            max_notional_by_symbol={},
+        ),
         instruments=InstrumentsSpec(
             roll_policy=RollPolicySpec(
                 mode="fixed_contract",

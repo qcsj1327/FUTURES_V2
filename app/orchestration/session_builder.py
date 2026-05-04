@@ -24,6 +24,7 @@ from core.instruments.roll_policy import RollPolicy
 from core.instruments.spec_provider import StaticSpecProvider, TqKqSpecProvider, deep_merge
 from core.instruments.spec_snapshot import write_specs_snapshot
 from core.instruments.specs import InstrumentSpecRegistry
+from core.risk.portfolio_risk_limits import PortfolioRiskLimits
 from core.risk.symbol_position_limit import SymbolPositionLimit
 from core.signal_router.router import RouterConfig
 from strategies.registry import create_strategy
@@ -339,6 +340,10 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
     live_runtime.symbol_position_limit = SymbolPositionLimit(
         plan.risk.max_position_qty_by_symbol
     )
+    live_runtime.portfolio_risk_limits = PortfolioRiskLimits(
+        max_risk_ratio=plan.risk.max_risk_ratio,
+        max_notional_by_symbol=plan.risk.max_notional_by_symbol,
+    )
 
     if env == "live":
         executor = live_runtime
@@ -356,6 +361,10 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
         executor.max_pending_ticks = plan.execution.max_pending_ticks
         executor.symbol_position_limit = SymbolPositionLimit(
             plan.risk.max_position_qty_by_symbol
+        )
+        executor.portfolio_risk_limits = PortfolioRiskLimits(
+            max_risk_ratio=plan.risk.max_risk_ratio,
+            max_notional_by_symbol=plan.risk.max_notional_by_symbol,
         )
 
     strategy_set, priorities, weights = build_strategy_set(plan)

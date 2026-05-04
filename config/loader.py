@@ -274,7 +274,11 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     risk_raw = raw.get("risk", {})
     if not isinstance(risk_raw, dict):
         raise ValueError("risk must be an object")
-    _assert_keys(risk_raw, {"max_position_qty_by_symbol"}, where="risk")
+    _assert_keys(
+        risk_raw,
+        {"max_position_qty_by_symbol", "max_risk_ratio", "max_notional_by_symbol"},
+        where="risk",
+    )
     limits_raw = risk_raw.get(
         "max_position_qty_by_symbol",
         base.risk.max_position_qty_by_symbol,
@@ -291,7 +295,32 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         if qty < 0:
             raise ValueError(f"risk.max_position_qty_by_symbol.{sym} must be >= 0")
         max_position_qty_by_symbol[sym] = qty
-    risk = RiskSpec(max_position_qty_by_symbol=max_position_qty_by_symbol)
+    max_risk_ratio_raw = risk_raw.get("max_risk_ratio", base.risk.max_risk_ratio)
+    max_risk_ratio = None if max_risk_ratio_raw is None else float(max_risk_ratio_raw)
+    if max_risk_ratio is not None and max_risk_ratio < 0:
+        raise ValueError("risk.max_risk_ratio must be >= 0")
+
+    notional_raw = risk_raw.get(
+        "max_notional_by_symbol",
+        base.risk.max_notional_by_symbol,
+    )
+    if not isinstance(notional_raw, dict):
+        raise ValueError("risk.max_notional_by_symbol must be object")
+    max_notional_by_symbol: dict[str, float] = {}
+    for sym, value in notional_raw.items():
+        if not isinstance(sym, str) or not sym or sym.endswith("_main"):
+            raise ValueError("risk.max_notional_by_symbol keys must be base symbols")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError(f"risk.max_notional_by_symbol.{sym} must be number")
+        notional = float(value)
+        if notional < 0:
+            raise ValueError(f"risk.max_notional_by_symbol.{sym} must be >= 0")
+        max_notional_by_symbol[sym] = notional
+    risk = RiskSpec(
+        max_position_qty_by_symbol=max_position_qty_by_symbol,
+        max_risk_ratio=max_risk_ratio,
+        max_notional_by_symbol=max_notional_by_symbol,
+    )
 
     # router
     router_raw = raw.get("router", {})

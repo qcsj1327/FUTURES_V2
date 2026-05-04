@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,6 +96,71 @@ def _top_lifecycle_reasons(
         if isinstance(reason, str) and reason:
             counter[reason] += 1
     return [{"reason": reason, "count": count} for reason, count in counter.most_common()]
+
+
+def _portfolio_summary(store_dir: Path) -> dict[str, Any] | None:
+    portfolio = _latest_portfolio(store_dir)
+    if portfolio is None:
+        return None
+    metadata = getattr(portfolio, "metadata", {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+
+    def _num(name: str) -> float | None:
+        value = metadata.get(name)
+        if isinstance(value, (int, float)):
+            return float(value)
+        attr = getattr(portfolio, name, None)
+        return float(attr) if isinstance(attr, (int, float)) else None
+
+    return {
+        "equity": _num("equity"),
+        "cash": _num("cash"),
+        "margin_used": _num("margin_used"),
+        "risk_ratio": _num("risk_ratio"),
+        "unrealized_pnl": _num("unrealized_pnl"),
+        "realized_pnl": _num("realized_pnl"),
+        "max_risk_ratio_seen": _num("max_risk_ratio_seen"),
+        "notional_by_symbol": metadata.get("notional_by_symbol", {}),
+    }
+
+
+def _latest_portfolio(store_dir: Path) -> Any | None:
+    index_path = store_dir / "portfolio_snapshots.jsonl"
+    if not index_path.exists():
+        return None
+    last: dict[str, Any] | None = None
+    for row in _tail_jsonl(index_path, 5000):
+        last = row
+    if last is None:
+        return None
+    rel = last.get("portfolio_file")
+    if not isinstance(rel, str) or not rel:
+        return None
+    path = store_dir / rel
+    if not path.exists():
+        return None
+    with path.open("rb") as f:
+        return pickle.load(f)
+
+
+def _top_risk_reject_reasons(path: Path, n: int) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in _top_lifecycle_reasons(path, n, rejected_only=True)
+        if str(item.get("reason", "")).startswith("risk_")
+    ]
+
+
+def _risk_stats(store_dir: Path, tail: int) -> dict[str, Any]:
+    lifecycle_path = store_dir / "order_lifecycle_events.jsonl"
+    risk_reasons = _top_risk_reject_reasons(lifecycle_path, tail)
+    reject_count = sum(int(item["count"]) for item in risk_reasons)
+    summary = _portfolio_summary(store_dir) or {}
+    return {
+        "reject_count": reject_count,
+        "top_risk_reject_reasons": risk_reasons,
+        "max_risk_ratio_seen": summary.get("max_risk_ratio_seen"),
+    }
 
 
 def _active_symbols_from_rank_events(path: Path) -> list[str]:
@@ -275,6 +341,24 @@ def inspect_run(
         "pending_orders_count": {
             "live": _pending_orders_count(live_dir / "order_lifecycle_events.jsonl"),
             "sandbox": _pending_orders_count(sandbox_dir / "order_lifecycle_events.jsonl"),
+        },
+        "portfolio": {
+            "live": _portfolio_summary(live_dir),
+            "sandbox": _portfolio_summary(sandbox_dir),
+        },
+        "top_risk_reject_reasons": {
+            "live": _top_risk_reject_reasons(
+                live_dir / "order_lifecycle_events.jsonl",
+                tail,
+            ),
+            "sandbox": _top_risk_reject_reasons(
+                sandbox_dir / "order_lifecycle_events.jsonl",
+                tail,
+            ),
+        },
+        "risk_stats": {
+            "live": _risk_stats(live_dir, tail),
+            "sandbox": _risk_stats(sandbox_dir, tail),
         },
         "active_symbols": {
             "live": _active_symbols_from_rank_events(live_dir / "rank_events.jsonl"),
