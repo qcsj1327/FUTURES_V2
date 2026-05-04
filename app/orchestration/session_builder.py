@@ -360,6 +360,9 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
         instrument_resolver=resolver,
     )
     live_runtime.max_pending_ticks = plan.execution.max_pending_ticks
+    live_runtime.max_rejects_in_window = plan.execution.max_rejects_in_window
+    live_runtime.halt_ticks = plan.execution.halt_ticks
+    live_runtime.min_order_interval_ticks = plan.execution.min_order_interval_ticks
     live_runtime.symbol_position_limit = SymbolPositionLimit(
         plan.risk.max_position_qty_by_symbol
     )
@@ -383,6 +386,9 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
             instrument_resolver=resolver,
         )
         executor.max_pending_ticks = plan.execution.max_pending_ticks
+        executor.max_rejects_in_window = plan.execution.max_rejects_in_window
+        executor.halt_ticks = plan.execution.halt_ticks
+        executor.min_order_interval_ticks = plan.execution.min_order_interval_ticks
         executor.symbol_position_limit = SymbolPositionLimit(
             plan.risk.max_position_qty_by_symbol
         )

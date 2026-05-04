@@ -14,6 +14,8 @@ RISK_POSITION_LIMIT = "risk_position_limit"
 RISK_MAX_RISK_RATIO = "risk_max_risk_ratio"
 RISK_MAX_NOTIONAL = "risk_max_notional"
 RISK_MAX_MARGIN_USED = "risk_max_margin_used"
+HALTED_BY_GUARD = "halted_by_guard"
+RATE_LIMITED = "rate_limited"
 BLOCKED_BY_PENDING_ORDER = "blocked_by_pending_order"
 DUPLICATE_SAME_TICK = "duplicate_same_tick"
 REJECT_NEXT_ORDER = "reject_next_order"
@@ -40,6 +42,8 @@ ALLOWED_LIFECYCLE_REASONS = frozenset(
         RISK_MAX_RISK_RATIO,
         RISK_MAX_NOTIONAL,
         RISK_MAX_MARGIN_USED,
+        HALTED_BY_GUARD,
+        RATE_LIMITED,
         BLOCKED_BY_PENDING_ORDER,
         DUPLICATE_SAME_TICK,
         REJECT_NEXT_ORDER,

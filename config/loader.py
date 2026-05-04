@@ -261,7 +261,16 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     execution_raw = raw.get("execution", {})
     if not isinstance(execution_raw, dict):
         raise ValueError("execution must be an object")
-    _assert_keys(execution_raw, {"max_pending_ticks"}, where="execution")
+    _assert_keys(
+        execution_raw,
+        {
+            "max_pending_ticks",
+            "max_rejects_in_window",
+            "halt_ticks",
+            "min_order_interval_ticks",
+        },
+        where="execution",
+    )
     max_pending_raw = execution_raw.get(
         "max_pending_ticks",
         base.execution.max_pending_ticks,
@@ -269,7 +278,30 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     max_pending_ticks = None if max_pending_raw is None else int(max_pending_raw)
     if max_pending_ticks is not None and max_pending_ticks < 1:
         raise ValueError("execution.max_pending_ticks must be >= 1")
-    execution = ExecutionSpec(max_pending_ticks=max_pending_ticks)
+    max_rejects_raw = execution_raw.get(
+        "max_rejects_in_window",
+        base.execution.max_rejects_in_window,
+    )
+    max_rejects_in_window = None if max_rejects_raw is None else int(max_rejects_raw)
+    if max_rejects_in_window is not None and max_rejects_in_window < 1:
+        raise ValueError("execution.max_rejects_in_window must be >= 1")
+    halt_ticks_raw = execution_raw.get("halt_ticks", base.execution.halt_ticks)
+    halt_ticks = None if halt_ticks_raw is None else int(halt_ticks_raw)
+    if halt_ticks is not None and halt_ticks < 1:
+        raise ValueError("execution.halt_ticks must be >= 1")
+    interval_raw = execution_raw.get(
+        "min_order_interval_ticks",
+        base.execution.min_order_interval_ticks,
+    )
+    min_order_interval_ticks = None if interval_raw is None else int(interval_raw)
+    if min_order_interval_ticks is not None and min_order_interval_ticks < 1:
+        raise ValueError("execution.min_order_interval_ticks must be >= 1")
+    execution = ExecutionSpec(
+        max_pending_ticks=max_pending_ticks,
+        max_rejects_in_window=max_rejects_in_window,
+        halt_ticks=halt_ticks,
+        min_order_interval_ticks=min_order_interval_ticks,
+    )
 
     risk_raw = raw.get("risk", {})
     if not isinstance(risk_raw, dict):

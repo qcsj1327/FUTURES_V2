@@ -48,7 +48,12 @@ def default_plan(*, runtime_id: str) -> RunPlan:
         ),
         datastore=DataStoreSpec(),
         router=RouterSpec(mode="priority", tie_breaker="priority"),
-        execution=ExecutionSpec(max_pending_ticks=None),
+        execution=ExecutionSpec(
+            max_pending_ticks=None,
+            max_rejects_in_window=None,
+            halt_ticks=None,
+            min_order_interval_ticks=None,
+        ),
         risk=RiskSpec(
             max_position_qty_by_symbol={},
             max_risk_ratio=None,
