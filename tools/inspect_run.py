@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,28 @@ def _jsonl_statuses(path: Path) -> list[str]:
         if isinstance(status, str) and status:
             statuses.add(status)
     return sorted(statuses)
+
+
+def _pending_orders_count(path: Path) -> int:
+    latest: dict[str, str] = {}
+    for row in _tail_jsonl(path, 5000):
+        order_id = row.get("order_id")
+        status = row.get("status")
+        if isinstance(order_id, str) and isinstance(status, str):
+            latest[order_id] = status
+    terminal = {"FILLED", "CANCELED", "EXPIRED", "REJECTED"}
+    return sum(1 for status in latest.values() if status not in terminal)
+
+
+def _top_reject_reasons(path: Path, n: int) -> list[dict[str, Any]]:
+    counter: Counter[str] = Counter()
+    for row in _tail_jsonl(path, n):
+        if row.get("status") != "REJECTED":
+            continue
+        reason = row.get("reason")
+        if isinstance(reason, str) and reason:
+            counter[reason] += 1
+    return [{"reason": reason, "count": count} for reason, count in counter.most_common()]
 
 
 def _find_latest_manifest(*, runtime_id: str, manifests_dir: Path) -> Path | None:
@@ -175,6 +198,14 @@ def inspect_run(
             "sandbox_order_lifecycle_statuses": _jsonl_statuses(
                 sandbox_dir / "order_lifecycle_events.jsonl",
             ),
+        },
+        "pending_orders_count": {
+            "live": _pending_orders_count(live_dir / "order_lifecycle_events.jsonl"),
+            "sandbox": _pending_orders_count(sandbox_dir / "order_lifecycle_events.jsonl"),
+        },
+        "top_lifecycle_reject_reasons": {
+            "live": _top_reject_reasons(live_dir / "order_lifecycle_events.jsonl", tail),
+            "sandbox": _top_reject_reasons(sandbox_dir / "order_lifecycle_events.jsonl", tail),
         },
         "event_tail": {
             "live_order_lifecycle_events": _tail_jsonl(

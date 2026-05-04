@@ -87,6 +87,11 @@ class ExecutionSpec:
 
 
 @dataclass(frozen=True)
+class RiskSpec:
+    max_position_qty_by_symbol: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class DataStoreSpec:
     store_root: Path = Path("data/store")
     artifacts_root: Path = Path("data/artifacts")
@@ -119,4 +124,5 @@ class RunPlan:
     promotion: PromotionSpec
     router: RouterSpec
     execution: ExecutionSpec = field(default_factory=ExecutionSpec)
+    risk: RiskSpec = field(default_factory=RiskSpec)
     instruments: InstrumentsSpec = field(default_factory=InstrumentsSpec)

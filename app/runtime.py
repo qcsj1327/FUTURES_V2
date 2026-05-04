@@ -11,6 +11,7 @@ from core.instruments.resolver import InstrumentResolver
 from core.instruments.roll_policy import RollPolicy
 from core.portfolio.portfolio_engine import PortfolioEngine
 from core.risk.risk_engine import RiskEngine
+from core.risk.symbol_position_limit import SymbolPositionLimit
 from core.services.runtime.datastore import DataStore
 from core.services.runtime.event_codec import (
     build_base_event,
@@ -22,6 +23,7 @@ from core.state.state_engine import StateEngine
 from core.trigger.trigger_engine import TriggerEngine
 from domain.enums import ExecutionStatus
 from domain.execution import ExecutionOrder, ExecutionResult
+from domain.risk import RiskDecision
 from domain.signal import SignalDecision
 from strategies.base.simple_strategy import StrategyEngine
 from strategies.base.strategy import Strategy
@@ -87,7 +89,9 @@ class Runtime:
         self._tick = 0
         self._pending_order_contexts: dict[str, _PendingOrderContext] = {}
         self.max_pending_ticks: int | None = None
+        self.symbol_position_limit = SymbolPositionLimit()
         self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
+        self._guard_rejection_seq = 0
 
     def run_market_once(
         self,
@@ -179,15 +183,40 @@ class Runtime:
             trigger_result,
             default_quantity=self.config.default_quantity,
         )
-        risk_decision = self.risk.evaluate(allocation, portfolio=self.state.portfolio)
-
-        order, exec_result = self.execution.execute(risk_decision)
-
         name = (
             strategy_name
             or getattr(decision, "strategy_name", None)
             or "main"
         )
+        risk_decision = self.risk.evaluate(allocation, portfolio=self.state.portfolio)
+        candidate_order = self._candidate_order_from_risk_decision(risk_decision)
+        if candidate_order is not None:
+            pending_ctx = self._pending_context_for_order(candidate_order)
+            if pending_ctx is not None:
+                self._append_guard_rejection(
+                    candidate_order,
+                    reason="blocked_by_pending_order",
+                    strategy_name=name,
+                    strategy_impl=strategy_impl,
+                    symbol=decision.symbol,
+                )
+                return
+            position_limit_reason = self.symbol_position_limit.reject_reason(
+                order=candidate_order,
+                portfolio=self.state.portfolio,
+            )
+            if position_limit_reason is not None:
+                self._append_guard_rejection(
+                    candidate_order,
+                    reason=position_limit_reason,
+                    strategy_name=name,
+                    strategy_impl=strategy_impl,
+                    symbol=decision.symbol,
+                )
+                return
+
+        order, exec_result = self.execution.execute(risk_decision)
+
         if order is None:
             self._maybe_append_events(
                 order,
@@ -451,6 +480,69 @@ class Runtime:
             getattr(order.position_side, "value", str(order.position_side)),
             order.trade_instrument_id,
         )
+
+    def _candidate_order_from_risk_decision(
+        self,
+        decision: RiskDecision,
+    ) -> ExecutionOrder | None:
+        if not decision.allowed:
+            return None
+        if decision.quantity is None or decision.quantity <= 0:
+            return None
+        if decision.position_side is None:
+            return None
+        if not decision.trade_instrument_id:
+            return None
+        return ExecutionOrder(
+            instrument_id=decision.instrument_id,
+            trade_instrument_id=decision.trade_instrument_id,
+            side=decision.side,
+            position_side=decision.position_side,
+            quantity=decision.quantity,
+            order_type="market",
+            stop_loss=decision.stop_loss,
+            take_profit=decision.take_profit,
+        )
+
+    def _pending_context_for_order(
+        self,
+        order: ExecutionOrder,
+    ) -> _PendingOrderContext | None:
+        key = self._order_key(order)
+        for ctx in self._pending_order_contexts.values():
+            if self._order_key(ctx.order) == key:
+                return ctx
+        return None
+
+    def _append_guard_rejection(
+        self,
+        order: ExecutionOrder,
+        *,
+        reason: str,
+        strategy_name: str,
+        strategy_impl: str | None,
+        symbol: str | None,
+    ) -> None:
+        self._guard_rejection_seq += 1
+        result = ExecutionResult(
+            success=False,
+            status=ExecutionStatus.REJECTED,
+            ts=self._tick,
+            order_id=f"guard_reject_{self._tick}_{self._guard_rejection_seq}",
+            reason=reason,
+            filled_quantity=0.0,
+            remaining_quantity=order.quantity,
+            avg_fill_price=None,
+            fill_price=None,
+        )
+        self._maybe_append_order_lifecycle_event(
+            order,
+            result,
+            strategy_name=strategy_name,
+            strategy_impl=strategy_impl,
+            symbol=symbol or order.instrument_id,
+        )
+        self._maybe_save_snapshot()
 
     def _is_duplicate_order(self, order: ExecutionOrder) -> bool:
         return self._order_key(order) in self._order_keys_by_tick.get(self._tick, set())
