@@ -27,6 +27,10 @@ def clean_runtime_paths(
         "decisions": [f"decision_{runtime_id}_*.json"],
         "approved": [f"approved_cand_{runtime_id}.json", f"approved_cand_{runtime_id}_*.json"],
         "manifests": [f"manifest_{runtime_id}_*.json"],
+        "strategy_switch": [
+            f"strategy_switch_proposal_{runtime_id}.json",
+            f"strategy_switch_approved_{runtime_id}.json",
+        ],
     }
     for subdir, globs in patterns.items():
         root = artifacts_root / subdir

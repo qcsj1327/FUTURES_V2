@@ -13,6 +13,7 @@ class StoreStats:
     order_events_lines: int
     roll_events_lines: int
     rank_events_lines: int
+    strategy_score_events_lines: int
     order_lifecycle_events_lines: int
     portfolio_snapshots_lines: int
     snapshot_pkls: int
@@ -81,6 +82,7 @@ def _store_stats(store_dir: Path) -> StoreStats:
         order_events_lines=_count_lines(store_dir / "order_events.jsonl"),
         roll_events_lines=_count_lines(store_dir / "roll_events.jsonl"),
         rank_events_lines=_count_lines(store_dir / "rank_events.jsonl"),
+        strategy_score_events_lines=_count_lines(store_dir / "strategy_score_events.jsonl"),
         order_lifecycle_events_lines=_count_lines(store_dir / "order_lifecycle_events.jsonl"),
         portfolio_snapshots_lines=_count_lines(store_dir / "portfolio_snapshots.jsonl"),
         snapshot_pkls=snap_pkls,
@@ -132,6 +134,16 @@ def inspect_run(
     candidate_summary = _maybe_read(artifacts.get("candidate_summary"), "candidate_summary")
     decision = _maybe_read(artifacts.get("decision"), "decision")
     approved = _maybe_read(artifacts.get("approved"), "approved")
+    strategy_switch_proposal = _maybe_read(
+        artifacts.get("strategy_switch_proposal")
+        or str(artifacts_root / "strategy_switch" / f"strategy_switch_proposal_{runtime_id}.json"),
+        "strategy_switch_proposal",
+    )
+    strategy_switch_approved = _maybe_read(
+        artifacts.get("strategy_switch_approved")
+        or str(artifacts_root / "strategy_switch" / f"strategy_switch_approved_{runtime_id}.json"),
+        "strategy_switch_approved",
+    )
 
     live_dir = store_root / "live" / runtime_id
     sandbox_dir = store_root / "sandbox" / runtime_id
@@ -153,6 +165,10 @@ def inspect_run(
         "summaries": {"current": current_summary, "candidate": candidate_summary},
         "decision": decision,
         "approved": approved,
+        "strategy_switch": {
+            "proposal": strategy_switch_proposal,
+            "approved": strategy_switch_approved,
+        },
         "warnings": warnings,
         "stores": {
             "live": {
@@ -163,6 +179,10 @@ def inspect_run(
                     "order_events": _tail_jsonl(live_dir / "order_events.jsonl", tail),
                     "roll_events": _tail_jsonl(live_dir / "roll_events.jsonl", tail),
                     "rank_events": _tail_jsonl(live_dir / "rank_events.jsonl", tail),
+                    "strategy_score_events": _tail_jsonl(
+                        live_dir / "strategy_score_events.jsonl",
+                        tail,
+                    ),
                     "order_lifecycle_events": _tail_jsonl(
                         live_dir / "order_lifecycle_events.jsonl",
                         tail,
@@ -177,6 +197,10 @@ def inspect_run(
                     "order_events": _tail_jsonl(sandbox_dir / "order_events.jsonl", tail),
                     "roll_events": _tail_jsonl(sandbox_dir / "roll_events.jsonl", tail),
                     "rank_events": _tail_jsonl(sandbox_dir / "rank_events.jsonl", tail),
+                    "strategy_score_events": _tail_jsonl(
+                        sandbox_dir / "strategy_score_events.jsonl",
+                        tail,
+                    ),
                     "order_lifecycle_events": _tail_jsonl(
                         sandbox_dir / "order_lifecycle_events.jsonl",
                         tail,
