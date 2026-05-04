@@ -154,7 +154,7 @@ def build_broker_with_specs(
                 instrument_specs
                 or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
             ),
-            paper_no_fill=bool(plan.adapters.broker.params.get("paper_no_fill", False)),
+            no_fill=bool(plan.adapters.broker.params.get("no_fill", False)),
         )
 
     params = plan.adapters.broker.params

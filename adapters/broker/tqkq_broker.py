@@ -7,6 +7,15 @@ from typing import Any
 from adapters.broker.base import BrokerAdapter
 from adapters.broker.order.order_id_generator import OrderIdGenerator
 from adapters.marketdata.base import MarketDataAdapter
+from core.execution.lifecycle_reasons import (
+    DUPLICATE_SAME_TICK,
+    INVALID_TRADE_INSTRUMENT_ID_MAIN_ALIAS,
+    INVALID_TRADE_INSTRUMENT_ID_NOT_REAL_CONTRACT,
+    MISSING_TRADE_INSTRUMENT_ID,
+    ORDER_SUBMITTED,
+    QUANTITY_BELOW_MIN_QTY,
+    TQKQ_SIM_FILL,
+)
 from core.instruments.cost_model import calculate_trade_cost
 from core.instruments.specs import InstrumentSpecRegistry
 from domain.enums import ExecutionStatus
@@ -41,13 +50,13 @@ class TqKqBroker(BrokerAdapter):
         instrument_specs: InstrumentSpecRegistry | None = None,
         order_id_prefix: str = "tqkq_sim_order",
         api_factory: Callable[[], Any] | None = None,
-        paper_no_fill: bool = False,
+        no_fill: bool = False,
     ) -> None:
         self.market_data = market_data
         self.instrument_specs = instrument_specs or InstrumentSpecRegistry()
         self.order_id_generator = OrderIdGenerator(prefix=order_id_prefix)
         self._api_factory = api_factory
-        self.paper_no_fill = paper_no_fill
+        self.no_fill = no_fill
         self._execution_costs: dict[str, dict[str, float | None]] = {}
         self._tick = 0
         self._pending: dict[str, _PendingOrder] = {}
@@ -61,7 +70,7 @@ class TqKqBroker(BrokerAdapter):
                 status=ExecutionStatus.REJECTED,
                 order_id=order_id,
                 ts=self._tick,
-                reason="duplicate_order_same_tick",
+                reason=DUPLICATE_SAME_TICK,
                 filled_quantity=0.0,
                 remaining_quantity=order.quantity,
                 avg_fill_price=None,
@@ -81,14 +90,14 @@ class TqKqBroker(BrokerAdapter):
                 fill_price=None,
             )
 
-        if self.paper_no_fill:
+        if self.no_fill:
             self._pending[order_id] = _PendingOrder(order=order, submit_tick=self._tick)
             return ExecutionResult(
                 success=False,
                 status=ExecutionStatus.SUBMITTED,
                 order_id=order_id,
                 ts=self._tick,
-                reason="order_submitted",
+                reason=ORDER_SUBMITTED,
                 filled_quantity=0.0,
                 remaining_quantity=order.quantity,
                 avg_fill_price=None,
@@ -111,7 +120,7 @@ class TqKqBroker(BrokerAdapter):
             order_id=order_id,
             ts=quote.ts,
             fill_price=cost.fill_price,
-            reason="tqkq_sim_fill",
+            reason=TQKQ_SIM_FILL,
             filled_quantity=order.quantity,
             remaining_quantity=0.0,
             avg_fill_price=cost.fill_price,
@@ -130,14 +139,14 @@ class TqKqBroker(BrokerAdapter):
     def _validate_order(self, order: ExecutionOrder) -> str | None:
         trade_id = order.trade_instrument_id
         if not isinstance(trade_id, str) or not trade_id:
-            return "missing_trade_instrument_id"
+            return MISSING_TRADE_INSTRUMENT_ID
         if trade_id.endswith("_main"):
-            return "invalid_trade_instrument_id_main_alias"
+            return INVALID_TRADE_INSTRUMENT_ID_MAIN_ALIAS
         if "." not in trade_id:
-            return "invalid_trade_instrument_id_not_real_contract"
+            return INVALID_TRADE_INSTRUMENT_ID_NOT_REAL_CONTRACT
         spec = self.instrument_specs.get(order.instrument_id)
         if spec.min_qty is not None and order.quantity < spec.min_qty:
-            return "quantity_below_min_qty"
+            return QUANTITY_BELOW_MIN_QTY
         return None
 
     def _order_key(self, order: ExecutionOrder) -> tuple[str, str, str, str | None]:

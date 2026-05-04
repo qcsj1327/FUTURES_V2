@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from core.execution.lifecycle_reasons import BLOCKED_BY_PENDING_ORDER
 from scripts.run_plan import main as run_plan_main
 
 
@@ -72,7 +73,7 @@ def test_pending_blocks_new_orders_across_ticks(
     order_events = _events(base / "order_events.jsonl")
 
     submitted = [e for e in lifecycle if e.get("status") == "SUBMITTED"]
-    blocked = [e for e in lifecycle if e.get("reason") == "blocked_by_pending_order"]
+    blocked = [e for e in lifecycle if e.get("reason") == BLOCKED_BY_PENDING_ORDER]
 
     assert len(submitted) == 1
     assert len(order_events) == 1

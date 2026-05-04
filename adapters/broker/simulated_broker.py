@@ -10,6 +10,14 @@ from adapters.broker.order.order_id_generator import OrderIdGenerator
 from adapters.broker.order.order_tracker import OrderTracker
 from adapters.broker.order.rejection_policy import RejectionPolicy
 from adapters.marketdata.base import MarketDataAdapter
+from core.execution.lifecycle_reasons import (
+    DUPLICATE_SAME_TICK,
+    EXPIRED,
+    ORDER_SUBMITTED,
+    QUANTITY_BELOW_MIN_QTY,
+    SIMULATED_FILL,
+    SIMULATED_PARTIAL_FILL,
+)
 from core.instruments.cost_model import calculate_trade_cost
 from core.instruments.specs import (
     InstrumentSpec,
@@ -89,14 +97,14 @@ class SimulatedBroker(BrokerAdapter):
 
         self.order_tracker.create(order_id=order_id, order=order)
         if self._is_duplicate_order(order):
-            self.order_tracker.reject(order_id=order_id, reason="duplicate_order_same_tick")
+            self.order_tracker.reject(order_id=order_id, reason=DUPLICATE_SAME_TICK)
             return ExecutionResult(
                 success=False,
                 status=ExecutionStatus.REJECTED,
                 ts=ts,
                 order_id=order_id,
                 fill_price=None,
-                reason="duplicate_order_same_tick",
+                reason=DUPLICATE_SAME_TICK,
                 filled_quantity=0.0,
                 remaining_quantity=order.quantity,
                 avg_fill_price=None,
@@ -123,14 +131,14 @@ class SimulatedBroker(BrokerAdapter):
             raise ValueError("ExecutionOrder.trade_instrument_id is required")
         spec = self._spec_for(order)
         if spec.min_qty is not None and order.quantity < spec.min_qty:
-            self.order_tracker.reject(order_id=order_id, reason="quantity_below_min_qty")
+            self.order_tracker.reject(order_id=order_id, reason=QUANTITY_BELOW_MIN_QTY)
             return ExecutionResult(
                 success=False,
                 status=ExecutionStatus.REJECTED,
                 ts=ts,
                 order_id=order_id,
                 fill_price=None,
-                reason="quantity_below_min_qty",
+                reason=QUANTITY_BELOW_MIN_QTY,
                 filled_quantity=None,
                 remaining_quantity=order.quantity,
                 avg_fill_price=None,
@@ -144,7 +152,7 @@ class SimulatedBroker(BrokerAdapter):
                 ts=ts,
                 order_id=order_id,
                 fill_price=None,
-                reason="order_submitted",
+                reason=ORDER_SUBMITTED,
                 filled_quantity=None,
                 remaining_quantity=order.quantity,
                 avg_fill_price=None,
@@ -163,7 +171,7 @@ class SimulatedBroker(BrokerAdapter):
             pending = self._pending[order_id]
             age = self._tick - pending.submit_tick
             if self.max_ticks_to_fill is not None and age >= self.max_ticks_to_fill:
-                self.order_tracker.cancel(order_id=order_id, reason="expired")
+                self.order_tracker.cancel(order_id=order_id, reason=EXPIRED)
                 updates.append(
                     OrderLifecycleUpdate(
                         order=pending.order,
@@ -172,7 +180,7 @@ class SimulatedBroker(BrokerAdapter):
                             status=ExecutionStatus.REJECTED,
                             ts=self._tick,
                             order_id=order_id,
-                            reason="expired",
+                            reason=EXPIRED,
                             filled_quantity=None,
                             remaining_quantity=pending.order.quantity,
                             avg_fill_price=None,
@@ -278,9 +286,9 @@ class SimulatedBroker(BrokerAdapter):
             order_id=order_id,
             fill_price=fill_price,
             reason=(
-                "simulated_fill"
+                SIMULATED_FILL
                 if fill_quantity.status == ExecutionStatus.FILLED
-                else "simulated_partial_fill"
+                else SIMULATED_PARTIAL_FILL
             ),
             filled_quantity=fill_quantity.filled_quantity,
             remaining_quantity=fill_quantity.remaining_quantity,

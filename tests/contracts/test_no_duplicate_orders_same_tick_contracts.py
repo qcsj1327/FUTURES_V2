@@ -4,6 +4,7 @@ from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
 from adapters.storage.datastore_memory import MemoryDataStore
 from app.runtime import Runtime
+from core.execution.lifecycle_reasons import DUPLICATE_SAME_TICK
 from domain.enums import PositionSide, Side
 from domain.execution import ExecutionOrder
 
@@ -43,7 +44,7 @@ def test_no_duplicate_orders_same_tick_writes_rejection_lifecycle() -> None:
     duplicate_events = [
         e
         for e in store.order_lifecycle_events
-        if e.get("reason") == "duplicate_order_same_tick"
+        if e.get("reason") == DUPLICATE_SAME_TICK
     ]
     assert duplicate_events
     assert duplicate_events[-1]["status"] == "REJECTED"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from core.execution.lifecycle_reasons import RISK_POSITION_LIMIT
 from domain.execution import ExecutionOrder
 from domain.state import PortfolioState
 
@@ -24,5 +25,5 @@ class SymbolPositionLimit:
             if key.instrument_id == order.instrument_id and position.quantity > 0
         )
         if existing_qty + order.quantity > limit:
-            return "risk_position_limit"
+            return RISK_POSITION_LIMIT
         return None

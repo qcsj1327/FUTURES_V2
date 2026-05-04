@@ -6,6 +6,13 @@ from adapters.broker.base import BrokerAdapter
 from adapters.marketdata.base import MarketDataAdapter
 from app.runtime_config import RuntimeConfig
 from core.execution.execution_engine import ExecutionEngine
+from core.execution.lifecycle_reasons import (
+    BLOCKED_BY_PENDING_ORDER,
+    DUPLICATE_SAME_TICK,
+    EXPIRED,
+    NEW,
+    validate_lifecycle_reason,
+)
 from core.instruments.calendar import TradingCalendar
 from core.instruments.resolver import InstrumentResolver
 from core.instruments.roll_policy import RollPolicy
@@ -195,7 +202,7 @@ class Runtime:
             if pending_ctx is not None:
                 self._append_guard_rejection(
                     candidate_order,
-                    reason="blocked_by_pending_order",
+                    reason=BLOCKED_BY_PENDING_ORDER,
                     strategy_name=name,
                     strategy_impl=strategy_impl,
                     symbol=decision.symbol,
@@ -253,7 +260,7 @@ class Runtime:
                 status=ExecutionStatus.REJECTED,
                 ts=self._tick,
                 order_id=exec_result.order_id,
-                reason="duplicate_order_same_tick",
+                reason=DUPLICATE_SAME_TICK,
                 filled_quantity=0.0,
                 remaining_quantity=order.quantity,
                 avg_fill_price=None,
@@ -277,7 +284,7 @@ class Runtime:
                 status=ExecutionStatus.SUBMITTED,
                 ts=self._tick,
                 order_id=exec_result.order_id,
-                reason="new",
+                reason=NEW,
                 filled_quantity=0.0,
                 remaining_quantity=order.quantity,
                 avg_fill_price=None,
@@ -419,7 +426,8 @@ class Runtime:
         if self.datastore is None or exec_result.order_id is None:
             return
         status = status_override or self._lifecycle_status(exec_result)
-        if exec_result.reason == "expired":
+        reason = validate_lifecycle_reason(exec_result.reason)
+        if reason == EXPIRED:
             status = "EXPIRED"
         base = build_base_event(
             ts=exec_result.ts if exec_result.ts is not None else self._tick,
@@ -443,7 +451,7 @@ class Runtime:
                 "filled_quantity": exec_result.filled_quantity,
                 "remaining_quantity": exec_result.remaining_quantity,
                 "avg_fill_price": exec_result.avg_fill_price,
-                "reason": exec_result.reason,
+                "reason": reason,
                 **self._cost_payload(exec_result.order_id),
             },
             env=self.environment,
@@ -459,9 +467,9 @@ class Runtime:
         return payload if isinstance(payload, dict) else {}
 
     def _lifecycle_status(self, exec_result: ExecutionResult) -> str:
-        if exec_result.reason == "duplicate_order_same_tick":
+        if exec_result.reason == DUPLICATE_SAME_TICK:
             return "REJECTED"
-        if exec_result.reason == "expired":
+        if exec_result.reason == EXPIRED:
             return "EXPIRED"
         if exec_result.status == ExecutionStatus.SUBMITTED:
             return "SUBMITTED"
@@ -564,7 +572,7 @@ class Runtime:
                 status=ExecutionStatus.REJECTED,
                 ts=tick,
                 order_id=order_id,
-                reason="expired",
+                reason=EXPIRED,
                 filled_quantity=0.0,
                 remaining_quantity=(
                     ctx.remaining_quantity
@@ -583,7 +591,7 @@ class Runtime:
             )
             cancel = getattr(self.execution.broker, "cancel_order", None)
             if callable(cancel):
-                cancel(order_id, reason="expired")
+                cancel(order_id, reason=EXPIRED)
             self._pending_order_contexts.pop(order_id, None)
 
     def _maybe_save_snapshot(self) -> None:

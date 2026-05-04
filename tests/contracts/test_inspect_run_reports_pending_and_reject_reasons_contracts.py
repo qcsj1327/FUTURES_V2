@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from core.execution.lifecycle_reasons import BLOCKED_BY_PENDING_ORDER
 from scripts.run_plan import main as run_plan_main
 from tools.inspect_run import inspect_run
 
@@ -76,4 +77,4 @@ def test_inspect_pending_reports_count_and_reject_reasons(
         item["reason"]
         for item in report["top_lifecycle_reject_reasons"]["live"]
     }
-    assert "blocked_by_pending_order" in reasons
+    assert BLOCKED_BY_PENDING_ORDER in reasons

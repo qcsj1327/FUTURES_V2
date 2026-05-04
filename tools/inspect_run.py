@@ -61,6 +61,15 @@ def _jsonl_statuses(path: Path) -> list[str]:
     return sorted(statuses)
 
 
+def _status_counts(path: Path) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for row in _tail_jsonl(path, 5000):
+        status = row.get("status")
+        if isinstance(status, str) and status:
+            counter[status] += 1
+    return dict(sorted(counter.items()))
+
+
 def _pending_orders_count(path: Path) -> int:
     latest: dict[str, str] = {}
     for row in _tail_jsonl(path, 5000):
@@ -72,10 +81,15 @@ def _pending_orders_count(path: Path) -> int:
     return sum(1 for status in latest.values() if status not in terminal)
 
 
-def _top_reject_reasons(path: Path, n: int) -> list[dict[str, Any]]:
+def _top_lifecycle_reasons(
+    path: Path,
+    n: int,
+    *,
+    rejected_only: bool = False,
+) -> list[dict[str, Any]]:
     counter: Counter[str] = Counter()
     for row in _tail_jsonl(path, n):
-        if row.get("status") != "REJECTED":
+        if rejected_only and row.get("status") != "REJECTED":
             continue
         reason = row.get("reason")
         if isinstance(reason, str) and reason:
@@ -199,13 +213,51 @@ def inspect_run(
                 sandbox_dir / "order_lifecycle_events.jsonl",
             ),
         },
+        "live_order_lifecycle_status_counts": _status_counts(
+            live_dir / "order_lifecycle_events.jsonl",
+        ),
+        "sandbox_order_lifecycle_status_counts": _status_counts(
+            sandbox_dir / "order_lifecycle_events.jsonl",
+        ),
         "pending_orders_count": {
             "live": _pending_orders_count(live_dir / "order_lifecycle_events.jsonl"),
             "sandbox": _pending_orders_count(sandbox_dir / "order_lifecycle_events.jsonl"),
         },
         "top_lifecycle_reject_reasons": {
-            "live": _top_reject_reasons(live_dir / "order_lifecycle_events.jsonl", tail),
-            "sandbox": _top_reject_reasons(sandbox_dir / "order_lifecycle_events.jsonl", tail),
+            "live": _top_lifecycle_reasons(
+                live_dir / "order_lifecycle_events.jsonl",
+                tail,
+                rejected_only=True,
+            ),
+            "sandbox": _top_lifecycle_reasons(
+                sandbox_dir / "order_lifecycle_events.jsonl",
+                tail,
+                rejected_only=True,
+            ),
+        },
+        "live_top_lifecycle_reasons": _top_lifecycle_reasons(
+            live_dir / "order_lifecycle_events.jsonl",
+            5000,
+        )[:10],
+        "sandbox_top_lifecycle_reasons": _top_lifecycle_reasons(
+            sandbox_dir / "order_lifecycle_events.jsonl",
+            5000,
+        )[:10],
+        "lifecycle_stats": {
+            "live": {
+                "status_counts": _status_counts(live_dir / "order_lifecycle_events.jsonl"),
+                "top_reasons": _top_lifecycle_reasons(
+                    live_dir / "order_lifecycle_events.jsonl",
+                    5000,
+                )[:10],
+            },
+            "sandbox": {
+                "status_counts": _status_counts(sandbox_dir / "order_lifecycle_events.jsonl"),
+                "top_reasons": _top_lifecycle_reasons(
+                    sandbox_dir / "order_lifecycle_events.jsonl",
+                    5000,
+                )[:10],
+            },
         },
         "event_tail": {
             "live_order_lifecycle_events": _tail_jsonl(
