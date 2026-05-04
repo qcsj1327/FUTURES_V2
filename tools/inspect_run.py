@@ -97,6 +97,59 @@ def _top_lifecycle_reasons(
     return [{"reason": reason, "count": count} for reason, count in counter.most_common()]
 
 
+def _active_symbols_from_rank_events(path: Path) -> list[str]:
+    events = _tail_jsonl(path, 5000)
+    if not events:
+        return []
+    last = events[-1]
+    active = last.get("active_symbols")
+    if isinstance(active, list):
+        return sorted(x for x in active if isinstance(x, str))
+    scores = last.get("scores")
+    if isinstance(scores, list):
+        return sorted(
+            item["symbol"]
+            for item in scores
+            if isinstance(item, dict) and isinstance(item.get("symbol"), str)
+        )
+    return []
+
+
+def _enabled_strategies_from_plan(plan_cfg: dict[str, Any]) -> dict[str, list[str]]:
+    out: dict[str, set[str]] = {}
+    strategies = plan_cfg.get("strategies")
+    if not isinstance(strategies, list):
+        return {}
+    for strategy in strategies:
+        if not isinstance(strategy, dict):
+            continue
+        name = strategy.get("name")
+        symbols = strategy.get("symbols")
+        if not isinstance(name, str) or not isinstance(symbols, list):
+            continue
+        for sym in symbols:
+            if isinstance(sym, str):
+                out.setdefault(sym, set()).add(name)
+    return {sym: sorted(names) for sym, names in sorted(out.items())}
+
+
+def _enabled_strategies(
+    approved: dict[str, Any] | None,
+    plan_cfg: dict[str, Any],
+) -> dict[str, list[str]]:
+    if approved is not None:
+        raw = approved.get("enabled_strategies_by_symbol")
+        if isinstance(raw, dict):
+            out: dict[str, list[str]] = {}
+            for sym, names in raw.items():
+                if isinstance(sym, str) and isinstance(names, list):
+                    parsed = sorted(x for x in names if isinstance(x, str))
+                    if parsed:
+                        out[sym] = parsed
+            return out
+    return _enabled_strategies_from_plan(plan_cfg)
+
+
 def _find_latest_manifest(*, runtime_id: str, manifests_dir: Path) -> Path | None:
     if not manifests_dir.exists():
         return None
@@ -222,6 +275,14 @@ def inspect_run(
         "pending_orders_count": {
             "live": _pending_orders_count(live_dir / "order_lifecycle_events.jsonl"),
             "sandbox": _pending_orders_count(sandbox_dir / "order_lifecycle_events.jsonl"),
+        },
+        "active_symbols": {
+            "live": _active_symbols_from_rank_events(live_dir / "rank_events.jsonl"),
+            "sandbox": _active_symbols_from_rank_events(sandbox_dir / "rank_events.jsonl"),
+        },
+        "enabled_strategies_by_symbol": {
+            "live": _enabled_strategies(strategy_switch_approved, plan_cfg),
+            "sandbox": _enabled_strategies(strategy_switch_approved, plan_cfg),
         },
         "top_lifecycle_reject_reasons": {
             "live": _top_lifecycle_reasons(

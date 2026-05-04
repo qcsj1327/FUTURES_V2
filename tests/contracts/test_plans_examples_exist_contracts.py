@@ -20,3 +20,4 @@ def test_plans_examples_exist() -> None:
     assert (root / "plans" / "dev.order_lifecycle_v2.json").exists()
     assert (root / "plans" / "dev.risk_pending_guard.json").exists()
     assert (root / "plans" / "dev.tqkq_sim_expire.json").exists()
+    assert (root / "plans" / "dev.topn_switch_calendar.json").exists()

@@ -31,6 +31,7 @@ class UniverseRuntime:
         rank_metric: str = "signal_strength",
         rank_refresh_every: int = 1,
         rank_emit_events: int = 1,
+        enabled_strategies_by_symbol: dict[str, list[str]] | None = None,
     ) -> None:
         self.executor = executor
         self.market_data = market_data
@@ -44,12 +45,21 @@ class UniverseRuntime:
         self.rank_metric = rank_metric
         self.rank_refresh_every = rank_refresh_every
         self.rank_emit_events = rank_emit_events
+        self.enabled_strategies_by_symbol = (
+            {
+                base_symbol(sym): sorted(set(names))
+                for sym, names in enabled_strategies_by_symbol.items()
+            }
+            if enabled_strategies_by_symbol is not None
+            else self._default_enabled_strategies_by_symbol()
+        )
         self._tick = 0
         self._quote_history: dict[str, deque[MarketQuote]] = {
             base_symbol(s): deque(maxlen=max(2, rank_window + 1)) for s in universe_symbols
         }
         self._active_symbols: set[str] = {base_symbol(s) for s in universe_symbols}
         self._last_scores: dict[str, float] = {base_symbol(s): 0.0 for s in universe_symbols}
+        self._last_excluded_symbols: dict[str, str] = {}
 
     def run_tick(self) -> None:
         self.executor.poll_order_lifecycle(self._tick)
@@ -57,7 +67,8 @@ class UniverseRuntime:
         self._update_quote_history(quotes)
         tagged = self.strategy_set.generate(quotes)
         self._emit_strategy_score_events(tagged)
-        active_symbols = self._select_active_symbols(tagged)
+        tradable_symbols = self._tradable_symbols(quotes)
+        active_symbols = self._select_active_symbols(tagged, tradable_symbols)
         tagged_for_execution = self._filter_tagged(tagged, active_symbols)
         final_tagged = route(
             tagged_for_execution,
@@ -128,13 +139,53 @@ class UniverseRuntime:
             )
             history.append(quote)
 
-    def _select_active_symbols(self, tagged: list[TaggedDecision]) -> set[str]:
+    def _default_enabled_strategies_by_symbol(self) -> dict[str, list[str]]:
+        enabled: dict[str, set[str]] = {base_symbol(s): set() for s in self.symbols}
+        for entry in self.strategy_set.entries:
+            for sym in entry.symbols:
+                enabled.setdefault(base_symbol(sym), set()).add(entry.name)
+        return {sym: sorted(names) for sym, names in enabled.items()}
+
+    def _tradable_symbols(self, quotes: dict[str, MarketQuote]) -> set[str]:
+        out: set[str] = set()
+        for sym in self.symbols:
+            base = base_symbol(sym)
+            quote = quotes.get(sym) or quotes.get(base)
+            ts = quote.ts if quote is not None and quote.ts is not None else self.executor._tick
+            if self.executor.trading_calendar.is_trading_time(base, int(ts)):
+                out.add(base)
+        return out
+
+    def _select_active_symbols(
+        self,
+        tagged: list[TaggedDecision],
+        tradable_symbols: set[str],
+    ) -> set[str]:
         if self.active_top_n <= 0:
-            return {base_symbol(s) for s in self.symbols}
+            active = {base_symbol(s) for s in self.symbols if base_symbol(s) in tradable_symbols}
+            self._last_excluded_symbols = {
+                base_symbol(s): "non_trading_time"
+                for s in self.symbols
+                if base_symbol(s) not in tradable_symbols
+            }
+            self._active_symbols = active
+            return active
         if self._tick % self.rank_refresh_every == 0:
             self._last_scores = self._score_symbols(tagged)
-            ranked = sorted(self._last_scores.items(), key=lambda item: (-item[1], item[0]))
+            tradable_scores = {
+                sym: score
+                for sym, score in self._last_scores.items()
+                if sym in tradable_symbols
+            }
+            ranked = sorted(tradable_scores.items(), key=lambda item: (-item[1], item[0]))
             self._active_symbols = {sym for sym, _score in ranked[: self.active_top_n]}
+            all_symbols = {base_symbol(s) for s in self.symbols}
+            excluded: dict[str, str] = {}
+            for sym in sorted(all_symbols - tradable_symbols):
+                excluded[sym] = "non_trading_time"
+            for sym in sorted(tradable_symbols - self._active_symbols):
+                excluded[sym] = "below_top_n"
+            self._last_excluded_symbols = excluded
         return set(self._active_symbols)
 
     def _score_symbols(self, tagged: list[TaggedDecision]) -> dict[str, float]:
@@ -198,7 +249,8 @@ class UniverseRuntime:
         out: list[TaggedDecision] = []
         for td in tagged:
             sym = base_symbol(td.decision.symbol or td.decision.instrument_id or "")
-            if sym in active_symbols:
+            enabled = set(self.enabled_strategies_by_symbol.get(sym, []))
+            if sym in active_symbols and td.strategy_name in enabled:
                 out.append(td)
         return out
 
@@ -206,6 +258,10 @@ class UniverseRuntime:
         if self.active_top_n <= 0 or self.rank_emit_events != 1 or self.executor.datastore is None:
             return
         ranked = sorted(self._last_scores.items(), key=lambda item: (-item[1], item[0]))
+        active_ranked = [(sym, score) for sym, score in ranked if sym in active_symbols]
+        excluded_reasons_count: dict[str, int] = {}
+        for reason in self._last_excluded_symbols.values():
+            excluded_reasons_count[reason] = excluded_reasons_count.get(reason, 0) + 1
         self.executor.datastore.append_rank_event(
             {
                 "event_type": "rank",
@@ -213,11 +269,17 @@ class UniverseRuntime:
                 "runtime_id": self.executor.runtime_id,
                 "env": self.executor.environment,
                 "active_top_n": self.active_top_n,
+                "active_symbols": sorted(active_symbols),
                 "scores": [
                     {"symbol": sym, "score": score}
-                    for sym, score in ranked[: self.active_top_n]
+                    for sym, score in active_ranked[: self.active_top_n]
                 ],
                 "excluded_symbols_count": max(0, len(self.symbols) - len(active_symbols)),
+                "excluded_symbols": [
+                    {"symbol": sym, "reason": reason}
+                    for sym, reason in sorted(self._last_excluded_symbols.items())
+                ],
+                "excluded_reasons_count": excluded_reasons_count,
             },
             env=self.executor.environment,
         )
