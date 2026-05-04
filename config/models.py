@@ -54,7 +54,7 @@ class MarketDataSpec:
 
 @dataclass(frozen=True)
 class BrokerSpec:
-    mode: str = "simulated"
+    mode: Literal["simulated", "tqkq_sim"] = "simulated"
     params: dict[str, Any] = field(default_factory=dict)
 
 
