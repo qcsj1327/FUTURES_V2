@@ -89,6 +89,8 @@ class ExecutionSpec:
 @dataclass(frozen=True)
 class RiskSpec:
     max_position_qty_by_symbol: dict[str, float] = field(default_factory=dict)
+    max_risk_ratio: float | None = None
+    max_notional_by_symbol: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

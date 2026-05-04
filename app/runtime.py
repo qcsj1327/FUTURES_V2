@@ -16,7 +16,13 @@ from core.execution.lifecycle_reasons import (
 from core.instruments.calendar import TradingCalendar
 from core.instruments.resolver import InstrumentResolver
 from core.instruments.roll_policy import RollPolicy
+from core.instruments.specs import InstrumentSpecRegistry
 from core.portfolio.portfolio_engine import PortfolioEngine
+from core.portfolio.portfolio_metrics import (
+    PortfolioMetrics,
+    calculate_portfolio_metrics,
+)
+from core.risk.portfolio_risk_limits import PortfolioRiskLimits
 from core.risk.risk_engine import RiskEngine
 from core.risk.symbol_position_limit import SymbolPositionLimit
 from core.services.runtime.datastore import DataStore
@@ -32,6 +38,7 @@ from domain.enums import ExecutionStatus
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.risk import RiskDecision
 from domain.signal import SignalDecision
+from domain.state import PortfolioState
 from strategies.base.simple_strategy import StrategyEngine
 from strategies.base.strategy import Strategy
 
@@ -97,6 +104,10 @@ class Runtime:
         self._pending_order_contexts: dict[str, _PendingOrderContext] = {}
         self.max_pending_ticks: int | None = None
         self.symbol_position_limit = SymbolPositionLimit()
+        self.portfolio_risk_limits = PortfolioRiskLimits()
+        self.initial_equity = 1_000_000.0
+        self._cost_total_sum = 0.0
+        self._max_risk_ratio_seen = 0.0
         self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
         self._guard_rejection_seq = 0
 
@@ -221,6 +232,16 @@ class Runtime:
                     symbol=decision.symbol,
                 )
                 return
+            portfolio_limit_reason = self._portfolio_risk_reject_reason(candidate_order)
+            if portfolio_limit_reason is not None:
+                self._append_guard_rejection(
+                    candidate_order,
+                    reason=portfolio_limit_reason,
+                    strategy_name=name,
+                    strategy_impl=strategy_impl,
+                    symbol=decision.symbol,
+                )
+                return
 
         order, exec_result = self.execution.execute(risk_decision)
 
@@ -326,6 +347,7 @@ class Runtime:
         if exec_result.success:
             self.orders_submitted += 1
 
+        self._record_execution_cost(exec_result.order_id)
         self.state.apply(order, exec_result)
         self._maybe_save_snapshot()
 
@@ -360,6 +382,7 @@ class Runtime:
                 continue
             if result.status == ExecutionStatus.FILLED:
                 self.orders_submitted += 1
+                self._record_execution_cost(result.order_id)
                 self._maybe_append_events(
                     order,
                     result,
@@ -466,6 +489,12 @@ class Runtime:
         payload = costs(order_id)
         return payload if isinstance(payload, dict) else {}
 
+    def _record_execution_cost(self, order_id: object | None) -> None:
+        payload = self._cost_payload(order_id)
+        cost = payload.get("cost_total")
+        if isinstance(cost, (int, float)):
+            self._cost_total_sum += float(cost)
+
     def _lifecycle_status(self, exec_result: ExecutionResult) -> str:
         if exec_result.reason == DUPLICATE_SAME_TICK:
             return "REJECTED"
@@ -552,6 +581,17 @@ class Runtime:
         )
         self._maybe_save_snapshot()
 
+    def _portfolio_risk_reject_reason(self, order: ExecutionOrder) -> str | None:
+        quote = self.market_data.get_last_quote(order.instrument_id)
+        metrics = self._current_portfolio_metrics()
+        specs = self._instrument_specs()
+        return self.portfolio_risk_limits.reject_reason(
+            order=order,
+            market_price=quote.price,
+            metrics=metrics,
+            instrument_specs=specs,
+        )
+
     def _is_duplicate_order(self, order: ExecutionOrder) -> bool:
         return self._order_key(order) in self._order_keys_by_tick.get(self._tick, set())
 
@@ -596,12 +636,60 @@ class Runtime:
 
     def _maybe_save_snapshot(self) -> None:
         if self.datastore is None:
+            self._refresh_portfolio_metrics()
             self._tick += 1
             return
 
+        self._refresh_portfolio_metrics()
         self.datastore.save_portfolio_snapshot(
             ts=self._tick,
             portfolio=self.state.portfolio,
             env=self.environment,
         )
         self._tick += 1
+
+    def _refresh_portfolio_metrics(self) -> PortfolioMetrics:
+        metrics = self._current_portfolio_metrics()
+        self._max_risk_ratio_seen = max(self._max_risk_ratio_seen, metrics.risk_ratio)
+        metadata = dict(self.state.portfolio.metadata)
+        metadata.update(metrics.as_metadata())
+        metadata["max_risk_ratio_seen"] = self._max_risk_ratio_seen
+        self.state.portfolio = PortfolioState(
+            runtime_id=self.state.portfolio.runtime_id,
+            positions=self.state.portfolio.positions,
+            cash=metrics.cash,
+            equity=metrics.equity,
+            realized_pnl=metrics.realized_pnl,
+            unrealized_pnl=metrics.unrealized_pnl,
+            updated_ts=self.state.portfolio.updated_ts,
+            metadata=metadata,
+        )
+        return metrics
+
+    def _current_portfolio_metrics(self) -> PortfolioMetrics:
+        return calculate_portfolio_metrics(
+            portfolio=self.state.portfolio,
+            prices=self._portfolio_prices(),
+            instrument_specs=self._instrument_specs(),
+            initial_equity=self.initial_equity,
+            cost_total_sum=self._cost_total_sum,
+        )
+
+    def _portfolio_prices(self) -> dict[str, float]:
+        symbols = {position.instrument_id for position in self.state.portfolio.positions.values()}
+        prices: dict[str, float] = {}
+        for symbol in symbols:
+            try:
+                quote = self.market_data.get_last_quote(symbol)
+            except Exception:
+                continue
+            prices[symbol] = quote.price
+        return prices
+
+    def _instrument_specs(self) -> InstrumentSpecRegistry:
+        specs = getattr(self.execution.broker, "instrument_specs", None)
+        if specs is None:
+            return InstrumentSpecRegistry()
+        if isinstance(specs, InstrumentSpecRegistry):
+            return specs
+        return InstrumentSpecRegistry()

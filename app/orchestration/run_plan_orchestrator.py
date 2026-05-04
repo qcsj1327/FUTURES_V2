@@ -28,6 +28,7 @@ from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from config.models import RunPlan
 from core.instruments.spec_snapshot import write_specs_snapshot
+from core.risk.portfolio_risk_limits import PortfolioRiskLimits
 from core.risk.symbol_position_limit import SymbolPositionLimit
 from optimize.promoter.approved_config import write_approved_config
 from optimize.promoter.decision_artifact import write_promotion_decision
@@ -134,6 +135,10 @@ def orchestrate(
     live_executor.symbol_position_limit = SymbolPositionLimit(
         plan.risk.max_position_qty_by_symbol
     )
+    live_executor.portfolio_risk_limits = PortfolioRiskLimits(
+        max_risk_ratio=plan.risk.max_risk_ratio,
+        max_notional_by_symbol=plan.risk.max_notional_by_symbol,
+    )
 
     uni_live = make_universe_runtime(
         executor=live_executor,
@@ -188,6 +193,10 @@ def orchestrate(
     sandbox_executor.max_pending_ticks = plan.execution.max_pending_ticks
     sandbox_executor.symbol_position_limit = SymbolPositionLimit(
         plan.risk.max_position_qty_by_symbol
+    )
+    sandbox_executor.portfolio_risk_limits = PortfolioRiskLimits(
+        max_risk_ratio=plan.risk.max_risk_ratio,
+        max_notional_by_symbol=plan.risk.max_notional_by_symbol,
     )
 
     uni_sandbox = make_universe_runtime(
