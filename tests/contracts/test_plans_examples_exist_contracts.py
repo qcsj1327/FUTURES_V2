@@ -13,3 +13,6 @@ def test_plans_examples_exist() -> None:
     root = _repo_root()
     assert (root / "plans" / "dev.simulated_v2.json").exists()
     assert (root / "plans" / "dev.live_file.json").exists()
+    assert (root / "plans" / "dev.mode_simulated_v2.json").exists()
+    assert (root / "plans" / "dev.mode_live_file.json").exists()
+    assert (root / "plans" / "dev.mode_tqkq_sim.json").exists()

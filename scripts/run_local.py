@@ -13,6 +13,7 @@ from app.orchestration.run_plan_orchestrator import (
 )
 from app.runtime_config import RuntimeConfig
 from config.defaults import default_plan
+from config.env import load_dotenv
 from config.loader import load_plan
 
 
@@ -87,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidate-params-json", type=str, default="{}")
 
     args = parser.parse_args(argv)
+
+    load_dotenv()
 
     plan_path = Path(args.config) if args.config.strip() else None
 

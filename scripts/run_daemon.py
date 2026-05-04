@@ -12,6 +12,7 @@ from app.orchestration.daemon_runner import DaemonSession, run_loop
 from app.orchestration.run_cleanup import clean_runtime_paths
 from app.orchestration.session_builder import Env, build_universe_session
 from config.defaults import default_plan
+from config.env import load_dotenv
 from config.loader import load_plan
 from config.models import RunPlan
 from optimize.promoter.promotion_gate import PromotionThresholds
@@ -49,11 +50,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stop-on-exception", type=int, default=1)
     args = parser.parse_args(argv)
 
+    load_dotenv()
+
     plan_path = Path(args.config) if args.config else None
     if plan_path:
         plan = load_plan(plan_path, runtime_id=args.runtime_id)
     else:
         plan = default_plan(runtime_id=args.runtime_id)
+    if plan.runtime.mode == "tqkq_sim":
+        raise ValueError("run_daemon does not support runtime.mode=tqkq_sim")
 
     env = str(args.env).strip().lower()
     if env not in {"live", "sandbox"}:

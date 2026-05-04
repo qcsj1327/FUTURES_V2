@@ -34,6 +34,8 @@ def default_plan(*, runtime_id: str) -> RunPlan:
             ticks_live=3,
             ticks_sandbox=3,
             default_quantity=1.0,
+            mode="simulated_v2",
+            warmup_seconds=None,
             stop_loss=None,
             take_profit=None,
             active_top_n=0,
