@@ -51,7 +51,7 @@ class _FakeApi:
         return True
 
 
-def test_tqkq_status_lifecycle_sequence_contract() -> None:
+def test_tqkq_live_broker_status_mapping_lifecycle_cost_contract() -> None:
     store = MemoryDataStore(env="live", runtime_id="rt_tqkq_status")
     market_data = _FakeMarketData()
     broker = TqKqLiveBroker(
@@ -103,6 +103,25 @@ def test_tqkq_status_lifecycle_sequence_contract() -> None:
     assert partial["filled_quantity"] == 0.4
     assert partial["remaining_quantity"] == 0.6
     assert filled["reason"] == TQKQ_LIVE_FILL
+    cost_fields = {
+        "market_price",
+        "raw_fill_price",
+        "fill_price",
+        "multiplier",
+        "tick_size",
+        "notional",
+        "commission",
+        "slippage",
+        "cost_total",
+        "margin",
+    }
+    for event in (partial, filled):
+        assert cost_fields.issubset(event.keys())
+        assert event["market_price"] == 120.0
+        assert event["raw_fill_price"] == 120.0
+        assert event["fill_price"] == 120.0
+        assert event["notional"] > 0
+        assert event["cost_total"] >= 0
     for event in store.order_lifecycle_events:
         assert event["order_id"]
         assert event["instrument_id"] == "au"
