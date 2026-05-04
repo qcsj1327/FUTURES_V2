@@ -53,6 +53,10 @@ class JSONLFileDataStore(DataStore):
         self._assert_env(env)
         self._append_jsonl("rank_events.jsonl", event)
 
+    def append_order_lifecycle_event(self, event: dict[str, Any], *, env: str) -> None:
+        self._assert_env(env)
+        self._append_jsonl("order_lifecycle_events.jsonl", event)
+
     def save_portfolio_snapshot(self, *, ts: int, portfolio: Any, env: str) -> None:
         self._assert_env(env)
         base_dir = self._dir(create=True)
@@ -122,6 +126,10 @@ class JSONLFileDataStore(DataStore):
     def read_rank_events(self, *, env: str) -> list[dict[str, Any]]:
         self._assert_env(env)
         return self._read_jsonl("rank_events.jsonl")
+
+    def read_order_lifecycle_events(self, *, env: str) -> list[dict[str, Any]]:
+        self._assert_env(env)
+        return self._read_jsonl("order_lifecycle_events.jsonl")
 
     def append_metrics(self, *, ts: int, metrics: Mapping[str, Any], env: str) -> None:
         self._assert_env(env)

@@ -73,6 +73,9 @@ def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
     rank_raw = payload.get("rank_events")
     rank_events = rank_raw if isinstance(rank_raw, list) else []
 
+    lifecycle_raw = payload.get("order_lifecycle_events")
+    order_lifecycle_events = lifecycle_raw if isinstance(lifecycle_raw, list) else []
+
     tl_raw = payload.get("timeline")
     timeline = tl_raw if isinstance(tl_raw, list) else []
 
@@ -101,5 +104,6 @@ def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
         "fill_events": [_annotate(x) for x in fill_events],
         "order_events": [_annotate(x) for x in order_events],
         "rank_events": [_annotate(x) for x in rank_events],
+        "order_lifecycle_events": [_annotate(x) for x in order_lifecycle_events],
         "timeline": [_annotate(x) for x in timeline],
     }

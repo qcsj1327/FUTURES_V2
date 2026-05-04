@@ -52,6 +52,7 @@ class UniverseRuntime:
         self._last_scores: dict[str, float] = {base_symbol(s): 0.0 for s in universe_symbols}
 
     def run_tick(self) -> None:
+        self.executor.poll_order_lifecycle(self._tick)
         quotes = self.market_data.get_last_quotes(self.symbols)
         self._update_quote_history(quotes)
         tagged = self.strategy_set.generate(quotes)
@@ -103,17 +104,13 @@ class UniverseRuntime:
                 continue
 
             exit_result = self.executor.execution.broker.submit_order(exit_order)
-            if exit_result.success:
-                self.executor.orders_submitted += 1
-
-            self.executor._maybe_append_events(
+            self.executor.record_broker_result(
                 exit_order,
                 exit_result,
                 strategy_name="exit",
+                strategy_impl="ExitService",
                 symbol=sym,
             )
-            self.executor.state.apply(exit_order, exit_result, strategy_name="exit")
-            self.executor._maybe_save_snapshot()
 
         # advance market clock if adapter supports it
         adv = getattr(self.market_data, "advance", None)

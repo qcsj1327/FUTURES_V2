@@ -46,6 +46,17 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 
 示例：`plans/dev.topn.json`。
 
+## broker 订单生命周期模拟
+
+`adapters.broker.mode` 目前只支持 `simulated`。`params` 默认空对象，保持即时成交。
+用于订单跟踪 contracts 时可以配置：
+
+- `fill_delay_ticks`：提交后延迟多少 tick 开始成交，默认 `0`。
+- `partial_fill_ratio`：首次部分成交比例，默认 `1.0`。
+- `max_ticks_to_fill`：超过该 tick 年龄仍未终态时按 `expired` 写生命周期事件。
+
+示例：`plans/dev.topn_order_lifecycle.json` 会写 `order_lifecycle_events.jsonl`。
+
 示例（推荐）：
 
 ```json

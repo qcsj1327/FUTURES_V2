@@ -7,10 +7,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.storage.datastore_fs import JSONLFileDataStore
 from app.orchestration.run_cleanup import clean_runtime_paths
 from app.orchestration.session_builder import (
+    build_broker,
     build_instrument_services,
     build_market_data,
     build_strategy_set,
@@ -91,7 +91,7 @@ def orchestrate(
 
     # ---- live ----
     md_live = build_market_data(plan)
-    broker_live = SimulatedBroker(md_live)
+    broker_live = build_broker(plan, md_live)
     cfg = RuntimeConfig()
     live_store = JSONLFileDataStore(root_dir=live_root, env="live", runtime_id=rid)
     live_calendar, live_resolver = build_instrument_services(
@@ -124,7 +124,7 @@ def orchestrate(
 
     # ---- sandbox ----
     md_sandbox = build_market_data(plan)
-    broker_sandbox = SimulatedBroker(md_sandbox)
+    broker_sandbox = build_broker(plan, md_sandbox)
     sandbox_store = JSONLFileDataStore(root_dir=sandbox_root, env="sandbox", runtime_id=rid)
     sandbox_calendar, sandbox_resolver = build_instrument_services(
         plan=plan,

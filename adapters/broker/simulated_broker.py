@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from adapters.broker.base import BrokerAdapter
 from adapters.broker.fill.fill_quantity_model import FillQuantityModel
@@ -12,6 +13,19 @@ from adapters.broker.order.rejection_policy import RejectionPolicy
 from adapters.marketdata.base import MarketDataAdapter
 from domain.enums import ExecutionStatus
 from domain.execution import ExecutionOrder, ExecutionResult
+
+
+@dataclass(frozen=True)
+class OrderLifecycleUpdate:
+    order: ExecutionOrder
+    result: ExecutionResult
+
+
+@dataclass
+class _PendingOrder:
+    order: ExecutionOrder
+    submit_tick: int
+    partial_emitted: bool = False
 
 
 class SimulatedBroker(BrokerAdapter):
@@ -25,7 +39,16 @@ class SimulatedBroker(BrokerAdapter):
         rejected_symbols: Iterable[str] | None = None,
         reject_above_quantity: float | None = None,
         fill_ratio: float = 1.0,
+        fill_delay_ticks: int = 0,
+        partial_fill_ratio: float = 1.0,
+        max_ticks_to_fill: int | None = None,
     ) -> None:
+        if fill_delay_ticks < 0:
+            raise ValueError("fill_delay_ticks must be >= 0")
+        if partial_fill_ratio <= 0 or partial_fill_ratio > 1:
+            raise ValueError("partial_fill_ratio must be > 0 and <= 1")
+        if max_ticks_to_fill is not None and max_ticks_to_fill < 1:
+            raise ValueError("max_ticks_to_fill must be >= 1")
         self.market_data = market_data
         self.slippage_model = SlippageModel(slippage_rate=slippage_rate)
         self.fill_quantity_model = FillQuantityModel(fill_ratio=fill_ratio)
@@ -36,10 +59,15 @@ class SimulatedBroker(BrokerAdapter):
             rejected_symbols=rejected_symbols,
             reject_above_quantity=reject_above_quantity,
         )
+        self.fill_delay_ticks = fill_delay_ticks
+        self.partial_fill_ratio = partial_fill_ratio
+        self.max_ticks_to_fill = max_ticks_to_fill
+        self._tick = 0
+        self._pending: dict[str, _PendingOrder] = {}
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         order_id = self.order_id_generator.next_id()
-        ts = int(time.time())
+        ts = self._now_ts()
 
         self.order_tracker.create(order_id=order_id, order=order)
         self.order_tracker.submit(order_id)
@@ -61,13 +89,114 @@ class SimulatedBroker(BrokerAdapter):
 
         if not order.trade_instrument_id:
             raise ValueError("ExecutionOrder.trade_instrument_id is required")
+
+        if self._delayed_enabled():
+            self._pending[order_id] = _PendingOrder(order=order, submit_tick=self._tick)
+            return ExecutionResult(
+                success=False,
+                status=ExecutionStatus.SUBMITTED,
+                ts=ts,
+                order_id=order_id,
+                fill_price=None,
+                reason="order_submitted",
+                filled_quantity=None,
+                remaining_quantity=order.quantity,
+                avg_fill_price=None,
+            )
+
+        return self._fill_order(order_id=order_id, order=order, quantity_ratio=None, ts=ts)
+
+    def poll_order_updates(self, tick: int) -> list[OrderLifecycleUpdate]:
+        self._tick = tick
+        updates: list[OrderLifecycleUpdate] = []
+
+        for order_id in sorted(list(self._pending.keys())):
+            pending = self._pending[order_id]
+            age = self._tick - pending.submit_tick
+            if self.max_ticks_to_fill is not None and age >= self.max_ticks_to_fill:
+                self.order_tracker.cancel(order_id=order_id, reason="expired")
+                updates.append(
+                    OrderLifecycleUpdate(
+                        order=pending.order,
+                        result=ExecutionResult(
+                            success=False,
+                            status=ExecutionStatus.REJECTED,
+                            ts=self._tick,
+                            order_id=order_id,
+                            reason="expired",
+                            filled_quantity=None,
+                            remaining_quantity=pending.order.quantity,
+                            avg_fill_price=None,
+                        ),
+                    )
+                )
+                del self._pending[order_id]
+                continue
+
+            if age < self.fill_delay_ticks:
+                continue
+
+            if self.partial_fill_ratio < 1.0 and not pending.partial_emitted:
+                updates.append(
+                    OrderLifecycleUpdate(
+                        order=pending.order,
+                        result=self._fill_order(
+                            order_id=order_id,
+                            order=pending.order,
+                            quantity_ratio=self.partial_fill_ratio,
+                            ts=self._tick,
+                        ),
+                    )
+                )
+                pending.partial_emitted = True
+                continue
+
+            if pending.partial_emitted and age <= self.fill_delay_ticks:
+                continue
+
+            updates.append(
+                OrderLifecycleUpdate(
+                    order=pending.order,
+                    result=self._fill_order(
+                        order_id=order_id,
+                        order=pending.order,
+                        quantity_ratio=1.0,
+                        ts=self._tick,
+                    ),
+                )
+            )
+            del self._pending[order_id]
+
+        return updates
+
+    def _now_ts(self) -> int:
+        return self._tick if self._delayed_enabled() else int(time.time())
+
+    def _delayed_enabled(self) -> bool:
+        return (
+            self.fill_delay_ticks > 0
+            or self.partial_fill_ratio < 1.0
+            or self.max_ticks_to_fill is not None
+        )
+
+    def _fill_order(
+        self,
+        *,
+        order_id: str,
+        order: ExecutionOrder,
+        quantity_ratio: float | None,
+        ts: int,
+    ) -> ExecutionResult:
         symbol = order.instrument_id
         market_price = self.market_data.get_last_quote(symbol).price
         fill_price = self.slippage_model.apply(
             market_price=market_price,
             side=order.side,
         )
-        fill_quantity = self.fill_quantity_model.apply(order.quantity)
+        if quantity_ratio is None:
+            fill_quantity = self.fill_quantity_model.apply(order.quantity)
+        else:
+            fill_quantity = FillQuantityModel(fill_ratio=quantity_ratio).apply(order.quantity)
 
         self.order_tracker.fill(
             order_id=order_id,
