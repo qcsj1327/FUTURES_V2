@@ -96,7 +96,7 @@ def write_strategy_switch_proposal(
             "active": sym in active_symbols,
             "ranked_strategies": ranked,
             "recommended_enabled_strategies": recommended,
-            "reason": "highest_strategy_score",
+            "reason": "highest_final_score_cost_risk_adjusted",
         }
 
     payload = {
@@ -108,6 +108,8 @@ def write_strategy_switch_proposal(
         "thresholds": {
             "min_score": min_score,
             "max_enabled_strategies_per_symbol": 1,
+            "scoring_model": "cost_risk_v2",
+            "approval_required": True,
         },
         "symbols": symbols_payload,
         "enabled_strategies_by_symbol": enabled_by_symbol,
@@ -181,7 +183,11 @@ def _rank_strategies(
         grouped.setdefault(symbol, []).append(
             {
                 "strategy_name": strategy,
-                "score": float(event.get("score", 0.0)),
+                "score": float(event.get("final_score", event.get("score", 0.0))),
+                "raw_score": float(event.get("raw_score", event.get("score", 0.0))),
+                "cost_penalty": float(event.get("cost_penalty", 0.0)),
+                "risk_penalty": float(event.get("risk_penalty", 0.0)),
+                "final_score": float(event.get("final_score", event.get("score", 0.0))),
                 "decision": event.get("decision"),
                 "strength": event.get("strength"),
                 "confidence": float(event.get("confidence", 0.0)),

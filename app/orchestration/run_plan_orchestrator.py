@@ -137,6 +137,7 @@ def orchestrate(
     )
     live_executor.portfolio_risk_limits = PortfolioRiskLimits(
         max_risk_ratio=plan.risk.max_risk_ratio,
+        max_margin_used=plan.risk.max_margin_used,
         max_notional_by_symbol=plan.risk.max_notional_by_symbol,
     )
 
@@ -196,6 +197,7 @@ def orchestrate(
     )
     sandbox_executor.portfolio_risk_limits = PortfolioRiskLimits(
         max_risk_ratio=plan.risk.max_risk_ratio,
+        max_margin_used=plan.risk.max_margin_used,
         max_notional_by_symbol=plan.risk.max_notional_by_symbol,
     )
 

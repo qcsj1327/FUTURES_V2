@@ -276,7 +276,12 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         raise ValueError("risk must be an object")
     _assert_keys(
         risk_raw,
-        {"max_position_qty_by_symbol", "max_risk_ratio", "max_notional_by_symbol"},
+        {
+            "max_position_qty_by_symbol",
+            "max_risk_ratio",
+            "max_margin_used",
+            "max_notional_by_symbol",
+        },
         where="risk",
     )
     limits_raw = risk_raw.get(
@@ -296,9 +301,17 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             raise ValueError(f"risk.max_position_qty_by_symbol.{sym} must be >= 0")
         max_position_qty_by_symbol[sym] = qty
     max_risk_ratio_raw = risk_raw.get("max_risk_ratio", base.risk.max_risk_ratio)
+    if isinstance(max_risk_ratio_raw, bool):
+        raise ValueError("risk.max_risk_ratio must be number")
     max_risk_ratio = None if max_risk_ratio_raw is None else float(max_risk_ratio_raw)
     if max_risk_ratio is not None and max_risk_ratio < 0:
         raise ValueError("risk.max_risk_ratio must be >= 0")
+    max_margin_used_raw = risk_raw.get("max_margin_used", base.risk.max_margin_used)
+    if isinstance(max_margin_used_raw, bool):
+        raise ValueError("risk.max_margin_used must be number")
+    max_margin_used = None if max_margin_used_raw is None else float(max_margin_used_raw)
+    if max_margin_used is not None and max_margin_used < 0:
+        raise ValueError("risk.max_margin_used must be >= 0")
 
     notional_raw = risk_raw.get(
         "max_notional_by_symbol",
@@ -319,6 +332,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     risk = RiskSpec(
         max_position_qty_by_symbol=max_position_qty_by_symbol,
         max_risk_ratio=max_risk_ratio,
+        max_margin_used=max_margin_used,
         max_notional_by_symbol=max_notional_by_symbol,
     )
 
