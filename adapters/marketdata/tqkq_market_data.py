@@ -10,6 +10,18 @@ from typing import Any
 
 from adapters.marketdata.base import MarketDataAdapter, MarketQuote
 
+_API_FACTORY_OVERRIDE: Callable[[], Any] | None = None
+
+
+def set_tqkq_api_factory_override(factory: Callable[[], Any] | None) -> None:
+    """
+    Test-only hook: override the internal TqApi factory.
+
+    This avoids importing tqsdk and avoids network access in contracts.
+    """
+    global _API_FACTORY_OVERRIDE
+    _API_FACTORY_OVERRIDE = factory
+
 
 def _base_symbol(symbol: str) -> str:
     return symbol[:-5] if symbol.endswith("_main") else symbol
@@ -59,6 +71,9 @@ class TqKqMarketData(MarketDataAdapter):
         self._stop = threading.Event()
 
         if api_factory is None:
+            api_factory = _API_FACTORY_OVERRIDE
+
+        if api_factory is None:
             # Lazy import so tests can inject fake api without having tqsdk installed.
             from tqsdk import TqApi, TqAuth
 
@@ -71,11 +86,42 @@ class TqKqMarketData(MarketDataAdapter):
 
         self._api: Any | None = None
         self._quotes: dict[str, Any] = {}
+        self._warmed_up: bool = False
         self._init_api_and_subscribe()
         if start_background:
             self.start()
 
         atexit.register(self.close)
+
+    def warmup(self, symbols: list[str], timeout_s: float) -> None:
+        self._init_api_and_subscribe()
+        if self._api is None:
+            raise ValueError("tqkq api not initialized")
+
+        required = sorted({_base_symbol(s) for s in symbols})
+        missing_cfg = [s for s in required if s not in self._tq_symbols]
+        if missing_cfg:
+            raise ValueError(f"tqkq symbols not configured for bases: {missing_cfg}")
+
+        deadline = time.time() + float(timeout_s)
+        while time.time() < deadline:
+            try:
+                self._api.wait_update(deadline=time.time() + 0.2)
+            except Exception:
+                time.sleep(0.05)
+            self._poll_once()
+            with self._lock:
+                ok = all(s in self._latest for s in required)
+            if ok:
+                self._warmed_up = True
+                return
+
+        with self._lock:
+            missing = [s for s in required if s not in self._latest]
+        mapping = {s: self._tq_symbols.get(s) for s in missing}
+        raise TimeoutError(
+            f"tqkq warmup timeout after {timeout_s}s, missing={missing}, tq_symbols={mapping}"
+        )
 
 
     def _init_api_and_subscribe(self) -> None:
@@ -154,22 +200,33 @@ class TqKqMarketData(MarketDataAdapter):
 
     def get_last_quote(self, symbol: str) -> MarketQuote:
         base = self._resolve_base(symbol)
+        if not self._warmed_up:
+            raise ValueError(
+                "tqkq marketdata not ready, call warmup(symbols, timeout_s) "
+                "or set warmup_seconds in plan params"
+            )
         with self._lock:
             st = self._latest.get(base)
         if st is None:
-            raise KeyError(f"no quote yet for symbol={symbol}")
+            raise ValueError(f"tqkq quote missing for symbol={symbol} (base={base})")
         return MarketQuote(symbol=symbol, price=st.price, volume=st.raw_volume, ts=st.ts)
 
     def get_last_quotes(self, symbols: list[str]) -> dict[str, MarketQuote]:
+        if not self._warmed_up:
+            raise ValueError(
+                "tqkq marketdata not ready, call warmup(symbols, timeout_s) "
+                "or set warmup_seconds in plan params"
+            )
         out: dict[str, MarketQuote] = {}
         missing: list[str] = []
         for s in symbols:
             try:
                 out[s] = self.get_last_quote(s)
-            except KeyError:
+            except ValueError:
                 missing.append(s)
         if missing:
-            raise KeyError(f"missing quotes: {missing}")
+            mapping = {m: self._tq_symbols.get(_base_symbol(m)) for m in missing}
+            raise ValueError(f"tqkq missing quotes: {missing}, tq_symbols={mapping}")
         return out
 
     def get_quote(self, tq_symbol: str) -> Any:
