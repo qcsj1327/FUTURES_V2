@@ -13,6 +13,7 @@ from adapters.marketdata.live_market_data import LiveFileMarketData
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
 from adapters.marketdata.simulated_market_data_v2 import SimulatedMarketDataV2
 from adapters.storage.datastore_fs import JSONLFileDataStore
+from app.orchestration.strategy_switch import load_approved_strategy_map
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from app.universe_runtime import UniverseRuntime
@@ -257,6 +258,7 @@ def make_universe_runtime(
     strategy_set: StrategySet,
     priorities: dict[str, int],
     weights: dict[str, float],
+    enabled_strategies_by_symbol: dict[str, list[str]] | None = None,
 ) -> UniverseRuntime:
     router_config = RouterConfig(mode=plan.router.mode, tie_breaker=plan.router.tie_breaker)
     return UniverseRuntime(
@@ -272,6 +274,7 @@ def make_universe_runtime(
         rank_metric=plan.runtime.rank_metric,
         rank_refresh_every=plan.runtime.rank_refresh_every,
         rank_emit_events=plan.runtime.rank_emit_events,
+        enabled_strategies_by_symbol=enabled_strategies_by_symbol,
     )
 
 
@@ -356,6 +359,10 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
         )
 
     strategy_set, priorities, weights = build_strategy_set(plan)
+    enabled = load_approved_strategy_map(
+        runtime_id=runtime_id,
+        artifacts_root=plan.datastore.artifacts_root,
+    )
     universe = make_universe_runtime(
         executor=executor,
         market_data=market_data,
@@ -363,6 +370,7 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
         strategy_set=strategy_set,
         priorities=priorities,
         weights=weights,
+        enabled_strategies_by_symbol=enabled,
     )
 
     return UniverseSession(
