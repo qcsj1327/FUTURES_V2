@@ -99,7 +99,7 @@ class UniverseRuntime:
             sym = getattr(pos, "instrument_id", None) or getattr(pos, "trade_instrument_id", None)
             if not isinstance(sym, str) or sym not in quotes:
                 continue
-            if self.active_top_n > 0 and base_symbol(sym) not in active_symbols:
+            if base_symbol(sym) not in active_symbols:
                 continue
             raw_quote_ts = quotes[sym].ts
             quote_ts: int = raw_quote_ts if raw_quote_ts is not None else self.executor._tick
@@ -244,8 +244,6 @@ class UniverseRuntime:
         tagged: list[TaggedDecision],
         active_symbols: set[str],
     ) -> list[TaggedDecision]:
-        if self.active_top_n <= 0:
-            return tagged
         out: list[TaggedDecision] = []
         for td in tagged:
             sym = base_symbol(td.decision.symbol or td.decision.instrument_id or "")

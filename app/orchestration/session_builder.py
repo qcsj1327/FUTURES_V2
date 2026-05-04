@@ -8,6 +8,7 @@ from typing import Any, Literal
 from adapters.broker.base import BrokerAdapter
 from adapters.broker.simulated_broker import SimulatedBroker
 from adapters.broker.tqkq_broker import TqKqBroker
+from adapters.broker.tqkq_live_broker import TqKqLiveBroker
 from adapters.marketdata.base import MarketDataAdapter
 from adapters.marketdata.live_market_data import LiveFileMarketData
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
@@ -133,6 +134,28 @@ def build_broker_with_specs(
     *,
     instrument_specs: InstrumentSpecRegistry | None,
 ) -> BrokerAdapter:
+    if plan.adapters.broker.mode == "tqkq_live":
+        if plan.instruments.roll_policy.mode != "fixed_contract":
+            raise ValueError("adapters.broker.mode=tqkq_live requires fixed_contract roll_policy")
+        bad_contracts = {
+            sym: contract
+            for sym, contract in plan.instruments.roll_policy.contracts.items()
+            if contract.endswith("_main") or "." not in contract
+        }
+        if bad_contracts:
+            raise ValueError(
+                "adapters.broker.mode=tqkq_live requires real trade contracts: "
+                f"{bad_contracts}"
+            )
+        return TqKqLiveBroker(
+            market_data=market_data,
+            instrument_specs=(
+                instrument_specs
+                or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
+            ),
+            dry_run=bool(plan.adapters.broker.params.get("dry_run", True)),
+        )
+
     if plan.adapters.broker.mode == "tqkq_sim":
         if plan.adapters.market_data.mode != "tqkq":
             raise ValueError(

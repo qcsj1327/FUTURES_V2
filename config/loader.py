@@ -24,7 +24,7 @@ from config.models import (
     UniverseSpec,
 )
 
-RuntimeMode = Literal["simulated_v2", "live_file", "tqkq_sim"]
+RuntimeMode = Literal["simulated_v2", "live_file", "tqkq_sim", "tqkq_live"]
 
 
 def _assert_keys(obj: dict[str, Any], allowed: set[str], *, where: str) -> None:
@@ -143,7 +143,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     )
     runtime_mode_explicit = "mode" in runtime_raw
     runtime_mode_raw = str(runtime_raw.get("mode", base.runtime.mode))
-    if runtime_mode_raw not in {"simulated_v2", "live_file", "tqkq_sim"}:
+    if runtime_mode_raw not in {"simulated_v2", "live_file", "tqkq_sim", "tqkq_live"}:
         raise ValueError(f"invalid runtime.mode: {runtime_mode_raw}")
     runtime_mode = cast(RuntimeMode, runtime_mode_raw)
     warmup_raw = runtime_raw.get("warmup_seconds", base.runtime.warmup_seconds)
@@ -464,7 +464,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     _assert_keys(broker_raw, {"mode", "params"}, where="adapters.broker")
     broker_mode = str(broker_raw.get("mode", "simulated"))
     broker_mode_explicit = "mode" in broker_raw
-    if broker_mode not in {"simulated", "tqkq_sim"}:
+    if broker_mode not in {"simulated", "tqkq_sim", "tqkq_live"}:
         raise ValueError(f"invalid adapters.broker.mode: {broker_mode}")
     broker_params = broker_raw.get("params", {})
     if not isinstance(broker_params, dict):
@@ -522,9 +522,16 @@ def _normalize_runtime_mode(
             "simulated_v2": "simulated_v2",
             "live_file": "live_file",
             "tqkq_sim": "tqkq",
+            "tqkq_live": "tqkq",
         }[mode]
-        expected_broker = "tqkq_sim" if mode == "tqkq_sim" else "simulated"
-        expected_spec_source = "tqkq" if mode == "tqkq_sim" else "static"
+        expected_broker = (
+            "tqkq_live"
+            if mode == "tqkq_live"
+            else "tqkq_sim"
+            if mode == "tqkq_sim"
+            else "simulated"
+        )
+        expected_spec_source = "tqkq" if mode in {"tqkq_sim", "tqkq_live"} else "static"
         _reject_conflict(
             field="adapters.market_data.mode",
             expected=expected_md,
@@ -551,7 +558,7 @@ def _normalize_runtime_mode(
         instruments = _replace_instruments_spec_source(instruments, expected_spec_source)
         if mode == "live_file" and prices_path is None:
             prices_path = str((base_dir / "prices.json").resolve())
-        if mode == "tqkq_sim":
+        if mode in {"tqkq_sim", "tqkq_live"}:
             warmup = runtime.warmup_seconds if runtime.warmup_seconds is not None else 8.0
             params_warmup = md_params.get("warmup_seconds")
             if params_warmup is not None and float(params_warmup) != float(warmup):
@@ -580,13 +587,13 @@ def _normalize_runtime_mode(
             params=md_params,
         ),
         broker=BrokerSpec(
-            mode=cast(Literal["simulated", "tqkq_sim"], broker_mode),
+            mode=cast(Literal["simulated", "tqkq_sim", "tqkq_live"], broker_mode),
             params=broker_params,
         ),
     )
 
-    if adapters.broker.mode == "tqkq_sim":
-        _validate_tqkq_sim_contracts(instruments)
+    if adapters.broker.mode in {"tqkq_sim", "tqkq_live"}:
+        _validate_tqkq_contracts(mode=adapters.broker.mode, instruments=instruments)
 
     return runtime, adapters, instruments
 
@@ -607,6 +614,8 @@ def _reject_conflict(
 
 
 def _derive_runtime_mode(md_mode: str, broker_mode: str) -> RuntimeMode:
+    if broker_mode == "tqkq_live":
+        return "tqkq_live"
     if broker_mode == "tqkq_sim":
         return "tqkq_sim"
     if md_mode == "live_file":
@@ -634,9 +643,9 @@ def _replace_instruments_spec_source(
     )
 
 
-def _validate_tqkq_sim_contracts(instruments: InstrumentsSpec) -> None:
+def _validate_tqkq_contracts(*, mode: str, instruments: InstrumentsSpec) -> None:
     if instruments.roll_policy.mode != "fixed_contract":
-        raise ValueError("adapters.broker.mode=tqkq_sim requires fixed_contract roll_policy")
+        raise ValueError(f"adapters.broker.mode={mode} requires fixed_contract roll_policy")
     invalid_contracts = {
         sym: contract
         for sym, contract in instruments.roll_policy.contracts.items()
@@ -644,19 +653,24 @@ def _validate_tqkq_sim_contracts(instruments: InstrumentsSpec) -> None:
     }
     if invalid_contracts:
         raise ValueError(
-            "adapters.broker.mode=tqkq_sim requires real contracts: "
+            f"adapters.broker.mode={mode} requires real contracts: "
             f"{invalid_contracts}"
         )
 
 
 def _validate_broker_params(*, broker_mode: str, params: dict[str, Any]) -> None:
-    allowed = {
-        "fill_delay_ticks",
-        "partial_fill_ratio",
-        "max_partial_steps",
-        "max_ticks_to_fill",
-        "no_fill",
-    }
+    if broker_mode == "tqkq_live":
+        allowed = {"dry_run"}
+    elif broker_mode == "tqkq_sim":
+        allowed = {"no_fill"}
+    else:
+        allowed = {
+            "fill_delay_ticks",
+            "partial_fill_ratio",
+            "max_partial_steps",
+            "max_ticks_to_fill",
+            "no_fill",
+        }
     extra = set(params) - allowed
     if extra:
         raise ValueError(f"unknown keys at adapters.broker.params: {sorted(extra)}")
