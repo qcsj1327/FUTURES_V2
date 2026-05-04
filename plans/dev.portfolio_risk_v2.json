@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "env": "dev",
+  "universe": {
+    "symbols": ["au", "ag"]
+  },
+  "adapters": {
+    "market_data": {
+      "mode": "simulated_v2",
+      "params": {
+        "seed": 3201,
+        "start_prices": {
+          "au": 120.0,
+          "ag": 121.0
+        },
+        "start_volumes": {
+          "au": 1000.0,
+          "ag": 1100.0
+        },
+        "drift": 0.0,
+        "vol": 0.0
+      }
+    }
+  },
+  "risk": {
+    "max_risk_ratio": 0.02,
+    "max_margin_used": 15000.0,
+    "max_notional_by_symbol": {
+      "ag": 1.0
+    },
+    "max_position_qty_by_symbol": {
+      "au": 10.0,
+      "ag": 10.0
+    }
+  },
+  "strategies": [
+    {
+      "name": "simple_strategy",
+      "params": {},
+      "symbols": ["au", "ag"],
+      "priority": 1,
+      "weight": 1.0
+    }
+  ],
+  "runtime": {
+    "mode": "simulated_v2",
+    "ticks_live": 3,
+    "ticks_sandbox": 0,
+    "default_quantity": 1.0
+  },
+  "promotion": {
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0,
+    "max_consecutive_failures": 99
+  },
+  "router": {
+    "mode": "priority",
+    "tie_breaker": "priority"
+  }
+}

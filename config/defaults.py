@@ -52,6 +52,7 @@ def default_plan(*, runtime_id: str) -> RunPlan:
         risk=RiskSpec(
             max_position_qty_by_symbol={},
             max_risk_ratio=None,
+            max_margin_used=None,
             max_notional_by_symbol={},
         ),
         instruments=InstrumentsSpec(

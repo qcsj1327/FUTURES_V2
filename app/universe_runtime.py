@@ -4,6 +4,7 @@ from collections import deque
 
 from adapters.marketdata.base import MarketDataAdapter, MarketQuote, base_symbol
 from app.runtime import Runtime
+from core.instruments.cost_model import calculate_trade_cost
 from core.signal_router.router import RouterConfig, route
 from domain.enums import Decision, SignalStrength
 from strategies.strategy_set import StrategySet, TaggedDecision
@@ -66,7 +67,7 @@ class UniverseRuntime:
         quotes = self.market_data.get_last_quotes(self.symbols)
         self._update_quote_history(quotes)
         tagged = self.strategy_set.generate(quotes)
-        self._emit_strategy_score_events(tagged)
+        self._emit_strategy_score_events(tagged, quotes)
         tradable_symbols = self._tradable_symbols(quotes)
         active_symbols = self._select_active_symbols(tagged, tradable_symbols)
         tagged_for_execution = self._filter_tagged(tagged, active_symbols)
@@ -282,13 +283,22 @@ class UniverseRuntime:
             env=self.executor.environment,
         )
 
-    def _emit_strategy_score_events(self, tagged: list[TaggedDecision]) -> None:
+    def _emit_strategy_score_events(
+        self,
+        tagged: list[TaggedDecision],
+        quotes: dict[str, MarketQuote],
+    ) -> None:
         if self.executor.datastore is None:
             return
+        metrics = self.executor._current_portfolio_metrics()
+        risk_penalty = float(metrics.risk_ratio)
         for td in tagged:
             sym = base_symbol(td.decision.symbol or td.decision.instrument_id or "")
             if not sym:
                 continue
+            raw_score = self._score_tagged_decision(td)
+            cost_penalty = self._cost_penalty(td, quotes.get(sym))
+            final_score = raw_score - cost_penalty - risk_penalty
             self.executor.datastore.append_strategy_score_event(
                 {
                     "event_type": "strategy_score",
@@ -302,7 +312,31 @@ class UniverseRuntime:
                     "decision": td.decision.decision.name,
                     "strength": td.decision.strength.name,
                     "confidence": float(td.decision.confidence),
-                    "score": self._score_tagged_decision(td),
+                    "raw_score": raw_score,
+                    "cost_penalty": cost_penalty,
+                    "risk_penalty": risk_penalty,
+                    "final_score": final_score,
+                    "score": final_score,
+                    "scoring_model": "cost_risk_v2",
                 },
                 env=self.executor.environment,
             )
+
+    def _cost_penalty(self, td: TaggedDecision, quote: MarketQuote | None) -> float:
+        if quote is None or td.decision.decision == Decision.HOLD:
+            return 0.0
+        specs = getattr(self.executor.execution.broker, "instrument_specs", None)
+        if specs is None:
+            return 0.0
+        try:
+            spec = specs.get(base_symbol(td.decision.symbol or td.decision.instrument_id or ""))
+            cost = calculate_trade_cost(
+                spec=spec,
+                side=td.decision.side,
+                qty=float(self.executor.config.default_quantity),
+                market_price=quote.price,
+            )
+        except Exception:
+            return 0.0
+        notional = cost.notional if cost.notional > 0 else 1.0
+        return float(cost.cost_total / notional)

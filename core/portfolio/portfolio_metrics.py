@@ -17,6 +17,7 @@ class PortfolioMetrics:
     unrealized_pnl: float
     realized_pnl: float
     notional_by_symbol: dict[str, float] = field(default_factory=dict)
+    margin_by_symbol: dict[str, float] = field(default_factory=dict)
     cost_total_sum: float = 0.0
 
     def as_metadata(self) -> dict[str, object]:
@@ -28,6 +29,7 @@ class PortfolioMetrics:
             "unrealized_pnl": self.unrealized_pnl,
             "realized_pnl": self.realized_pnl,
             "notional_by_symbol": dict(self.notional_by_symbol),
+            "margin_by_symbol": dict(self.margin_by_symbol),
             "cost_total_sum": self.cost_total_sum,
         }
 
@@ -43,6 +45,7 @@ def calculate_portfolio_metrics(
     margin_used = 0.0
     unrealized_pnl = 0.0
     notional_by_symbol: dict[str, float] = {}
+    margin_by_symbol: dict[str, float] = {}
 
     for position in portfolio.positions.values():
         if position.quantity <= 0:
@@ -59,6 +62,9 @@ def calculate_portfolio_metrics(
         margin_used += margin
         notional_by_symbol[position.instrument_id] = (
             notional_by_symbol.get(position.instrument_id, 0.0) + notional
+        )
+        margin_by_symbol[position.instrument_id] = (
+            margin_by_symbol.get(position.instrument_id, 0.0) + margin
         )
         if position.position_side == PositionSide.LONG:
             unrealized_pnl += (price - avg_price) * position.quantity * spec.multiplier
@@ -77,5 +83,6 @@ def calculate_portfolio_metrics(
         unrealized_pnl=unrealized_pnl,
         realized_pnl=realized_pnl,
         notional_by_symbol=notional_by_symbol,
+        margin_by_symbol=margin_by_symbol,
         cost_total_sum=cost_total_sum,
     )

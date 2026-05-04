@@ -365,6 +365,7 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
     )
     live_runtime.portfolio_risk_limits = PortfolioRiskLimits(
         max_risk_ratio=plan.risk.max_risk_ratio,
+        max_margin_used=plan.risk.max_margin_used,
         max_notional_by_symbol=plan.risk.max_notional_by_symbol,
     )
 
@@ -387,6 +388,7 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
         )
         executor.portfolio_risk_limits = PortfolioRiskLimits(
             max_risk_ratio=plan.risk.max_risk_ratio,
+            max_margin_used=plan.risk.max_margin_used,
             max_notional_by_symbol=plan.risk.max_notional_by_symbol,
         )
 

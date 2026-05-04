@@ -121,6 +121,7 @@ def _portfolio_summary(store_dir: Path) -> dict[str, Any] | None:
         "realized_pnl": _num("realized_pnl"),
         "max_risk_ratio_seen": _num("max_risk_ratio_seen"),
         "notional_by_symbol": metadata.get("notional_by_symbol", {}),
+        "margin_by_symbol": metadata.get("margin_by_symbol", {}),
     }
 
 
