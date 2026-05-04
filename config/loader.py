@@ -381,14 +381,32 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         raise ValueError("adapters.broker must be an object")
     _assert_keys(broker_raw, {"mode", "params"}, where="adapters.broker")
     broker_mode = str(broker_raw.get("mode", "simulated"))
-    if broker_mode != "simulated":
+    if broker_mode not in {"simulated", "tqkq_sim"}:
         raise ValueError(f"invalid adapters.broker.mode: {broker_mode}")
+    if broker_mode == "tqkq_sim":
+        if md_mode != "tqkq":
+            raise ValueError(
+                "adapters.broker.mode=tqkq_sim requires adapters.market_data.mode=tqkq"
+            )
+        if instruments.roll_policy.mode != "fixed_contract":
+            raise ValueError("adapters.broker.mode=tqkq_sim requires fixed_contract roll_policy")
+        invalid_contracts = {
+            sym: contract
+            for sym, contract in instruments.roll_policy.contracts.items()
+            if contract.endswith("_main") or "." not in contract
+        }
+        if invalid_contracts:
+            raise ValueError(
+                "adapters.broker.mode=tqkq_sim requires real contracts: "
+                f"{invalid_contracts}"
+            )
+    broker_mode_typed = cast(Literal["simulated", "tqkq_sim"], broker_mode)
     broker_params = broker_raw.get("params", {})
     if not isinstance(broker_params, dict):
         raise ValueError("adapters.broker.params must be object")
     adapters = AdaptersSpec(
         market_data=adapters.market_data,
-        broker=BrokerSpec(mode=broker_mode, params=dict(broker_params)),
+        broker=BrokerSpec(mode=broker_mode_typed, params=dict(broker_params)),
     )
 
     return RunPlan(

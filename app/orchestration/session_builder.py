@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from adapters.broker.base import BrokerAdapter
 from adapters.broker.simulated_broker import SimulatedBroker
+from adapters.broker.tqkq_broker import TqKqBroker
 from adapters.marketdata.base import MarketDataAdapter
 from adapters.marketdata.live_market_data import LiveFileMarketData
 from adapters.marketdata.simulated_market_data import SimulatedMarketData
@@ -116,7 +118,7 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
     return SimulatedMarketData()
 
 
-def build_broker(plan: RunPlan, market_data: MarketDataAdapter) -> SimulatedBroker:
+def build_broker(plan: RunPlan, market_data: MarketDataAdapter) -> BrokerAdapter:
     return build_broker_with_specs(plan, market_data, instrument_specs=None)
 
 
@@ -125,7 +127,32 @@ def build_broker_with_specs(
     market_data: MarketDataAdapter,
     *,
     instrument_specs: InstrumentSpecRegistry | None,
-) -> SimulatedBroker:
+) -> BrokerAdapter:
+    if plan.adapters.broker.mode == "tqkq_sim":
+        if plan.adapters.market_data.mode != "tqkq":
+            raise ValueError(
+                "adapters.broker.mode=tqkq_sim requires adapters.market_data.mode=tqkq"
+            )
+        if plan.instruments.roll_policy.mode != "fixed_contract":
+            raise ValueError("adapters.broker.mode=tqkq_sim requires fixed_contract roll_policy")
+        bad_contracts = {
+            sym: contract
+            for sym, contract in plan.instruments.roll_policy.contracts.items()
+            if contract.endswith("_main") or "." not in contract
+        }
+        if bad_contracts:
+            raise ValueError(
+                "adapters.broker.mode=tqkq_sim requires real trade contracts: "
+                f"{bad_contracts}"
+            )
+        return TqKqBroker(
+            market_data=market_data,
+            instrument_specs=(
+                instrument_specs
+                or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
+            ),
+        )
+
     params = plan.adapters.broker.params
     fill_delay_ticks = int(params.get("fill_delay_ticks", 0))
     partial_fill_ratio = float(params.get("partial_fill_ratio", 1.0))
