@@ -54,7 +54,18 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
         if not user or not passwd:
             raise ValueError("TQKQ_USER/TQKQ_PASS must be set in environment")
         from adapters.marketdata.tqkq_market_data import TqKqMarketData
-        return TqKqMarketData(tq_symbols=mapping, auth_user=user, auth_pass=passwd)
+        warmup_raw = params.get("warmup_seconds", 8.0)
+        warmup_seconds = float(warmup_raw) if isinstance(warmup_raw, (int, float)) else 8.0
+        md = TqKqMarketData(tq_symbols=mapping, auth_user=user, auth_pass=passwd)
+        try:
+            md.warmup(list(plan.universe.symbols), timeout_s=warmup_seconds)
+        except Exception as exc:
+            raise ValueError(
+                f"tqkq warmup failed: warmup_seconds={warmup_seconds}, "
+                f"symbols={list(plan.universe.symbols)}, tq_symbols={mapping}, "
+                f"error={exc.__class__.__name__}: {exc}"
+            ) from exc
+        return md
 
     if mode == "live_file":
         prices_path = plan.adapters.market_data.prices_path

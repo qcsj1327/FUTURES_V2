@@ -41,8 +41,7 @@ def test_tqkq_maps_main_to_base_and_returns_delta_volume() -> None:
         start_background=False,
     )
 
-    # first poll: volume=0 -> delta=0
-    md._poll_once()
+    md.warmup(["au"], timeout_s=0.5)
     q1 = md.get_last_quote("au_main")
     assert q1.price == 100.0
     assert q1.volume == 0.0
@@ -72,6 +71,6 @@ def test_tqkq_missing_symbol_raises() -> None:
         api_factory=lambda: api,
         start_background=False,
     )
-    md._poll_once()
+    md.warmup(["au"], timeout_s=0.5)
     with pytest.raises(KeyError):
         _ = md.get_last_quote("ag")
