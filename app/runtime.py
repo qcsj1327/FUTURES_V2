@@ -11,7 +11,9 @@ from core.execution.lifecycle_reasons import (
     CANCELED,
     DUPLICATE_SAME_TICK,
     EXPIRED,
+    HALTED_BY_GUARD,
     NEW,
+    RATE_LIMITED,
     validate_lifecycle_reason,
 )
 from core.instruments.calendar import TradingCalendar
@@ -111,6 +113,13 @@ class Runtime:
         self._max_risk_ratio_seen = 0.0
         self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
         self._guard_rejection_seq = 0
+        self.max_rejects_in_window: int | None = None
+        self.halt_ticks: int | None = None
+        self.min_order_interval_ticks: int | None = None
+        self._guard_reject_ticks: list[int] = []
+        self._halt_until_tick: int | None = None
+        self._last_order_tick_by_symbol: dict[str, int] = {}
+        self._last_portfolio_sync: dict[str, object] = {}
 
     def run_market_once(
         self,
@@ -210,6 +219,25 @@ class Runtime:
         risk_decision = self.risk.evaluate(allocation, portfolio=self.state.portfolio)
         candidate_order = self._candidate_order_from_risk_decision(risk_decision)
         if candidate_order is not None:
+            if self._is_halted():
+                self._append_guard_rejection(
+                    candidate_order,
+                    reason=HALTED_BY_GUARD,
+                    strategy_name=name,
+                    strategy_impl=strategy_impl,
+                    symbol=decision.symbol,
+                    count_for_halt=False,
+                )
+                return
+            if self._is_rate_limited(candidate_order):
+                self._append_guard_rejection(
+                    candidate_order,
+                    reason=RATE_LIMITED,
+                    strategy_name=name,
+                    strategy_impl=strategy_impl,
+                    symbol=decision.symbol,
+                )
+                return
             pending_ctx = self._pending_context_for_order(candidate_order)
             if pending_ctx is not None:
                 self._append_guard_rejection(
@@ -336,6 +364,7 @@ class Runtime:
         )
 
         if exec_result.order_id is not None and exec_result.status == ExecutionStatus.SUBMITTED:
+            self._record_order_tick(order)
             self._pending_order_contexts[exec_result.order_id] = _PendingOrderContext(
                 order=order,
                 strategy_name=strategy_name,
@@ -350,6 +379,7 @@ class Runtime:
 
         if exec_result.success:
             self.orders_submitted += 1
+            self._record_order_tick(order)
 
         self._record_execution_cost(exec_result.order_id)
         self.state.apply(order, exec_result)
@@ -567,6 +597,7 @@ class Runtime:
         strategy_name: str,
         strategy_impl: str | None,
         symbol: str | None,
+        count_for_halt: bool = True,
     ) -> None:
         self._guard_rejection_seq += 1
         result = ExecutionResult(
@@ -587,6 +618,8 @@ class Runtime:
             strategy_impl=strategy_impl,
             symbol=symbol or order.instrument_id,
         )
+        if count_for_halt:
+            self._record_guard_rejection()
         self._maybe_save_snapshot()
 
     def _portfolio_risk_reject_reason(self, order: ExecutionOrder) -> str | None:
@@ -608,6 +641,32 @@ class Runtime:
         for old_tick in list(self._order_keys_by_tick):
             if old_tick != self._tick:
                 del self._order_keys_by_tick[old_tick]
+
+    def _is_halted(self) -> bool:
+        return self._halt_until_tick is not None and self._tick < self._halt_until_tick
+
+    def _record_guard_rejection(self) -> None:
+        if self.max_rejects_in_window is None or self.halt_ticks is None:
+            return
+        window = self.max_rejects_in_window
+        self._guard_reject_ticks.append(self._tick)
+        self._guard_reject_ticks = [
+            tick for tick in self._guard_reject_ticks if self._tick - tick < window
+        ]
+        if len(self._guard_reject_ticks) >= self.max_rejects_in_window:
+            self._halt_until_tick = self._tick + self.halt_ticks + 1
+            self._guard_reject_ticks = []
+
+    def _is_rate_limited(self, order: ExecutionOrder) -> bool:
+        if self.min_order_interval_ticks is None:
+            return False
+        last = self._last_order_tick_by_symbol.get(order.instrument_id)
+        if last is None:
+            return False
+        return self._tick - last < self.min_order_interval_ticks
+
+    def _record_order_tick(self, order: ExecutionOrder) -> None:
+        self._last_order_tick_by_symbol[order.instrument_id] = self._tick
 
     def _expire_pending_orders(self, tick: int) -> None:
         if self.max_pending_ticks is None:
@@ -662,6 +721,8 @@ class Runtime:
         metadata = dict(self.state.portfolio.metadata)
         metadata.update(metrics.as_metadata())
         metadata["max_risk_ratio_seen"] = self._max_risk_ratio_seen
+        if self._last_portfolio_sync:
+            metadata["portfolio_sync"] = dict(self._last_portfolio_sync)
         self.state.portfolio = PortfolioState(
             runtime_id=self.state.portfolio.runtime_id,
             positions=self.state.portfolio.positions,
@@ -675,12 +736,39 @@ class Runtime:
         return metrics
 
     def _current_portfolio_metrics(self) -> PortfolioMetrics:
-        return calculate_portfolio_metrics(
+        metrics = calculate_portfolio_metrics(
             portfolio=self.state.portfolio,
             prices=self._portfolio_prices(),
             instrument_specs=self._instrument_specs(),
             initial_equity=self.initial_equity,
             cost_total_sum=self._cost_total_sum,
+        )
+        return self._apply_broker_portfolio_sync(metrics)
+
+    def _apply_broker_portfolio_sync(self, metrics: PortfolioMetrics) -> PortfolioMetrics:
+        snapshot_fn = getattr(self.execution.broker, "portfolio_snapshot", None)
+        if not callable(snapshot_fn):
+            self._last_portfolio_sync = {}
+            return metrics
+        raw = snapshot_fn()
+        if not isinstance(raw, dict):
+            self._last_portfolio_sync = {}
+            return metrics
+        self._last_portfolio_sync = dict(raw)
+        equity = _float_or(metrics.equity, raw.get("equity"))
+        cash = _float_or(metrics.cash, raw.get("cash"))
+        margin_used = _float_or(metrics.margin_used, raw.get("margin_used"))
+        risk_ratio = margin_used / equity if equity > 0 else 0.0
+        return PortfolioMetrics(
+            cash=cash,
+            equity=equity,
+            margin_used=margin_used,
+            risk_ratio=risk_ratio,
+            unrealized_pnl=metrics.unrealized_pnl,
+            realized_pnl=metrics.realized_pnl,
+            notional_by_symbol=metrics.notional_by_symbol,
+            margin_by_symbol=metrics.margin_by_symbol,
+            cost_total_sum=metrics.cost_total_sum,
         )
 
     def _portfolio_prices(self) -> dict[str, float]:
@@ -701,3 +789,7 @@ class Runtime:
         if isinstance(specs, InstrumentSpecRegistry):
             return specs
         return InstrumentSpecRegistry()
+
+
+def _float_or(default: float, value: object) -> float:
+    return float(value) if isinstance(value, (int, float)) else default

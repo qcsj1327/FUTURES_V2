@@ -159,6 +159,26 @@ class TqKqLiveBroker(BrokerAdapter):
     def cost_fields(self, order_id: str) -> dict[str, float | None]:
         return dict(self._execution_costs.get(order_id, {}))
 
+    def portfolio_snapshot(self) -> dict[str, object] | None:
+        api = self._api
+        if api is None and self._api_factory is not None:
+            api = self._api_instance()
+        if api is None:
+            return None
+        account = _call_optional(api, "get_account")
+        positions = _call_optional(api, "get_position")
+        payload: dict[str, object] = {
+            "source": "tqkq_live",
+            "positions_qty_by_symbol": _positions_by_symbol(positions),
+        }
+        cash = _first_present(account, "cash", "available", "available_funds", default=None)
+        equity = _first_present(account, "equity", "balance", "account_balance", default=None)
+        margin = _first_present(account, "margin_used", "margin", "frozen_margin", default=None)
+        for key, value in (("cash", cash), ("equity", equity), ("margin_used", margin)):
+            if isinstance(value, (int, float)):
+                payload[key] = float(value)
+        return payload
+
     def _api_instance(self) -> Any:
         if self._api is not None:
             return self._api
@@ -392,3 +412,31 @@ def _float_attr(obj: Any, *names: str, default: float | None) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return default
+
+
+def _call_optional(obj: Any, name: str) -> Any | None:
+    fn = getattr(obj, name, None)
+    if not callable(fn):
+        return None
+    return fn()
+
+
+def _positions_by_symbol(raw: Any) -> dict[str, float]:
+    if raw is None:
+        return {}
+    items = raw.values() if isinstance(raw, dict) else raw
+    out: dict[str, float] = {}
+    try:
+        iterator = iter(items)
+    except TypeError:
+        return out
+    for item in iterator:
+        symbol_raw = _first_present(item, "symbol", "instrument_id", default=None)
+        qty_raw = _first_present(item, "quantity", "pos", "volume", default=0.0)
+        if not isinstance(symbol_raw, str) or not isinstance(qty_raw, (int, float)):
+            continue
+        base = symbol_raw.split(".")[-1]
+        if len(base) > 2 and base[-4:].isdigit():
+            base = base[:-4]
+        out[base] = out.get(base, 0.0) + float(qty_raw)
+    return out

@@ -84,6 +84,9 @@ class RuntimeSpec:
 @dataclass(frozen=True)
 class ExecutionSpec:
     max_pending_ticks: int | None = None
+    max_rejects_in_window: int | None = None
+    halt_ticks: int | None = None
+    min_order_interval_ticks: int | None = None
 
 
 @dataclass(frozen=True)

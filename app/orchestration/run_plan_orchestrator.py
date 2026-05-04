@@ -132,6 +132,9 @@ def orchestrate(
         instrument_resolver=live_resolver,
     )
     live_executor.max_pending_ticks = plan.execution.max_pending_ticks
+    live_executor.max_rejects_in_window = plan.execution.max_rejects_in_window
+    live_executor.halt_ticks = plan.execution.halt_ticks
+    live_executor.min_order_interval_ticks = plan.execution.min_order_interval_ticks
     live_executor.symbol_position_limit = SymbolPositionLimit(
         plan.risk.max_position_qty_by_symbol
     )
@@ -192,6 +195,9 @@ def orchestrate(
         instrument_resolver=sandbox_resolver,
     )
     sandbox_executor.max_pending_ticks = plan.execution.max_pending_ticks
+    sandbox_executor.max_rejects_in_window = plan.execution.max_rejects_in_window
+    sandbox_executor.halt_ticks = plan.execution.halt_ticks
+    sandbox_executor.min_order_interval_ticks = plan.execution.min_order_interval_ticks
     sandbox_executor.symbol_position_limit = SymbolPositionLimit(
         plan.risk.max_position_qty_by_symbol
     )
