@@ -94,6 +94,9 @@ class InstrumentSpecRegistry:
             raise KeyError(f"missing instrument spec for symbol={base}")
         return spec
 
+    def specs_for(self, base_symbols: list[str]) -> dict[str, InstrumentSpec]:
+        return {sym: self.get(sym) for sym in base_symbols}
+
 
 def _apply_override(spec: InstrumentSpec, payload: dict[str, Any]) -> InstrumentSpec:
     allowed = {

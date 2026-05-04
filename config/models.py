@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,7 @@ class RollPolicySpec:
 class InstrumentsSpec:
     trading_sessions: dict[str, list[TradingSessionSpec]] = field(default_factory=dict)
     roll_policy: RollPolicySpec = field(default_factory=RollPolicySpec)
+    spec_source: Literal["static", "tqkq"] = "static"
     specs: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 

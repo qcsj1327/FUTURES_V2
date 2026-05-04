@@ -18,6 +18,8 @@ from config.models import RunPlan
 from core.instruments.calendar import TradingCalendar, TradingSession
 from core.instruments.resolver import InstrumentResolver
 from core.instruments.roll_policy import RollPolicy
+from core.instruments.spec_provider import StaticSpecProvider, TqKqSpecProvider, deep_merge
+from core.instruments.spec_snapshot import write_specs_snapshot
 from core.instruments.specs import InstrumentSpecRegistry
 from core.signal_router.router import RouterConfig
 from strategies.registry import create_strategy
@@ -104,6 +106,15 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
 
 
 def build_broker(plan: RunPlan, market_data: MarketDataAdapter) -> SimulatedBroker:
+    return build_broker_with_specs(plan, market_data, instrument_specs=None)
+
+
+def build_broker_with_specs(
+    plan: RunPlan,
+    market_data: MarketDataAdapter,
+    *,
+    instrument_specs: InstrumentSpecRegistry | None,
+) -> SimulatedBroker:
     params = plan.adapters.broker.params
     fill_delay_ticks = int(params.get("fill_delay_ticks", 0))
     partial_fill_ratio = float(params.get("partial_fill_ratio", 1.0))
@@ -114,7 +125,10 @@ def build_broker(plan: RunPlan, market_data: MarketDataAdapter) -> SimulatedBrok
         fill_delay_ticks=fill_delay_ticks,
         partial_fill_ratio=partial_fill_ratio,
         max_ticks_to_fill=max_ticks_to_fill,
-        instrument_specs=InstrumentSpecRegistry.with_overrides(plan.instruments.specs),
+        instrument_specs=(
+            instrument_specs
+            or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
+        ),
     )
 
 
@@ -157,6 +171,36 @@ def build_instrument_services(
         sink=datastore,
     )
     return calendar, InstrumentResolver(roll_policy=policy)
+
+
+def build_instrument_specs_registry(
+    *,
+    plan: RunPlan,
+    market_data: MarketDataAdapter,
+) -> InstrumentSpecRegistry:
+    mode = str(plan.instruments.spec_source)
+    plan_overrides = dict(plan.instruments.specs)
+
+    if mode == "tqkq":
+        if plan.adapters.market_data.mode != "tqkq":
+            raise ValueError("instruments.spec_source=tqkq requires adapters.market_data.mode=tqkq")
+        tq_symbols_any = plan.adapters.market_data.params.get("tq_symbols")
+        tq_symbols = tq_symbols_any if isinstance(tq_symbols_any, dict) else {}
+
+        def _get_quote(tq_symbol: str) -> object:
+            getq = getattr(market_data, "get_quote", None)
+            if not callable(getq):
+                raise ValueError("tqkq spec_source requires market_data.get_quote(tq_symbol)")
+            return getq(tq_symbol)
+
+        provider = TqKqSpecProvider(tq_symbols=tq_symbols, quote_getter=_get_quote)
+        auto_overrides = provider.load_overrides(base_symbols=list(plan.universe.symbols))
+    else:
+        _ = StaticSpecProvider()
+        auto_overrides = {}
+
+    final_overrides = deep_merge(auto_overrides, plan_overrides)
+    return InstrumentSpecRegistry.with_overrides(final_overrides)
 
 
 def make_universe_runtime(
@@ -207,7 +251,16 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
     env_root.mkdir(parents=True, exist_ok=True)
 
     market_data = build_market_data(plan)
-    broker = build_broker(plan, market_data)
+    instrument_specs = build_instrument_specs_registry(plan=plan, market_data=market_data)
+    broker = build_broker_with_specs(plan, market_data, instrument_specs=instrument_specs)
+
+    # Write a deterministic snapshot for audit/replay.
+    # (One file per runtime_id; safe to overwrite between env sessions.)
+    write_specs_snapshot(
+        runtime_id=runtime_id,
+        specs=instrument_specs.specs_for(list(plan.universe.symbols)),
+        output_dir=plan.datastore.artifacts_root / "specs",
+    )
 
     datastore = JSONLFileDataStore(root_dir=env_root, env=env, runtime_id=runtime_id)
     cfg = RuntimeConfig()
