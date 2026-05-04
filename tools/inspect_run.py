@@ -111,22 +111,27 @@ def inspect_run(
 
     plan_cfg_any = plan_meta.get("config")
     plan_cfg: dict[str, Any] = plan_cfg_any if isinstance(plan_cfg_any, dict) else {}
+    warnings: list[str] = []
 
-    def _maybe_read(path_str: Any) -> dict[str, Any] | None:
+    def _maybe_read(path_str: Any, name: str) -> dict[str, Any] | None:
         if not isinstance(path_str, str) or not path_str:
+            warnings.append(f"missing_{name}")
             return None
         p = Path(path_str)
         if not p.exists():
+            warnings.append(f"missing_{name}")
+            warnings.append(f"missing_{name}_file:{p}")
             return None
         try:
             return _read_json(p)
-        except Exception:
+        except Exception as exc:
+            warnings.append(f"invalid_{name}_file:{p}:{exc.__class__.__name__}")
             return None
 
-    current_summary = _maybe_read(artifacts.get("current_summary"))
-    candidate_summary = _maybe_read(artifacts.get("candidate_summary"))
-    decision = _maybe_read(artifacts.get("decision"))
-    approved = _maybe_read(artifacts.get("approved"))
+    current_summary = _maybe_read(artifacts.get("current_summary"), "current_summary")
+    candidate_summary = _maybe_read(artifacts.get("candidate_summary"), "candidate_summary")
+    decision = _maybe_read(artifacts.get("decision"), "decision")
+    approved = _maybe_read(artifacts.get("approved"), "approved")
 
     live_dir = store_root / "live" / runtime_id
     sandbox_dir = store_root / "sandbox" / runtime_id
@@ -148,6 +153,7 @@ def inspect_run(
         "summaries": {"current": current_summary, "candidate": candidate_summary},
         "decision": decision,
         "approved": approved,
+        "warnings": warnings,
         "stores": {
             "live": {
                 "dir": str(live_dir),

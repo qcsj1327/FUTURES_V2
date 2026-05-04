@@ -69,6 +69,8 @@ def test_clean_artifacts_match_runtime_id_exactly(tmp_path: Path) -> None:
         artifacts / "decisions" / "decision_rt10_20260101T000000Z.json",
         artifacts / "approved" / "approved_cand_rt1.json",
         artifacts / "approved" / "approved_cand_rt10.json",
+        artifacts / "approved" / "approved_cand_rt1_20260101T000000Z.json",
+        artifacts / "approved" / "approved_cand_rt10_20260101T000000Z.json",
     ]
     for p in files:
         p.parent.mkdir(parents=True, exist_ok=True)
