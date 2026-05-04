@@ -13,6 +13,7 @@ from app.orchestration.run_plan_orchestrator import (
     resolve_plan,
 )
 from config.defaults import default_plan
+from config.env import load_dotenv
 from config.loader import load_plan
 
 
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime-id", type=str, default="r_plan")
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args(argv)
+
+    load_dotenv()
 
     plan_path = Path(args.config) if args.config else None
     if plan_path is not None:

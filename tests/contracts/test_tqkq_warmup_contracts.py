@@ -66,6 +66,6 @@ def test_tqkq_warmup_times_out_with_diagnostics() -> None:
         start_background=False,
     )
     with pytest.raises(TimeoutError) as e:
-        md.warmup(["au"], timeout_s=0.2)
+        md.warmup(["au"], timeout_s=0.0)
     msg = str(e.value)
     assert "missing" in msg and "tq_symbols" in msg

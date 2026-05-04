@@ -12,6 +12,7 @@
 ```bash
 python -m tools.validate_plan --config plans/dev.simulated_v2.json --runtime-id rt_demo
 python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_demo
+```
 
 ## live_file：prices.json 规范（字段语义锁定）
 
@@ -20,6 +21,19 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 - 推荐格式：只写 **基础 symbol**（例如 `au`, `ag`）
 - 交易/执行层可能会请求 `*_main`（例如 `au_main`），`LiveFileMarketData` 会将其映射到 base symbol 读取
 - 文件里只允许 base symbol；出现任何 `*_main` key 都认为数据源污染，直接报错
+
+## runtime.mode
+
+推荐新 plan 只配置 `runtime.mode` 和 `universe.symbols`，其余适配器由总开关联动：
+
+- `simulated_v2`：`adapters.market_data.mode=simulated_v2`，`adapters.broker.mode=simulated`
+- `live_file`：`adapters.market_data.mode=live_file`，`adapters.broker.mode=simulated`
+- `tqkq_sim`：`adapters.market_data.mode=tqkq`，`adapters.broker.mode=tqkq_sim`
+
+显式填写旧的分散字段时必须与 `runtime.mode` 推导一致，否则 loader 会直接报错并给出冲突字段、期望值、实际值。
+`tqkq_sim` 需要本地 `.env` 提供 `TQKQ_USER` / `TQKQ_PASS`，并要求 `instruments.roll_policy.contracts` 使用真实合约，例如 `SHFE.au2406`。
+
+示例：`plans/dev.mode_simulated_v2.json`、`plans/dev.mode_live_file.json`、`plans/dev.mode_tqkq_sim.json`。
 
 ## instruments
 
@@ -48,7 +62,8 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 
 ## broker 订单生命周期模拟
 
-`adapters.broker.mode` 目前只支持 `simulated`。`params` 默认空对象，保持即时成交。
+`adapters.broker.mode` 支持 `simulated` 和 `tqkq_sim`。
+`simulated` 的 `params` 默认空对象，保持即时成交。
 用于订单跟踪 contracts 时可以配置：
 
 - `fill_delay_ticks`：提交后延迟多少 tick 开始成交，默认 `0`。
@@ -56,6 +71,9 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 - `max_ticks_to_fill`：超过该 tick 年龄仍未终态时按 `expired` 写生命周期事件。
 
 示例：`plans/dev.topn_order_lifecycle.json` 会写 `order_lifecycle_events.jsonl`。
+
+`tqkq_sim` 是纸交易 broker，只允许搭配 `runtime.mode=tqkq_sim` / `adapters.market_data.mode=tqkq`。
+执行合约来自 `instruments.roll_policy.contracts`，`tq_symbols` 只用于行情订阅。
 
 ## instruments.specs 成本模型
 

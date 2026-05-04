@@ -70,6 +70,8 @@ class RuntimeSpec:
     ticks_live: int
     ticks_sandbox: int
     default_quantity: float
+    mode: Literal["simulated_v2", "live_file", "tqkq_sim"] = "simulated_v2"
+    warmup_seconds: float | None = None
     stop_loss: float | None = None
     take_profit: float | None = None
     active_top_n: int = 0

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "env": "dev",
+  "universe": { "symbols": ["au"] },
+  "strategies": [
+    {
+      "name": "simple_strategy",
+      "params": {},
+      "symbols": ["au"],
+      "priority": 10,
+      "weight": 1.0
+    }
+  ],
+  "runtime": {
+    "mode": "live_file",
+    "ticks_live": 2,
+    "ticks_sandbox": 2,
+    "default_quantity": 1.0
+  },
+  "promotion": {
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0,
+    "max_consecutive_failures": 99
+  },
+  "router": { "mode": "priority", "tie_breaker": "priority" }
+}
