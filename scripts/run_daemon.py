@@ -11,6 +11,7 @@ from typing import Any, cast
 from app.orchestration.daemon_runner import DaemonSession, run_loop
 from app.orchestration.run_cleanup import clean_runtime_paths
 from app.orchestration.session_builder import Env, build_universe_session
+from app.orchestration.strategy_switch import apply_approved_strategy_switch
 from config.defaults import default_plan
 from config.env import load_dotenv
 from config.loader import load_plan
@@ -57,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
         plan = load_plan(plan_path, runtime_id=args.runtime_id)
     else:
         plan = default_plan(runtime_id=args.runtime_id)
+    plan = apply_approved_strategy_switch(plan)
     if plan.runtime.mode == "tqkq_sim":
         raise ValueError("run_daemon does not support runtime.mode=tqkq_sim")
 

@@ -56,6 +56,7 @@ class UniverseRuntime:
         quotes = self.market_data.get_last_quotes(self.symbols)
         self._update_quote_history(quotes)
         tagged = self.strategy_set.generate(quotes)
+        self._emit_strategy_score_events(tagged)
         active_symbols = self._select_active_symbols(tagged)
         tagged_for_execution = self._filter_tagged(tagged, active_symbols)
         final_tagged = route(
@@ -155,6 +156,12 @@ class UniverseRuntime:
             scores[sym] = max(scores.get(sym, 0.0), score)
         return scores
 
+    def _score_tagged_decision(self, td: TaggedDecision) -> float:
+        if td.decision.decision == Decision.HOLD:
+            return 0.0
+        score = _STRENGTH_SCORE.get(td.decision.strength, 0.0)
+        return score + float(td.decision.confidence)
+
     def _score_from_quotes(self) -> dict[str, float]:
         scores: dict[str, float] = {}
         for sym in sorted({base_symbol(s) for s in self.symbols}):
@@ -214,3 +221,28 @@ class UniverseRuntime:
             },
             env=self.executor.environment,
         )
+
+    def _emit_strategy_score_events(self, tagged: list[TaggedDecision]) -> None:
+        if self.executor.datastore is None:
+            return
+        for td in tagged:
+            sym = base_symbol(td.decision.symbol or td.decision.instrument_id or "")
+            if not sym:
+                continue
+            self.executor.datastore.append_strategy_score_event(
+                {
+                    "event_type": "strategy_score",
+                    "ts": self._tick,
+                    "runtime_id": self.executor.runtime_id,
+                    "env": self.executor.environment,
+                    "symbol": sym,
+                    "strategy_name": td.strategy_name,
+                    "strategy_id": td.strategy_name,
+                    "strategy_impl": td.strategy_impl,
+                    "decision": td.decision.decision.name,
+                    "strength": td.decision.strength.name,
+                    "confidence": float(td.decision.confidence),
+                    "score": self._score_tagged_decision(td),
+                },
+                env=self.executor.environment,
+            )

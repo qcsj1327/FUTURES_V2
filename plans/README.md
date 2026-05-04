@@ -60,6 +60,23 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 
 示例：`plans/dev.topn.json`。
 
+## strategy switch
+
+运行时会写 `strategy_score_events.jsonl`，每个 tick 记录每个 `(symbol, strategy)` 的确定性 score。
+`run_plan` / `run_daemon` 会生成：
+
+`data/artifacts/strategy_switch/strategy_switch_proposal_{runtime_id}.json`
+
+人工确认后执行：
+
+```bash
+python -m tools.approve_switch data/artifacts/strategy_switch/strategy_switch_proposal_rt_demo.json \
+  --output data/artifacts/strategy_switch/strategy_switch_approved_rt_demo.json
+```
+
+同一 `runtime_id` 后续运行会读取 approved artifact，按 symbol 启用确认后的策略集。
+示例：`plans/dev.strategy_switch.json`。
+
 ## broker 订单生命周期模拟
 
 `adapters.broker.mode` 支持 `simulated` 和 `tqkq_sim`。

@@ -53,6 +53,10 @@ class JSONLFileDataStore(DataStore):
         self._assert_env(env)
         self._append_jsonl("rank_events.jsonl", event)
 
+    def append_strategy_score_event(self, event: dict[str, Any], *, env: str) -> None:
+        self._assert_env(env)
+        self._append_jsonl("strategy_score_events.jsonl", event)
+
     def append_order_lifecycle_event(self, event: dict[str, Any], *, env: str) -> None:
         self._assert_env(env)
         self._append_jsonl("order_lifecycle_events.jsonl", event)
@@ -126,6 +130,10 @@ class JSONLFileDataStore(DataStore):
     def read_rank_events(self, *, env: str) -> list[dict[str, Any]]:
         self._assert_env(env)
         return self._read_jsonl("rank_events.jsonl")
+
+    def read_strategy_score_events(self, *, env: str) -> list[dict[str, Any]]:
+        self._assert_env(env)
+        return self._read_jsonl("strategy_score_events.jsonl")
 
     def read_order_lifecycle_events(self, *, env: str) -> list[dict[str, Any]]:
         self._assert_env(env)

@@ -17,6 +17,13 @@ from app.orchestration.session_builder import (
     build_strategy_set,
     make_universe_runtime,
 )
+from app.orchestration.strategy_switch import (
+    apply_approved_strategy_switch,
+    write_strategy_switch_proposal,
+)
+from app.orchestration.strategy_switch import (
+    approved_path as strategy_switch_approved_path_for,
+)
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from config.models import RunPlan
@@ -73,7 +80,7 @@ def orchestrate(
     clean: bool,
     candidate_id_override: str | None = None,
 ) -> OrchestrateResult:
-    plan = resolved.plan
+    plan = apply_approved_strategy_switch(resolved.plan)
     rid = resolved.runtime_id
 
     store_root = plan.datastore.store_root
@@ -129,6 +136,24 @@ def orchestrate(
     )
     for _ in range(plan.runtime.ticks_live):
         uni_live.run_tick()
+
+    strategy_switch_proposal_path = write_strategy_switch_proposal(
+        runtime_id=rid,
+        env="live",
+        store=live_store,
+        artifacts_root=artifacts_root,
+        universe_symbols=list(plan.universe.symbols),
+        active_top_n=plan.runtime.active_top_n,
+    )
+    strategy_switch_approved_candidate = strategy_switch_approved_path_for(
+        runtime_id=rid,
+        artifacts_root=artifacts_root,
+    )
+    strategy_switch_approved_artifact_path: Path | None = (
+        strategy_switch_approved_candidate
+        if strategy_switch_approved_candidate.exists()
+        else None
+    )
 
     # ---- sandbox ----
     md_sandbox = build_market_data(plan)
@@ -261,6 +286,8 @@ def orchestrate(
             candidate_summary_path=candidate_summary_path,
             decision_path=decision_path,
             approved_path=approved_path,
+            strategy_switch_proposal_path=strategy_switch_proposal_path,
+            strategy_switch_approved_path=strategy_switch_approved_artifact_path,
             plan=plan_payload,
             plan_path=plan_path_str,
             plan_sha256=plan_sha256,

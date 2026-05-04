@@ -21,6 +21,8 @@ def write_promotion_manifest(
     candidate_summary_path: Path | None,
     decision_path: Path | None,
     approved_path: Path | None,
+    strategy_switch_proposal_path: Path | None = None,
+    strategy_switch_approved_path: Path | None = None,
     plan: Mapping[str, Any] | None = None,
     plan_path: str | None = None,
     plan_sha256: str | None = None,
@@ -55,6 +57,12 @@ def write_promotion_manifest(
             "candidate_summary": str(candidate_summary_path) if candidate_summary_path else None,
             "decision": str(decision_path) if decision_path else None,
             "approved": str(approved_path) if approved_path else None,
+            "strategy_switch_proposal": (
+                str(strategy_switch_proposal_path) if strategy_switch_proposal_path else None
+            ),
+            "strategy_switch_approved": (
+                str(strategy_switch_approved_path) if strategy_switch_approved_path else None
+            ),
         },
     }
 
