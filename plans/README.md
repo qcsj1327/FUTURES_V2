@@ -57,6 +57,15 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 
 示例：`plans/dev.topn_order_lifecycle.json` 会写 `order_lifecycle_events.jsonl`。
 
+## instruments.specs 成本模型
+
+`instruments.specs` 可按 base symbol 覆盖内置合约规格，未配置时使用默认表。
+允许覆盖字段：`tick_size`、`multiplier`、`margin_rate`、`commission_model`、`slippage_model`。
+手续费模式支持 `fixed_per_order`、`per_qty`、`bps_notional`；滑点模式支持 `ticks`、`bps`。
+撮合、事件和 replay summary 共用 `core.instruments.cost_model` 的输出。
+
+示例：`plans/dev.cost_model.json`。
+
 示例（推荐）：
 
 ```json

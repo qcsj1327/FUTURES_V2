@@ -20,6 +20,10 @@ class ReplaySummary:
     filled_quantity_sum: float
     filled_quantity_mean: float
     avg_fill_price_mean: float
+    commission_sum: float
+    slippage_sum: float
+    cost_total_sum: float
+    notional_sum: float
 
     event_count_by_strategy_name: dict[str, int]
     max_consecutive_failures: int
@@ -50,6 +54,10 @@ def summarize_execution_events(
 
     price_sum = 0.0
     price_n = 0
+    commission_sum = 0.0
+    slippage_sum = 0.0
+    cost_total_sum = 0.0
+    notional_sum = 0.0
 
     max_fail_streak = 0
     cur_fail_streak = 0
@@ -79,6 +87,10 @@ def summarize_execution_events(
         if isinstance(ap, (int, float)):
             price_sum += float(ap)
             price_n += 1
+        commission_sum += _float_field(e, "commission")
+        slippage_sum += _float_field(e, "slippage")
+        cost_total_sum += _float_field(e, "cost_total")
+        notional_sum += _float_field(e, "notional")
 
     rate = (success / total) if total > 0 else 0.0
     filled_mean = (filled_sum / filled_n) if filled_n > 0 else 0.0
@@ -94,6 +106,15 @@ def summarize_execution_events(
         filled_quantity_sum=filled_sum,
         filled_quantity_mean=filled_mean,
         avg_fill_price_mean=price_mean,
+        commission_sum=commission_sum,
+        slippage_sum=slippage_sum,
+        cost_total_sum=cost_total_sum,
+        notional_sum=notional_sum,
         event_count_by_strategy_name=dict(by_strategy),
         max_consecutive_failures=max_fail_streak,
     )
+
+
+def _float_field(event: dict[str, Any], key: str) -> float:
+    value = event.get(key)
+    return float(value) if isinstance(value, (int, float)) else 0.0

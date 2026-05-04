@@ -41,6 +41,7 @@ class RollPolicySpec:
 class InstrumentsSpec:
     trading_sessions: dict[str, list[TradingSessionSpec]] = field(default_factory=dict)
     roll_policy: RollPolicySpec = field(default_factory=RollPolicySpec)
+    specs: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

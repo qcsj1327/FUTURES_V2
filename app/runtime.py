@@ -314,8 +314,10 @@ class Runtime:
             return
 
         exec_payload = encode_execution_event(exec_result)
+        order_id = getattr(exec_result, "order_id", None)
+        cost_payload = self._cost_payload(order_id)
         self.datastore.append_fill_event(
-            {**base, **exec_payload},
+            {**base, **exec_payload, **cost_payload},
             env=self.environment,
         )
 
@@ -356,9 +358,19 @@ class Runtime:
                 "remaining_quantity": exec_result.remaining_quantity,
                 "avg_fill_price": exec_result.avg_fill_price,
                 "reason": exec_result.reason,
+                **self._cost_payload(exec_result.order_id),
             },
             env=self.environment,
         )
+
+    def _cost_payload(self, order_id: object | None) -> dict[str, object]:
+        if not isinstance(order_id, str) or not order_id:
+            return {}
+        costs = getattr(self.execution.broker, "cost_fields", None)
+        if not callable(costs):
+            return {}
+        payload = costs(order_id)
+        return payload if isinstance(payload, dict) else {}
 
     def _maybe_save_snapshot(self) -> None:
         if self.datastore is None:
