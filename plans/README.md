@@ -66,6 +66,13 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 
 示例：`plans/dev.cost_model.json`。
 
+## instruments.spec_source（合约规格来源）
+
+`instruments.spec_source` 默认 `"static"`，表示只使用内置默认表 + `instruments.specs` 人工覆盖。
+
+可选 `"tqkq"`：仅当 `adapters.market_data.mode="tqkq"` 时允许启用，会尝试从 TqKq 读取可用字段
+并作为低优先级覆盖（初版只拉 `tick_size` / `multiplier`）。`instruments.specs` 人工覆盖始终优先。
+
 示例（推荐）：
 
 ```json

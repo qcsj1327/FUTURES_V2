@@ -171,3 +171,15 @@ class TqKqMarketData(MarketDataAdapter):
         if missing:
             raise KeyError(f"missing quotes: {missing}")
         return out
+
+    def get_quote(self, tq_symbol: str) -> Any:
+        """
+        Return the raw subscribed quote object for a configured Tq symbol.
+
+        Used by spec providers to read static instrument fields like price_tick
+        and volume_multiple without importing tqsdk types.
+        """
+        for base, sym in self._tq_symbols.items():
+            if sym == tq_symbol:
+                return self._quotes[base]
+        raise KeyError(f"unknown tqkq symbol: {tq_symbol}")

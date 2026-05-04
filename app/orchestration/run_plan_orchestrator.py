@@ -10,8 +10,9 @@ from typing import Any, cast
 from adapters.storage.datastore_fs import JSONLFileDataStore
 from app.orchestration.run_cleanup import clean_runtime_paths
 from app.orchestration.session_builder import (
-    build_broker,
+    build_broker_with_specs,
     build_instrument_services,
+    build_instrument_specs_registry,
     build_market_data,
     build_strategy_set,
     make_universe_runtime,
@@ -19,6 +20,7 @@ from app.orchestration.session_builder import (
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from config.models import RunPlan
+from core.instruments.spec_snapshot import write_specs_snapshot
 from optimize.promoter.approved_config import write_approved_config
 from optimize.promoter.decision_artifact import write_promotion_decision
 from optimize.promoter.manifest_artifact import write_promotion_manifest
@@ -91,7 +93,13 @@ def orchestrate(
 
     # ---- live ----
     md_live = build_market_data(plan)
-    broker_live = build_broker(plan, md_live)
+    instrument_specs = build_instrument_specs_registry(plan=plan, market_data=md_live)
+    write_specs_snapshot(
+        runtime_id=rid,
+        specs=instrument_specs.specs_for(list(plan.universe.symbols)),
+        output_dir=artifacts_root / "specs",
+    )
+    broker_live = build_broker_with_specs(plan, md_live, instrument_specs=instrument_specs)
     cfg = RuntimeConfig()
     live_store = JSONLFileDataStore(root_dir=live_root, env="live", runtime_id=rid)
     live_calendar, live_resolver = build_instrument_services(
@@ -124,7 +132,7 @@ def orchestrate(
 
     # ---- sandbox ----
     md_sandbox = build_market_data(plan)
-    broker_sandbox = build_broker(plan, md_sandbox)
+    broker_sandbox = build_broker_with_specs(plan, md_sandbox, instrument_specs=instrument_specs)
     sandbox_store = JSONLFileDataStore(root_dir=sandbox_root, env="sandbox", runtime_id=rid)
     sandbox_calendar, sandbox_resolver = build_instrument_services(
         plan=plan,

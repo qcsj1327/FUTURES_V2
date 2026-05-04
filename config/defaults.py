@@ -49,6 +49,7 @@ def default_plan(*, runtime_id: str) -> RunPlan:
                 mode="fixed_contract",
                 contracts={"au": "au_main", "ag": "ag_main"},
             ),
+            spec_source="static",
         ),
         promotion=PromotionSpec(
             min_events=1,

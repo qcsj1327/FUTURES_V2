@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from config.defaults import default_plan
 from config.models import (
@@ -261,7 +261,11 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     instruments_raw = raw.get("instruments", {})
     if not isinstance(instruments_raw, dict):
         raise ValueError("instruments must be an object")
-    _assert_keys(instruments_raw, {"trading_sessions", "roll_policy", "specs"}, where="instruments")
+    _assert_keys(
+        instruments_raw,
+        {"trading_sessions", "roll_policy", "spec_source", "specs"},
+        where="instruments",
+    )
 
     sessions_raw = instruments_raw.get("trading_sessions", {})
     if not isinstance(sessions_raw, dict):
@@ -310,6 +314,12 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     for sym in universe.symbols:
         if sym not in contracts:
             raise ValueError(f"missing instruments.roll_policy.contracts.{sym}")
+
+    spec_source = str(instruments_raw.get("spec_source", base.instruments.spec_source))
+    if spec_source not in {"static", "tqkq"}:
+        raise ValueError("instruments.spec_source must be static or tqkq")
+    spec_source_typed = cast(Literal["static", "tqkq"], spec_source)
+
     specs_raw = instruments_raw.get("specs", {})
     if not isinstance(specs_raw, dict):
         raise ValueError("instruments.specs must be object")
@@ -323,6 +333,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     instruments = InstrumentsSpec(
         trading_sessions=trading_sessions,
         roll_policy=RollPolicySpec(mode=roll_mode, contracts=contracts),
+        spec_source=spec_source_typed,
         specs=specs,
     )
 
