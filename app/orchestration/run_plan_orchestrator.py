@@ -28,6 +28,7 @@ from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
 from config.models import RunPlan
 from core.instruments.spec_snapshot import write_specs_snapshot
+from core.risk.symbol_position_limit import SymbolPositionLimit
 from optimize.promoter.approved_config import write_approved_config
 from optimize.promoter.decision_artifact import write_promotion_decision
 from optimize.promoter.manifest_artifact import write_promotion_manifest
@@ -126,6 +127,9 @@ def orchestrate(
         instrument_resolver=live_resolver,
     )
     live_executor.max_pending_ticks = plan.execution.max_pending_ticks
+    live_executor.symbol_position_limit = SymbolPositionLimit(
+        plan.risk.max_position_qty_by_symbol
+    )
 
     uni_live = make_universe_runtime(
         executor=live_executor,
@@ -177,6 +181,9 @@ def orchestrate(
         instrument_resolver=sandbox_resolver,
     )
     sandbox_executor.max_pending_ticks = plan.execution.max_pending_ticks
+    sandbox_executor.symbol_position_limit = SymbolPositionLimit(
+        plan.risk.max_position_qty_by_symbol
+    )
 
     uni_sandbox = make_universe_runtime(
         executor=sandbox_executor,

@@ -14,6 +14,7 @@ from config.models import (
     InstrumentsSpec,
     MarketDataSpec,
     PromotionSpec,
+    RiskSpec,
     RollPolicySpec,
     RouterSpec,
     RunPlan,
@@ -56,6 +57,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             "adapters",
             "instruments",
             "execution",
+            "risk",
         },
         where="root",
     )
@@ -269,6 +271,28 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         raise ValueError("execution.max_pending_ticks must be >= 1")
     execution = ExecutionSpec(max_pending_ticks=max_pending_ticks)
 
+    risk_raw = raw.get("risk", {})
+    if not isinstance(risk_raw, dict):
+        raise ValueError("risk must be an object")
+    _assert_keys(risk_raw, {"max_position_qty_by_symbol"}, where="risk")
+    limits_raw = risk_raw.get(
+        "max_position_qty_by_symbol",
+        base.risk.max_position_qty_by_symbol,
+    )
+    if not isinstance(limits_raw, dict):
+        raise ValueError("risk.max_position_qty_by_symbol must be object")
+    max_position_qty_by_symbol: dict[str, float] = {}
+    for sym, value in limits_raw.items():
+        if not isinstance(sym, str) or not sym or sym.endswith("_main"):
+            raise ValueError("risk.max_position_qty_by_symbol keys must be base symbols")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError(f"risk.max_position_qty_by_symbol.{sym} must be number")
+        qty = float(value)
+        if qty < 0:
+            raise ValueError(f"risk.max_position_qty_by_symbol.{sym} must be >= 0")
+        max_position_qty_by_symbol[sym] = qty
+    risk = RiskSpec(max_position_qty_by_symbol=max_position_qty_by_symbol)
+
     # router
     router_raw = raw.get("router", {})
     if not isinstance(router_raw, dict):
@@ -443,6 +467,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         promotion=promotion,
         router=router,
         execution=execution,
+        risk=risk,
         instruments=instruments,
     )
 
