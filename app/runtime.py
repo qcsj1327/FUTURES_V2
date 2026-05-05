@@ -456,6 +456,15 @@ class Runtime:
                     symbol=decision.symbol,
                 )
                 return
+            if self._is_duplicate_order(candidate_order):
+                self._append_guard_rejection(
+                    candidate_order,
+                    reason=DUPLICATE_SAME_TICK,
+                    strategy_name=name,
+                    strategy_impl=strategy_impl,
+                    symbol=decision.symbol,
+                )
+                return
 
         order, exec_result = self.execution.execute(risk_decision)
 
@@ -511,7 +520,6 @@ class Runtime:
             self._maybe_save_snapshot()
             return
 
-        self._remember_order_key(order)
         self._maybe_append_order_lifecycle_event(
             order,
             ExecutionResult(
@@ -540,6 +548,7 @@ class Runtime:
         if exec_result.status == ExecutionStatus.REJECTED:
             self._maybe_save_snapshot()
             return
+        self._remember_order_key(order)
         self._maybe_append_events(
             order,
             exec_result,

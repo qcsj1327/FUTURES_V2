@@ -11,7 +11,6 @@ from adapters.broker.order.order_tracker import OrderTracker
 from adapters.broker.order.rejection_policy import RejectionPolicy
 from adapters.marketdata.base import MarketDataAdapter
 from core.execution.lifecycle_reasons import (
-    DUPLICATE_SAME_TICK,
     EXPIRED,
     ORDER_SUBMITTED,
     QUANTITY_BELOW_MIN_QTY,
@@ -89,26 +88,12 @@ class SimulatedBroker(BrokerAdapter):
         self._tick = 0
         self._pending: dict[str, _PendingOrder] = {}
         self._execution_costs: dict[str, dict[str, float | None]] = {}
-        self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         order_id = self.order_id_generator.next_id()
         ts = self._now_ts()
 
         self.order_tracker.create(order_id=order_id, order=order)
-        if self._is_duplicate_order(order):
-            self.order_tracker.reject(order_id=order_id, reason=DUPLICATE_SAME_TICK)
-            return ExecutionResult(
-                success=False,
-                status=ExecutionStatus.REJECTED,
-                ts=ts,
-                order_id=order_id,
-                fill_price=None,
-                reason=DUPLICATE_SAME_TICK,
-                filled_quantity=0.0,
-                remaining_quantity=order.quantity,
-                avg_fill_price=None,
-            )
         self.order_tracker.submit(order_id)
 
         reject_reason = self.rejection_policy.reject_reason(order)
@@ -143,7 +128,6 @@ class SimulatedBroker(BrokerAdapter):
                 avg_fill_price=None,
             )
 
-        self._remember_order_key(order)
         if self._delayed_enabled():
             self._pending[order_id] = _PendingOrder(order=order, submit_tick=self._tick)
             return ExecutionResult(
@@ -303,20 +287,3 @@ class SimulatedBroker(BrokerAdapter):
             spec,
             slippage_model=SlippageModel(mode="bps", value=self.slippage_rate * 10_000.0),
         )
-
-    def _order_key(self, order: ExecutionOrder) -> tuple[str, str, str, str | None]:
-        return (
-            order.instrument_id,
-            getattr(order.side, "value", str(order.side)),
-            getattr(order.position_side, "value", str(order.position_side)),
-            order.trade_instrument_id,
-        )
-
-    def _is_duplicate_order(self, order: ExecutionOrder) -> bool:
-        return self._order_key(order) in self._order_keys_by_tick.get(self._tick, set())
-
-    def _remember_order_key(self, order: ExecutionOrder) -> None:
-        self._order_keys_by_tick.setdefault(self._tick, set()).add(self._order_key(order))
-        for old_tick in list(self._order_keys_by_tick):
-            if old_tick != self._tick:
-                del self._order_keys_by_tick[old_tick]

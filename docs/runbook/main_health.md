@@ -3,6 +3,24 @@
 This checklist is for local trunk health checks only. It does not upgrade strategy
 algorithms and does not place real TqKq orders.
 
+## Main Gate
+
+Run the full local trunk gate before merging code into `main`:
+
+```bash
+PYTHON=.venv/bin/python scripts/check_main.sh
+```
+
+The script is the single local entrypoint for:
+
+- `python -m ruff check .`
+- `python -m compileall -q .`
+- `python -m mypy .`
+- `python -m pytest -q`
+
+Focused checks are useful while iterating, but they are not a substitute for this
+gate before a mainline merge.
+
 ## dev_up / dev_down
 
 - Start the local loop with `scripts/dev_up.sh`.
