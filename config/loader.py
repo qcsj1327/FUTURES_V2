@@ -433,7 +433,17 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     roll_raw = instruments_raw.get("roll_policy", {})
     if not isinstance(roll_raw, dict):
         raise ValueError("instruments.roll_policy must be object")
-    _assert_keys(roll_raw, {"mode", "contracts"}, where="instruments.roll_policy")
+    _assert_keys(
+        roll_raw,
+        {
+            "mode",
+            "contracts",
+            "close_on_roll",
+            "cooldown_ticks",
+            "main_contract_schedule",
+        },
+        where="instruments.roll_policy",
+    )
     roll_mode = str(roll_raw.get("mode", base.instruments.roll_policy.mode))
     if roll_mode not in {"fixed_contract", "fixed_main"}:
         raise ValueError(f"invalid instruments.roll_policy.mode: {roll_mode}")
@@ -450,6 +460,53 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     for sym in universe.symbols:
         if sym not in contracts:
             raise ValueError(f"missing instruments.roll_policy.contracts.{sym}")
+    close_on_roll_raw = roll_raw.get(
+        "close_on_roll",
+        base.instruments.roll_policy.close_on_roll,
+    )
+    if not isinstance(close_on_roll_raw, bool):
+        raise ValueError("instruments.roll_policy.close_on_roll must be bool")
+    close_on_roll = close_on_roll_raw
+    cooldown_raw = roll_raw.get(
+        "cooldown_ticks",
+        base.instruments.roll_policy.cooldown_ticks,
+    )
+    if not isinstance(cooldown_raw, int) or isinstance(cooldown_raw, bool):
+        raise ValueError("instruments.roll_policy.cooldown_ticks must be int")
+    cooldown_ticks = int(cooldown_raw)
+    if cooldown_ticks < 0:
+        raise ValueError("instruments.roll_policy.cooldown_ticks must be >= 0")
+    if close_on_roll and roll_mode != "fixed_main":
+        raise ValueError("instruments.roll_policy.close_on_roll requires mode=fixed_main")
+    if close_on_roll and cooldown_ticks <= 0:
+        raise ValueError(
+            "instruments.roll_policy.cooldown_ticks must be > 0 when close_on_roll=true"
+        )
+    schedule_raw = roll_raw.get(
+        "main_contract_schedule",
+        base.instruments.roll_policy.main_contract_schedule,
+    )
+    if not isinstance(schedule_raw, dict):
+        raise ValueError("instruments.roll_policy.main_contract_schedule must be object")
+    main_contract_schedule: dict[str, list[str]] = {}
+    for sym, values in schedule_raw.items():
+        if not isinstance(sym, str) or sym.endswith("_main"):
+            raise ValueError(
+                "instruments.roll_policy.main_contract_schedule keys must be base symbols"
+            )
+        if not isinstance(values, list) or not values:
+            raise ValueError(
+                f"instruments.roll_policy.main_contract_schedule.{sym} must be non-empty list"
+            )
+        parsed: list[str] = []
+        for i, value in enumerate(values):
+            if not isinstance(value, str) or not value:
+                raise ValueError(
+                    "instruments.roll_policy.main_contract_schedule."
+                    f"{sym}[{i}] must be non-empty str"
+                )
+            parsed.append(value)
+        main_contract_schedule[sym] = parsed
 
     spec_source = str(instruments_raw.get("spec_source", base.instruments.spec_source))
     if spec_source not in {"static", "tqkq"}:
@@ -468,7 +525,13 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         specs[sym] = dict(spec)
     instruments = InstrumentsSpec(
         trading_sessions=trading_sessions,
-        roll_policy=RollPolicySpec(mode=roll_mode, contracts=contracts),
+        roll_policy=RollPolicySpec(
+            mode=roll_mode,
+            contracts=contracts,
+            close_on_roll=close_on_roll,
+            cooldown_ticks=cooldown_ticks,
+            main_contract_schedule=main_contract_schedule,
+        ),
         spec_source=spec_source_typed,
         specs=specs,
     )

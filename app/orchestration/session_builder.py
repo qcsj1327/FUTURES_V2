@@ -350,6 +350,9 @@ def build_instrument_services(
         runtime_id=runtime_id,
         env=env,
         sink=datastore,
+        close_on_roll=plan.instruments.roll_policy.close_on_roll,
+        cooldown_ticks=plan.instruments.roll_policy.cooldown_ticks,
+        main_contract_schedule=plan.instruments.roll_policy.main_contract_schedule,
     )
     return calendar, InstrumentResolver(roll_policy=policy)
 

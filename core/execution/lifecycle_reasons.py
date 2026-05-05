@@ -25,6 +25,9 @@ QUANTITY_BELOW_MIN_QTY = "quantity_below_min_qty"
 MISSING_TRADE_INSTRUMENT_ID = "missing_trade_instrument_id"
 INVALID_TRADE_INSTRUMENT_ID_MAIN_ALIAS = "invalid_trade_instrument_id_main_alias"
 INVALID_TRADE_INSTRUMENT_ID_NOT_REAL_CONTRACT = "invalid_trade_instrument_id_not_real_contract"
+ROLL_CANCEL_PENDING = "roll_cancel_pending"
+ROLL_CLOSE_POSITION = "roll_close_position"
+ROLL_COOLDOWN_BLOCK = "roll_cooldown_block"
 
 ALLOWED_LIFECYCLE_REASONS = frozenset(
     {
@@ -53,6 +56,9 @@ ALLOWED_LIFECYCLE_REASONS = frozenset(
         MISSING_TRADE_INSTRUMENT_ID,
         INVALID_TRADE_INSTRUMENT_ID_MAIN_ALIAS,
         INVALID_TRADE_INSTRUMENT_ID_NOT_REAL_CONTRACT,
+        ROLL_CANCEL_PENDING,
+        ROLL_CLOSE_POSITION,
+        ROLL_COOLDOWN_BLOCK,
     }
 )
 
