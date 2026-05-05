@@ -3,151 +3,84 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>FUTURES_V2 Dashboard</title>
+    <title>FUTURES_V2 Trading Dashboard</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/ui/style.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <div class="title">FUTURES_V2</div>
-        <div class="subtitle">Web API Dashboard (read-only)</div>
-      </div>
-      <div class="actions">
-        <button id="btnRefreshRuns" class="btn">刷新 Runs</button>
-        <label class="toggle">
-          <input id="autoRefresh" type="checkbox" />
-          <span>自动刷新</span>
-        </label>
-      </div>
-    </header>
-
-    <main class="layout">
-      <section class="panel left">
-        <div class="panel-header">
-          <div class="h">Runs</div>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">F</div>
+          <div class="brand-name">FUTURES V2</div>
         </div>
+        <nav id="nav" class="nav"></nav>
+        <div class="side-status">
+          <div class="side-status-title">系统状态</div>
+          <div class="status-row"><span>Web 服务</span><b>运行中</b></div>
+          <div class="status-row"><span>行情服务</span><b id="marketStatus">待选择</b></div>
+          <div class="status-row"><span>执行服务</span><b id="execStatus">待选择</b></div>
+          <div class="status-row"><span>Daemon</span><b id="daemonStatus">待选择</b></div>
+          <div class="side-updated">
+            <span>最后更新</span>
+            <strong id="lastUpdated">—</strong>
+            <button id="btnRefresh" class="icon-btn" title="刷新">↻</button>
+          </div>
+        </div>
+      </aside>
 
-        <div class="filters">
-          <input id="q" class="input" placeholder="q: runtime_id / router / strategy" />
-          <div class="row">
-            <select id="approved" class="select">
-              <option value="">approved: all</option>
-              <option value="true">approved: true</option>
-              <option value="false">approved: false</option>
+      <main class="workspace">
+        <section class="top-strip">
+          <div class="field wide">
+            <span>runtime_id</span>
+            <div class="runtime-select-row">
+              <select id="runSelect" class="run-select"></select>
+              <button id="btnCopyRun" class="copy-btn" title="复制 runtime_id">⧉</button>
+            </div>
+          </div>
+          <div class="field">
+            <span>模式</span>
+            <strong id="modeLabel">—</strong>
+          </div>
+          <div class="field wide">
+            <span>审批状态</span>
+            <strong id="approvalLabel">—</strong>
+          </div>
+          <div class="field">
+            <span>自动刷新</span>
+            <select id="refreshInterval" class="mini-select">
+              <option value="0">关闭</option>
+              <option value="5" selected>5s</option>
+              <option value="10">10s</option>
+              <option value="30">30s</option>
             </select>
-            <input id="router_mode" class="input" placeholder="router_mode" />
           </div>
-          <div class="row">
-  <input id="strategy" class="input" placeholder="strategy name" />
-  <button id="btnApply" class="btn primary">筛选</button>
-</div>
-<div class="row">
-  <select id="recentHours" class="select">
-    <option value="">最近: 不限</option>
-    <option value="1">最近 1 小时</option>
-    <option value="6">最近 6 小时</option>
-    <option value="24">最近 24 小时</option>
-    <option value="72">最近 3 天</option>
-  </select>
-</div>
-        </div>
-
-        <div id="runsList" class="list"></div>
-
-        <div class="pager">
-          <button id="prevPage" class="btn">上一页</button>
-          <div id="pageInfo" class="muted"></div>
-          <button id="nextPage" class="btn">下一页</button>
-        </div>
-      </section>
-
-      <section class="panel right">
-        <div class="panel-header">
-          <div class="h">Detail</div>
-          <div>
-  <div class="muted" id="selectedRid">未选择</div>
-  <div class="muted" id="statusLine"></div>
-</div>
-        </div>
-
-        <div class="tabs">
-          <button class="tab active" data-tab="overview">概览</button>
-          <button class="tab" data-tab="events">Events</button>
-          <button class="tab" data-tab="metrics">Metrics</button>
-          <button class="tab" data-tab="manifest">Manifest</button>
-        </div>
-
-        <div id="tab-overview" class="tabpane active">
-          <div class="jsonbar" data-target="overview">  <div class="muted">Overview</div>  <div class="jsonbar-actions">    <input class="input jsonsearch" placeholder="搜索 key/value..." />    <button class="btn js-expand">展开</button>    <button class="btn js-collapse">折叠</button>  </div></div>
-<div id="overview" class="json"></div>
-        </div>
-
-        <div id="tab-events" class="tabpane">
-          <div class="filters compact">
-            <div class="row">
-              <select id="env" class="select">
-                <option value="live">env: live</option>
-                <option value="sandbox">env: sandbox</option>
-              </select>
-              <input id="tail" class="input" value="200" />
-              <button id="btnLoadEvents" class="btn primary">加载</button>
-<button id="btnPrevEvents" class="btn">上一页</button>
-<button id="btnNextEvents" class="btn">下一页</button>
-            </div>
-            <div class="row">
-              <input id="since_ts" class="input" placeholder="since_ts (int)" />
-              <input id="event_type" class="input" placeholder="event_type: order|execution" />
-            </div>
-            <div class="row">
-              <input id="strategy_id" class="input" placeholder="strategy_id" />
-              <input id="success" class="input" placeholder="success: true|false" />
-            </div>
-            <div class="row">
-              <input id="limit" class="input" value="200" />
-              <input id="offset" class="input" value="0" />
-            </div>
+          <div class="field">
+            <span>时间范围</span>
+            <select id="timeRange" class="mini-select">
+              <option value="realtime" selected>实时</option>
+              <option value="1h">最近 1 小时</option>
+              <option value="1d">最近 1 天</option>
+            </select>
           </div>
+          <div class="clock" id="clock">—</div>
+        </section>
 
-          <div class="tablewrap">
-            <table class="table" id="eventsTable">
-              <thead>
-                <tr>
-                  <th class="thsort" data-sort="ts">ts</th>
-                  <th class="thsort" data-sort="event_type">type</th>
-                  <th class="thsort" data-sort="symbol">symbol</th>
-                  <th class="thsort" data-sort="strategy_id">strategy_id</th>
-                  <th class="thsort" data-sort="success">success</th>
-                  <th>reason_zh</th>
-                  <th>side_zh</th>
-                  <th>pos_zh</th>
-                </tr>
-              </thead>
-              <tbody id="eventsBody"></tbody>
-            </table>
-          </div>
-          <div class="row" style="margin-top:10px;">
-            <button id="btnCopyEvent" class="btn">复制选中事件 JSON</button>
-            <button id="btnCopyEventsLink" class="btn">复制当前 Events 查询链接</button>
-          </div>
-          <div id="eventDetail" class="json" style="margin-top:10px; display:none;"></div>
-        </div>
-
-        <div id="tab-metrics" class="tabpane">
-          <div id="metricsCards" class="cards"></div>
-<div class="jsonbar" data-target="metrics">  <div class="muted">Metrics</div>  <div class="jsonbar-actions">    <input class="input jsonsearch" placeholder="搜索 key/value..." />    <button class="btn js-expand">展开</button>    <button class="btn js-collapse">折叠</button>  </div></div>
-<div id="metrics" class="json"></div>
-        </div>
-
-        <div id="tab-manifest" class="tabpane">
-          <div class="row">
-            <button id="btnLoadManifest" class="btn primary">加载 Manifest</button>
-            <button id="btnDownloadManifest" class="btn">下载 JSON</button>
-          </div>
-          <div class="jsonbar" data-target="manifest">  <div class="muted">Manifest</div>  <div class="jsonbar-actions">    <input class="input jsonsearch" placeholder="搜索 key/value..." />    <button class="btn js-expand">展开</button>    <button class="btn js-collapse">折叠</button>  </div></div>
-<div id="manifest" class="json"></div>
-        </div>
-      </section>
-    </main>
+        <section id="view-home" class="view active"></section>
+        <section id="view-run" class="view"></section>
+        <section id="view-portfolio" class="view"></section>
+        <section id="view-lifecycle" class="view"></section>
+        <section id="view-risk" class="view"></section>
+        <section id="view-switch" class="view"></section>
+        <section id="view-gates" class="view"></section>
+        <section id="view-roll" class="view"></section>
+        <section id="view-market" class="view"></section>
+        <section id="view-logs" class="view"></section>
+        <section id="view-config" class="view"></section>
+        <section id="view-alerts" class="view"></section>
+        <section id="view-permissions" class="view"></section>
+      </main>
+    </div>
 
     <script src="/ui/app.js"></script>
   </body>

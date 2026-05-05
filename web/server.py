@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from web.api.dashboard import get_run_dashboard
 from web.api.events import get_run_events
 from web.api.health import health
 from web.api.manifests import get_manifest, list_manifests
@@ -128,6 +129,18 @@ def run_events_route(
         offset=offset,
     )
     return events_to_vm(payload)
+
+
+@app.get("/runs/{runtime_id}/dashboard")
+def run_dashboard_route(
+    runtime_id: str,
+    tail: int = Query(default=80, ge=1, le=5000),
+) -> dict[str, Any]:
+    try:
+        return get_run_dashboard(runtime_id=runtime_id, tail=tail)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
 
 @app.get("/runs/{runtime_id}/metrics")
 def run_metrics_route(runtime_id: str) -> dict[str, Any]:
