@@ -133,6 +133,7 @@ def orchestrate(
     )
     live_executor.max_pending_ticks = plan.execution.max_pending_ticks
     live_executor.max_rejects_in_window = plan.execution.max_rejects_in_window
+    live_executor.reject_window_ticks = plan.execution.reject_window_ticks
     live_executor.halt_ticks = plan.execution.halt_ticks
     live_executor.min_order_interval_ticks = plan.execution.min_order_interval_ticks
     live_executor.symbol_position_limit = SymbolPositionLimit(
@@ -196,6 +197,7 @@ def orchestrate(
     )
     sandbox_executor.max_pending_ticks = plan.execution.max_pending_ticks
     sandbox_executor.max_rejects_in_window = plan.execution.max_rejects_in_window
+    sandbox_executor.reject_window_ticks = plan.execution.reject_window_ticks
     sandbox_executor.halt_ticks = plan.execution.halt_ticks
     sandbox_executor.min_order_interval_ticks = plan.execution.min_order_interval_ticks
     sandbox_executor.symbol_position_limit = SymbolPositionLimit(

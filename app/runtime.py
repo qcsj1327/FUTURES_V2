@@ -114,6 +114,7 @@ class Runtime:
         self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
         self._guard_rejection_seq = 0
         self.max_rejects_in_window: int | None = None
+        self.reject_window_ticks: int | None = None
         self.halt_ticks: int | None = None
         self.min_order_interval_ticks: int | None = None
         self._guard_reject_ticks: list[int] = []
@@ -648,7 +649,7 @@ class Runtime:
     def _record_guard_rejection(self) -> None:
         if self.max_rejects_in_window is None or self.halt_ticks is None:
             return
-        window = self.max_rejects_in_window
+        window = self.reject_window_ticks or self.max_rejects_in_window
         self._guard_reject_ticks.append(self._tick)
         self._guard_reject_ticks = [
             tick for tick in self._guard_reject_ticks if self._tick - tick < window

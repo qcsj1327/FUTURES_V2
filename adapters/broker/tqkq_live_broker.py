@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -23,6 +24,8 @@ from core.instruments.cost_model import calculate_trade_cost
 from core.instruments.specs import InstrumentSpecRegistry
 from domain.enums import ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder, ExecutionResult
+
+_REAL_CONTRACT_RE = re.compile(r"^[A-Z]+\.[A-Za-z]+\d{3,4}$")
 
 
 @dataclass(frozen=True)
@@ -78,11 +81,11 @@ class TqKqLiveBroker(BrokerAdapter):
         order_id = self.order_id_generator.next_id()
         if self._is_duplicate_order(order):
             return self._reject(order, order_id=order_id, reason=DUPLICATE_SAME_TICK)
-        self._remember_order_key(order)
         validation_error = self._validate_order(order)
         if validation_error is not None:
             return self._reject(order, order_id=order_id, reason=validation_error)
 
+        self._remember_order_key(order)
         native_order = None if self.dry_run else self._submit_native_order(order)
         self._tracked[order_id] = _TrackedOrder(
             order=order,
@@ -161,6 +164,10 @@ class TqKqLiveBroker(BrokerAdapter):
 
     def portfolio_snapshot(self) -> dict[str, object] | None:
         api = self._api
+        if api is None:
+            api = getattr(self.market_data, "_api", None)
+            if api is not None:
+                self._api = api
         if api is None and self._api_factory is not None:
             api = self._api_instance()
         if api is None:
@@ -346,7 +353,7 @@ class TqKqLiveBroker(BrokerAdapter):
             return MISSING_TRADE_INSTRUMENT_ID
         if trade_id.endswith("_main"):
             return INVALID_TRADE_INSTRUMENT_ID_MAIN_ALIAS
-        if "." not in trade_id:
+        if _REAL_CONTRACT_RE.fullmatch(trade_id) is None:
             return INVALID_TRADE_INSTRUMENT_ID_NOT_REAL_CONTRACT
         spec = self.instrument_specs.get(order.instrument_id)
         if spec.min_qty is not None and order.quantity < spec.min_qty:

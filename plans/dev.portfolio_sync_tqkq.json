@@ -15,7 +15,7 @@
     },
     "broker": {
       "mode": "tqkq_live",
-      "params": { "dry_run": true }
+      "params": { "submit_mode": "dry_run" }
     }
   },
   "execution": { "max_pending_ticks": 2 },

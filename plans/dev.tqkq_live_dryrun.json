@@ -22,7 +22,7 @@
     "broker": {
       "mode": "tqkq_live",
       "params": {
-        "dry_run": true
+        "submit_mode": "dry_run"
       }
     }
   },
