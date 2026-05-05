@@ -193,7 +193,7 @@ select {
   display: grid;
   grid-template-columns: minmax(220px, 1.2fr) 160px minmax(220px, 1fr) 136px 136px 170px;
   gap: 0;
-  height: 74px;
+  height: 66px;
   margin-bottom: 8px;
 }
 
@@ -203,13 +203,13 @@ select {
   border: var(--box-border) solid var(--line);
   border-radius: var(--radius);
   background: rgba(4, 17, 30, 0.86);
-  padding: 9px 10px;
+  padding: 7px 10px;
   overflow: hidden;
 }
 
 .field span {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
   color: var(--muted);
   font-size: 12px;
 }
@@ -220,7 +220,7 @@ select {
   color: #fff;
   font-size: 14px;
   font-weight: 760;
-  line-height: 22px;
+  line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -405,6 +405,7 @@ select {
   color: #fff;
   font-size: 14px;
   font-weight: 770;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -481,6 +482,10 @@ select {
   font-size: 12px;
 }
 
+.summary-table {
+  table-layout: fixed;
+}
+
 .data-table.fit-table {
   table-layout: fixed;
   min-width: 100%;
@@ -533,7 +538,7 @@ select {
 .tag.gray { background: rgba(113, 127, 148, 0.22); color: #bac5d3; }
 
 .chart {
-  height: 166px;
+  height: 144px;
   padding: 6px 0 0;
 }
 
@@ -541,6 +546,28 @@ select {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 22px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.chart-legend i {
+  width: 10px;
+  height: 3px;
+  border-radius: 999px;
 }
 
 .alert-list {
