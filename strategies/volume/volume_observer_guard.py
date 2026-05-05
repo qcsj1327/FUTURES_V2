@@ -9,8 +9,10 @@ from strategies.volume._common import (
     RollingSeries,
     hold,
     mean,
+    quote_for_timeframe,
     strict_positive_float,
     strict_positive_int,
+    strict_timeframe,
 )
 
 
@@ -18,6 +20,7 @@ from strategies.volume._common import (
 class VolumeObserverGuard(Strategy):
     vol_window: int = 50
     min_vol_mult: float = 1.0
+    timeframe: str = "spot"
     _state: dict[str, RollingSeries] = field(default_factory=dict, init=False)
 
     @classmethod
@@ -25,6 +28,7 @@ class VolumeObserverGuard(Strategy):
         return cls(
             vol_window=strict_positive_int(params, "vol_window"),
             min_vol_mult=strict_positive_float(params, "min_vol_mult"),
+            timeframe=strict_timeframe(params),
         )
 
     def _series(self, symbol: str) -> RollingSeries:
@@ -33,6 +37,16 @@ class VolumeObserverGuard(Strategy):
         return self._state[symbol]
 
     def generate(self, symbol: str, quote: MarketQuote) -> SignalDecision:
+        try:
+            quote = quote_for_timeframe(quote, self.timeframe)
+        except KeyError:
+            return hold(
+                strategy_name="volume_observer_guard",
+                symbol=symbol,
+                quote=quote,
+                reason="missing_timeframe_bar",
+                raw={"timeframe": self.timeframe},
+            )
         series = self._series(symbol)
         if quote.volume is None:
             series.append(quote)
@@ -60,5 +74,5 @@ class VolumeObserverGuard(Strategy):
             symbol=symbol,
             quote=quote,
             reason="low_volume_blocked" if blocked else "volume_ok",
-            raw={"vol_ma": vol_ma, "volume": quote.volume},
+            raw={"vol_ma": vol_ma, "volume": quote.volume, "timeframe": self.timeframe},
         )

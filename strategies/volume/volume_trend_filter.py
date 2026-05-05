@@ -10,10 +10,12 @@ from strategies.volume._common import (
     RollingSeries,
     hold,
     mean,
+    quote_for_timeframe,
     signal,
     strict_direction,
     strict_positive_float,
     strict_positive_int,
+    strict_timeframe,
 )
 
 
@@ -23,6 +25,7 @@ class VolumeTrendFilter(Strategy):
     vol_window: int = 50
     min_vol_mult: float = 1.0
     direction: str = "both"
+    timeframe: str = "spot"
     _state: dict[str, RollingSeries] = field(default_factory=dict, init=False)
 
     @classmethod
@@ -32,6 +35,7 @@ class VolumeTrendFilter(Strategy):
             vol_window=strict_positive_int(params, "vol_window"),
             min_vol_mult=strict_positive_float(params, "min_vol_mult"),
             direction=strict_direction(params, "direction"),
+            timeframe=strict_timeframe(params),
         )
 
     def _series(self, symbol: str) -> RollingSeries:
@@ -41,6 +45,16 @@ class VolumeTrendFilter(Strategy):
         return self._state[symbol]
 
     def generate(self, symbol: str, quote: MarketQuote) -> SignalDecision:
+        try:
+            quote = quote_for_timeframe(quote, self.timeframe)
+        except KeyError:
+            return hold(
+                strategy_name="volume_trend_filter",
+                symbol=symbol,
+                quote=quote,
+                reason="missing_timeframe_bar",
+                raw={"timeframe": self.timeframe},
+            )
         series = self._series(symbol)
         if quote.volume is None:
             series.append(quote)
@@ -68,7 +82,12 @@ class VolumeTrendFilter(Strategy):
         vol_ma = mean(list(series.volumes)[-self.vol_window :])
         volume_ok = quote.volume >= vol_ma * self.min_vol_mult
         momentum = quote.price - past_price
-        raw = {"past_price": past_price, "momentum": momentum, "vol_ma": vol_ma}
+        raw = {
+            "past_price": past_price,
+            "momentum": momentum,
+            "vol_ma": vol_ma,
+            "timeframe": self.timeframe,
+        }
         series.append(quote)
 
         if not volume_ok or momentum == 0.0:

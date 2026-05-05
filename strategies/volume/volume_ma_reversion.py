@@ -10,10 +10,12 @@ from strategies.volume._common import (
     RollingSeries,
     hold,
     mean,
+    quote_for_timeframe,
     signal,
     stdev,
     strict_positive_float,
     strict_positive_int,
+    strict_timeframe,
 )
 
 
@@ -23,6 +25,7 @@ class VolumeMAReversion(Strategy):
     z_entry: float = 2.0
     z_exit: float = 0.5
     low_vol_mult: float = 0.8
+    timeframe: str = "spot"
     _state: dict[str, RollingSeries] = field(default_factory=dict, init=False)
     _position: dict[str, int] = field(default_factory=dict, init=False)
 
@@ -33,6 +36,7 @@ class VolumeMAReversion(Strategy):
             z_entry=strict_positive_float(params, "z_entry"),
             z_exit=strict_positive_float(params, "z_exit"),
             low_vol_mult=strict_positive_float(params, "low_vol_mult"),
+            timeframe=strict_timeframe(params),
         )
 
     def _series(self, symbol: str) -> RollingSeries:
@@ -41,6 +45,16 @@ class VolumeMAReversion(Strategy):
         return self._state[symbol]
 
     def generate(self, symbol: str, quote: MarketQuote) -> SignalDecision:
+        try:
+            quote = quote_for_timeframe(quote, self.timeframe)
+        except KeyError:
+            return hold(
+                strategy_name="volume_ma_reversion",
+                symbol=symbol,
+                quote=quote,
+                reason="missing_timeframe_bar",
+                raw={"timeframe": self.timeframe},
+            )
         series = self._series(symbol)
         if quote.volume is None:
             series.append(quote)
@@ -66,7 +80,13 @@ class VolumeMAReversion(Strategy):
         z = 0.0 if price_std == 0.0 else (quote.price - price_ma) / price_std
         low_volume = quote.volume < vol_ma * self.low_vol_mult
         pos = self._position.get(symbol, 0)
-        raw = {"price_ma": price_ma, "price_std": price_std, "vol_ma": vol_ma, "z": z}
+        raw = {
+            "price_ma": price_ma,
+            "price_std": price_std,
+            "vol_ma": vol_ma,
+            "z": z,
+            "timeframe": self.timeframe,
+        }
         series.append(quote)
 
         if pos != 0 and abs(z) <= self.z_exit:

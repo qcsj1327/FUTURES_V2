@@ -10,10 +10,12 @@ from strategies.volume._common import (
     RollingSeries,
     hold,
     mean,
+    quote_for_timeframe,
     signal,
     strict_direction,
     strict_positive_float,
     strict_positive_int,
+    strict_timeframe,
 )
 
 
@@ -23,6 +25,7 @@ class VolumeSpikeBreakout(Strategy):
     spike_mult: float = 2.0
     breakout_lookback: int = 20
     direction: str = "both"
+    timeframe: str = "spot"
     _state: dict[str, RollingSeries] = field(default_factory=dict, init=False)
 
     @classmethod
@@ -32,6 +35,7 @@ class VolumeSpikeBreakout(Strategy):
             spike_mult=strict_positive_float(params, "spike_mult"),
             breakout_lookback=strict_positive_int(params, "breakout_lookback"),
             direction=strict_direction(params, "direction"),
+            timeframe=strict_timeframe(params),
         )
 
     def _series(self, symbol: str) -> RollingSeries:
@@ -41,6 +45,16 @@ class VolumeSpikeBreakout(Strategy):
         return self._state[symbol]
 
     def generate(self, symbol: str, quote: MarketQuote) -> SignalDecision:
+        try:
+            quote = quote_for_timeframe(quote, self.timeframe)
+        except KeyError:
+            return hold(
+                strategy_name="volume_spike_breakout",
+                symbol=symbol,
+                quote=quote,
+                reason="missing_timeframe_bar",
+                raw={"timeframe": self.timeframe},
+            )
         series = self._series(symbol)
         if quote.volume is None:
             series.append(quote)
@@ -72,6 +86,7 @@ class VolumeSpikeBreakout(Strategy):
         raw = {
             "price": quote.price,
             "volume": quote.volume,
+            "timeframe": self.timeframe,
             "vol_ma": vol_ma,
             "rolling_high": high,
             "rolling_low": low,

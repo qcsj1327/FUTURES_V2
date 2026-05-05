@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "env": "dev",
+  "universe": {
+    "symbols": ["au"]
+  },
+  "runtime": {
+    "mode": "live_file",
+    "ticks_live": 4,
+    "ticks_sandbox": 0,
+    "default_quantity": 1.0
+  },
+  "strategies": [
+    {
+      "name": "volume_trend_filter",
+      "params": {
+        "momentum_window": 3,
+        "vol_window": 5,
+        "min_vol_mult": 0.8,
+        "direction": "both",
+        "timeframe": "1h"
+      },
+      "symbols": ["au"],
+      "priority": 10,
+      "weight": 1.0
+    }
+  ],
+  "promotion": {
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0,
+    "max_consecutive_failures": 99
+  },
+  "router": {
+    "mode": "priority",
+    "tie_breaker": "priority"
+  }
+}
