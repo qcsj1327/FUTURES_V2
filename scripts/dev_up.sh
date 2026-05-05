@@ -14,11 +14,11 @@ PYTHON_BIN="${PYTHON:-python}"
 TMP_PLAN=""
 
 usage() {
-  cat <<'EOF'
+  cat >&2 <<'EOF'
 Select local dev mode:
-  1) live_file
-  2) tqkq_dryrun
-  3) tqkq_live_submit
+  1) live_file         - local prices.json writer + live_file daemon
+  2) tqkq_dryrun       - TqKq market data + tqkq_live broker dry-run
+  3) tqkq_live_submit  - TqKq live submit path; requires runtime_id token
 EOF
 }
 
