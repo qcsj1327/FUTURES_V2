@@ -316,7 +316,7 @@ function renderHome() {
         ${card("告警与提示", alertsList(), { tone: "red", height: "h320" })}
       </section>
       <section class="row-grid-3 equal">
-        ${card("最新订单生命周期（Live）", lifecycleTable(liveTails().order_lifecycle_events || []), { height: "h260", more: "lifecycle" })}
+        ${card("最新订单生命周期（Live）", homeLifecycleTable(liveTails().order_lifecycle_events || []), { height: "h260", more: "lifecycle" })}
         ${card("风控拒单统计（Live）", rejectDonut(rejects), { height: "h260", more: "risk" })}
         ${card("策略评分 TopN（实时）", strategyTopNTable(), { height: "h260", more: "switch" })}
       </section>
@@ -527,6 +527,21 @@ function lifecycleTable(rows) {
   }), { fit: true });
 }
 
+function homeLifecycleTable(rows) {
+  const orderById = orderEventById();
+  const compact = rows.slice(-12).reverse().map((row) => {
+    const order = orderById[row.order_id] || {};
+    const x = { ...order, ...row };
+    return [
+      x.symbol || x.instrument_id || "—",
+      tag(zhStatus(x.status), statusTagTone(x.status)),
+      `${fmtMaybe(stopOpenValue(x))} / ${fmtPriceOrUnset(stopLossValue(x))} / ${fmtPriceOrUnset(takeProfitValue(x))}`,
+      zhReason(x.reason),
+    ];
+  });
+  return table(["品种", "状态", "开仓/止损/止盈", "原因"], compact, { fit: true });
+}
+
 function orderEventById() {
   return (liveTails().order_events || []).reduce((acc, item) => {
     if (item.order_id) acc[item.order_id] = item;
@@ -701,9 +716,10 @@ function renderRisk() {
   $("view-risk").innerHTML = `<div class="subpage-grid">
     ${card("风控拒单统计", rejectDonut(state.dashboard.top_lifecycle_reject_reasons?.live || []), { height: "h320" })}
     ${card("关键阻断 reason", riskReasonBreakdown(), { height: "h320" })}
-    ${card("Risk Stats", `<pre class="json-block">${esc(JSON.stringify(state.dashboard.risk_stats, null, 2))}</pre>`, { height: "h-full" })}
-    ${card("风控配置", `<pre class="json-block">${esc(JSON.stringify(planConfig().risk || {}, null, 2))}</pre>`, { height: "h-full" })}
+    ${card("Risk Stats", jsonPanel("riskStats", state.dashboard.risk_stats || {}), { height: "h-full" })}
+    ${card("风控配置", jsonPanel("riskConfig", planConfig().risk || {}), { height: "h-full" })}
   </div>`;
+  wireJsonPanels();
 }
 
 function renderSwitch() {
@@ -736,20 +752,23 @@ function renderMarket() {
   $("view-market").innerHTML = `<div class="subpage-grid">
     ${card("合约映射", contractsTable(), { height: "h320" })}
     ${card("Rank / 行情可观测", rankTable(), { height: "h320" })}
-    ${card("合约规格与行情配置", `<pre class="json-block">${esc(JSON.stringify({ instruments: planConfig().instruments, market_data: planConfig().adapters?.market_data }, null, 2))}</pre>`, { height: "h-full" })}
-    ${card("原始 rank_events", `<pre class="json-block">${esc(JSON.stringify(liveTails().rank_events || [], null, 2))}</pre>`, { height: "h-full" })}
+    ${card("合约规格与行情配置", jsonPanel("marketConfig", { instruments: planConfig().instruments, market_data: planConfig().adapters?.market_data }), { height: "h-full" })}
+    ${card("原始 rank_events", jsonPanel("rankEventsRaw", liveTails().rank_events || []), { height: "h-full" })}
   </div>`;
+  wireJsonPanels();
 }
 
 function renderLogs() {
   $("view-logs").innerHTML = `<div class="subpage-grid">
     ${card("事件时间线", timelineTable(), { height: "h-full" })}
-    ${card("原始 Dashboard JSON", `<pre class="json-block">${esc(JSON.stringify(state.dashboard, null, 2))}</pre>`, { height: "h-full" })}
+    ${card("原始 Dashboard JSON", jsonPanel("dashboardRaw", state.dashboard || {}), { height: "h-full" })}
   </div>`;
+  wireJsonPanels();
 }
 
 function renderConfig() {
-  $("view-config").innerHTML = card("配置中心（只读）", `<pre class="json-block">${esc(JSON.stringify(planConfig(), null, 2))}</pre>`, { height: "h-full" });
+  $("view-config").innerHTML = card("配置中心（只读）", jsonPanel("planConfigRaw", planConfig()), { height: "h-full" });
+  wireJsonPanels();
 }
 
 function renderAlerts() {
