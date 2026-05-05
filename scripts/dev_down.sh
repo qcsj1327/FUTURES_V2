@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-stop() {
-  local name="$1"
-  local pidfile="logs/${name}.pid"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+mkdir -p logs
+
+stop_pidfile_group() {
+  local pidfile="$1"
+  local name
+  name="$(basename "$pidfile" .pid)"
 
   if [[ ! -f "$pidfile" ]]; then
     echo "[SKIP] $name (no pid file)"
@@ -12,7 +18,6 @@ stop() {
 
   local pid
   pid="$(cat "$pidfile" || true)"
-
   if [[ -z "${pid:-}" ]]; then
     echo "[SKIP] $name (empty pid)"
     rm -f "$pidfile"
@@ -35,41 +40,61 @@ stop() {
   fi
 }
 
-for name in daemon prices web; do
-  stop "$name"
+sweep_pattern() {
+  local pattern="$1"
+  local signal="$2"
+  while IFS= read -r pid; do
+    [[ -z "$pid" ]] && continue
+    [[ "$pid" == "$$" ]] && continue
+    echo "[$signal] $pattern pid=$pid"
+    kill "-$signal" "$pid" 2>/dev/null || true
+  done < <(pgrep -f "$pattern" || true)
+}
+
+cleanup_web_port() {
+  local port="${WEB_PORT:-8000}"
+  while IFS= read -r pid; do
+    [[ -z "$pid" ]] && continue
+    [[ "$pid" == "$$" ]] && continue
+    echo "[TERM] tcp:$port pid=$pid"
+    kill -TERM "$pid" 2>/dev/null || true
+  done < <(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+}
+
+shopt -s nullglob
+for pidfile in logs/*.pid; do
+  stop_pidfile_group "$pidfile"
 done
+shopt -u nullglob
 
 echo "----"
 echo "[SWEEP] matching leftover local dev/TqKq processes"
 patterns=(
-  "uvicorn"
-  "python.*run_daemon"
-  "python.*mock_prices_writer"
+  "uvicorn.*web.server:app"
+  "python.*scripts\\.run_daemon"
+  "python.*scripts/mock_prices_writer\\.py"
+  "python.*scripts\\.run_plan"
+  "python.*scripts\\.run_local"
+  "python.*tools\\.inspect_run"
   "tqsdk"
   "TqApi"
 )
 
 for pattern in "${patterns[@]}"; do
-  while IFS= read -r pid; do
-    [[ -z "$pid" ]] && continue
-    [[ "$pid" == "$$" ]] && continue
-    echo "[TERM] $pattern pid=$pid"
-    kill -TERM "$pid" 2>/dev/null || true
-  done < <(pgrep -f "$pattern" || true)
+  sweep_pattern "$pattern" TERM
 done
+
+cleanup_web_port
 
 sleep 0.8
 
 for pattern in "${patterns[@]}"; do
-  while IFS= read -r pid; do
-    [[ -z "$pid" ]] && continue
-    [[ "$pid" == "$$" ]] && continue
-    echo "[KILL] $pattern pid=$pid"
-    kill -KILL "$pid" 2>/dev/null || true
-  done < <(pgrep -f "$pattern" || true)
+  sweep_pattern "$pattern" KILL
 done
+
+rm -f logs/*.pid
 
 echo "----"
 echo "Done"
 echo "Verify no leftovers with:"
-echo 'pgrep -fl "uvicorn|run_daemon|mock_prices_writer|tqsdk|TqApi" | sort'
+echo 'pgrep -fl "uvicorn|run_daemon|mock_prices_writer|run_plan|run_local|inspect_run|tqsdk|TqApi" | sort'
