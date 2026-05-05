@@ -65,6 +65,9 @@ def default_plan(*, runtime_id: str) -> RunPlan:
             roll_policy=RollPolicySpec(
                 mode="fixed_contract",
                 contracts={"au": "au_main", "ag": "ag_main"},
+                close_on_roll=False,
+                cooldown_ticks=0,
+                main_contract_schedule={},
             ),
             spec_source="static",
         ),

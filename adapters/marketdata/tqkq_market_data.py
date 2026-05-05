@@ -87,6 +87,7 @@ class TqKqMarketData(MarketDataAdapter):
         self._api: Any | None = None
         self._quotes: dict[str, Any] = {}
         self._warmed_up: bool = False
+        self._thread: threading.Thread | None = None
         self._init_api_and_subscribe()
         if start_background:
             self.start()
@@ -134,14 +135,21 @@ class TqKqMarketData(MarketDataAdapter):
 
     def start(self) -> None:
         self._init_api_and_subscribe()
+        if self._thread is not None and self._thread.is_alive():
+            return
 
         t = threading.Thread(target=self._loop, name="tqkq_marketdata", daemon=True)
+        self._thread = t
         t.start()
 
     def close(self) -> None:
         self._stop.set()
         api = self._api
         self._api = None
+        thread = self._thread
+        self._thread = None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
         if api is not None:
             try:
                 api.close()

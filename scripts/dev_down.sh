@@ -40,4 +40,36 @@ for name in daemon prices web; do
 done
 
 echo "----"
+echo "[SWEEP] matching leftover local dev/TqKq processes"
+patterns=(
+  "uvicorn"
+  "python.*run_daemon"
+  "python.*mock_prices_writer"
+  "tqsdk"
+  "TqApi"
+)
+
+for pattern in "${patterns[@]}"; do
+  while IFS= read -r pid; do
+    [[ -z "$pid" ]] && continue
+    [[ "$pid" == "$$" ]] && continue
+    echo "[TERM] $pattern pid=$pid"
+    kill -TERM "$pid" 2>/dev/null || true
+  done < <(pgrep -f "$pattern" || true)
+done
+
+sleep 0.8
+
+for pattern in "${patterns[@]}"; do
+  while IFS= read -r pid; do
+    [[ -z "$pid" ]] && continue
+    [[ "$pid" == "$$" ]] && continue
+    echo "[KILL] $pattern pid=$pid"
+    kill -KILL "$pid" 2>/dev/null || true
+  done < <(pgrep -f "$pattern" || true)
+done
+
+echo "----"
 echo "Done"
+echo "Verify no leftovers with:"
+echo 'pgrep -fl "uvicorn|run_daemon|mock_prices_writer|tqsdk|TqApi" | sort'

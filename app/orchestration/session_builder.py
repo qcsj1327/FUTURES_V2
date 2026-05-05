@@ -242,10 +242,20 @@ def build_broker_with_specs(
                 f"{bad_contracts}"
             )
         submit_mode = str(plan.adapters.broker.params.get("submit_mode", "dry_run"))
-        if submit_mode == "live" and plan.adapters.broker.params.get("confirm_live") is not True:
+        token = plan.adapters.broker.params.get("confirm_live_token")
+        if (
+            submit_mode == "live"
+            and (
+                plan.adapters.broker.params.get("confirm_live") is not True
+                or token != plan.runtime.runtime_id
+            )
+        ):
             raise ValueError(
-                "adapters.broker.params.confirm_live must be true when "
-                "adapters.broker.params.submit_mode=live"
+                "tqkq_live live submit hard gate failed in session_builder: "
+                f"submit_mode={submit_mode!r}, "
+                f"confirm_live={plan.adapters.broker.params.get('confirm_live') is True}, "
+                f"token_present={isinstance(token, str) and bool(token)}, "
+                f"expected_token=runtime_id:{plan.runtime.runtime_id}"
             )
         return TqKqLiveBroker(
             market_data=market_data,
@@ -340,6 +350,9 @@ def build_instrument_services(
         runtime_id=runtime_id,
         env=env,
         sink=datastore,
+        close_on_roll=plan.instruments.roll_policy.close_on_roll,
+        cooldown_ticks=plan.instruments.roll_policy.cooldown_ticks,
+        main_contract_schedule=plan.instruments.roll_policy.main_contract_schedule,
     )
     return calendar, InstrumentResolver(roll_policy=policy)
 
@@ -416,6 +429,15 @@ class UniverseSession:
     def run_tick(self) -> None:
         self.universe.run_tick()
         self.tick += 1
+
+    def close(self) -> None:
+        for resource in (self.broker, self.market_data):
+            close = getattr(resource, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
 
 
 def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> UniverseSession:

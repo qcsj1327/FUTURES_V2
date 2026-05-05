@@ -35,6 +35,9 @@ class TradingSessionSpec:
 class RollPolicySpec:
     mode: str = "fixed_contract"
     contracts: dict[str, str] = field(default_factory=dict)
+    close_on_roll: bool = False
+    cooldown_ticks: int = 0
+    main_contract_schedule: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

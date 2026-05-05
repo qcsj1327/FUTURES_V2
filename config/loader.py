@@ -433,7 +433,17 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     roll_raw = instruments_raw.get("roll_policy", {})
     if not isinstance(roll_raw, dict):
         raise ValueError("instruments.roll_policy must be object")
-    _assert_keys(roll_raw, {"mode", "contracts"}, where="instruments.roll_policy")
+    _assert_keys(
+        roll_raw,
+        {
+            "mode",
+            "contracts",
+            "close_on_roll",
+            "cooldown_ticks",
+            "main_contract_schedule",
+        },
+        where="instruments.roll_policy",
+    )
     roll_mode = str(roll_raw.get("mode", base.instruments.roll_policy.mode))
     if roll_mode not in {"fixed_contract", "fixed_main"}:
         raise ValueError(f"invalid instruments.roll_policy.mode: {roll_mode}")
@@ -450,6 +460,53 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     for sym in universe.symbols:
         if sym not in contracts:
             raise ValueError(f"missing instruments.roll_policy.contracts.{sym}")
+    close_on_roll_raw = roll_raw.get(
+        "close_on_roll",
+        base.instruments.roll_policy.close_on_roll,
+    )
+    if not isinstance(close_on_roll_raw, bool):
+        raise ValueError("instruments.roll_policy.close_on_roll must be bool")
+    close_on_roll = close_on_roll_raw
+    cooldown_raw = roll_raw.get(
+        "cooldown_ticks",
+        base.instruments.roll_policy.cooldown_ticks,
+    )
+    if not isinstance(cooldown_raw, int) or isinstance(cooldown_raw, bool):
+        raise ValueError("instruments.roll_policy.cooldown_ticks must be int")
+    cooldown_ticks = int(cooldown_raw)
+    if cooldown_ticks < 0:
+        raise ValueError("instruments.roll_policy.cooldown_ticks must be >= 0")
+    if close_on_roll and roll_mode != "fixed_main":
+        raise ValueError("instruments.roll_policy.close_on_roll requires mode=fixed_main")
+    if close_on_roll and cooldown_ticks <= 0:
+        raise ValueError(
+            "instruments.roll_policy.cooldown_ticks must be > 0 when close_on_roll=true"
+        )
+    schedule_raw = roll_raw.get(
+        "main_contract_schedule",
+        base.instruments.roll_policy.main_contract_schedule,
+    )
+    if not isinstance(schedule_raw, dict):
+        raise ValueError("instruments.roll_policy.main_contract_schedule must be object")
+    main_contract_schedule: dict[str, list[str]] = {}
+    for sym, values in schedule_raw.items():
+        if not isinstance(sym, str) or sym.endswith("_main"):
+            raise ValueError(
+                "instruments.roll_policy.main_contract_schedule keys must be base symbols"
+            )
+        if not isinstance(values, list) or not values:
+            raise ValueError(
+                f"instruments.roll_policy.main_contract_schedule.{sym} must be non-empty list"
+            )
+        parsed: list[str] = []
+        for i, value in enumerate(values):
+            if not isinstance(value, str) or not value:
+                raise ValueError(
+                    "instruments.roll_policy.main_contract_schedule."
+                    f"{sym}[{i}] must be non-empty str"
+                )
+            parsed.append(value)
+        main_contract_schedule[sym] = parsed
 
     spec_source = str(instruments_raw.get("spec_source", base.instruments.spec_source))
     if spec_source not in {"static", "tqkq"}:
@@ -468,7 +525,13 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         specs[sym] = dict(spec)
     instruments = InstrumentsSpec(
         trading_sessions=trading_sessions,
-        roll_policy=RollPolicySpec(mode=roll_mode, contracts=contracts),
+        roll_policy=RollPolicySpec(
+            mode=roll_mode,
+            contracts=contracts,
+            close_on_roll=close_on_roll,
+            cooldown_ticks=cooldown_ticks,
+            main_contract_schedule=main_contract_schedule,
+        ),
         spec_source=spec_source_typed,
         specs=specs,
     )
@@ -524,7 +587,11 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     broker_params = broker_raw.get("params", {})
     if not isinstance(broker_params, dict):
         raise ValueError("adapters.broker.params must be object")
-    _validate_broker_params(broker_mode=broker_mode, params=broker_params)
+    _validate_broker_params(
+        broker_mode=broker_mode,
+        params=broker_params,
+        runtime_id=runtime_id,
+    )
     runtime, adapters, instruments = _normalize_runtime_mode(
         runtime=runtime,
         runtime_mode_explicit=runtime_mode_explicit,
@@ -713,17 +780,30 @@ def _validate_tqkq_contracts(*, mode: str, instruments: InstrumentsSpec) -> None
         )
 
 
-def _validate_broker_params(*, broker_mode: str, params: dict[str, Any]) -> None:
+def _validate_broker_params(
+    *,
+    broker_mode: str,
+    params: dict[str, Any],
+    runtime_id: str,
+) -> None:
     if broker_mode == "tqkq_live":
-        allowed = {"submit_mode", "confirm_live"}
+        allowed = {"submit_mode", "confirm_live", "confirm_live_token"}
         submit_mode = params.get("submit_mode", "dry_run")
         if submit_mode not in {"dry_run", "live"}:
             raise ValueError("adapters.broker.params.submit_mode must be dry_run or live")
-        if submit_mode == "live" and params.get("confirm_live") is not True:
-            raise ValueError(
-                "adapters.broker.params.confirm_live must be true when "
-                "adapters.broker.params.submit_mode=live"
-            )
+        if submit_mode == "live":
+            confirm_live = params.get("confirm_live")
+            token_raw = params.get("confirm_live_token")
+            token = token_raw if isinstance(token_raw, str) else ""
+            if confirm_live is not True or token != runtime_id:
+                raise ValueError(
+                    "tqkq_live live submit hard gate failed: "
+                    f"submit_mode={submit_mode!r}, "
+                    f"confirm_live={confirm_live is True}, "
+                    f"token_present={bool(token)}, "
+                    f"expected_token=runtime_id:{runtime_id}, "
+                    f"actual_token={_masked_token(token)}"
+                )
     elif broker_mode == "tqkq_sim":
         allowed = {"no_fill"}
     else:
@@ -737,3 +817,11 @@ def _validate_broker_params(*, broker_mode: str, params: dict[str, Any]) -> None
     extra = set(params) - allowed
     if extra:
         raise ValueError(f"unknown keys at adapters.broker.params: {sorted(extra)}")
+
+
+def _masked_token(token: str) -> str:
+    if not token:
+        return "<empty>"
+    if len(token) <= 4:
+        return f"<len:{len(token)}>"
+    return f"{token[:2]}***{token[-2:]}<len:{len(token)}>"

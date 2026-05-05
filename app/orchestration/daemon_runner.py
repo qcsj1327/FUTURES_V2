@@ -92,14 +92,30 @@ def run_loop(
     )
 
     tick = 0
-    while True:
-        if max_ticks > 0 and tick >= max_ticks:
-            break
+    try:
+        while True:
+            if max_ticks > 0 and tick >= max_ticks:
+                break
 
-        try:
-            universe_runtime.run_tick()
-        except Exception:
-            if stop_on_exception:
+            try:
+                universe_runtime.run_tick()
+            except Exception:
+                if stop_on_exception:
+                    write_daemon_artifacts(
+                        runtime_id=runtime_id,
+                        env=env,
+                        store_root=store_root,
+                        artifacts_root=artifacts_root,
+                        candidate_id=candidate_id,
+                        thresholds=thresholds,
+                        plan_meta=plan_meta,
+                        write_manifest=False,
+                        write_summary=True,
+                    )
+                    raise
+            tick += 1
+
+            if artifact_every > 0 and tick % artifact_every == 0:
                 write_daemon_artifacts(
                     runtime_id=runtime_id,
                     env=env,
@@ -111,24 +127,13 @@ def run_loop(
                     write_manifest=False,
                     write_summary=True,
                 )
-                raise
-        tick += 1
 
-        if artifact_every > 0 and tick % artifact_every == 0:
-            write_daemon_artifacts(
-                runtime_id=runtime_id,
-                env=env,
-                store_root=store_root,
-                artifacts_root=artifacts_root,
-                candidate_id=candidate_id,
-                thresholds=thresholds,
-                plan_meta=plan_meta,
-                write_manifest=False,
-                write_summary=True,
-            )
-
-        if interval_s > 0:
-            time.sleep(interval_s)
+            if interval_s > 0:
+                time.sleep(interval_s)
+    finally:
+        close = getattr(universe_runtime, "close", None)
+        if callable(close):
+            close()
 
     # End: final refresh
     write_daemon_artifacts(

@@ -159,6 +159,17 @@ class TqKqLiveBroker(BrokerAdapter):
         if callable(cancel):
             cancel(native_order)
 
+    def close(self) -> None:
+        api = self._api
+        self._api = None
+        if api is not None:
+            close = getattr(api, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+
     def cost_fields(self, order_id: str) -> dict[str, float | None]:
         return dict(self._execution_costs.get(order_id, {}))
 

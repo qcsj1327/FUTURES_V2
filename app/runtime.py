@@ -14,6 +14,9 @@ from core.execution.lifecycle_reasons import (
     HALTED_BY_GUARD,
     NEW,
     RATE_LIMITED,
+    ROLL_CANCEL_PENDING,
+    ROLL_CLOSE_POSITION,
+    ROLL_COOLDOWN_BLOCK,
     validate_lifecycle_reason,
 )
 from core.instruments.calendar import TradingCalendar
@@ -37,7 +40,7 @@ from core.services.runtime.event_codec import (
 from core.services.trade.exit_service import ExitService
 from core.state.state_engine import StateEngine
 from core.trigger.trigger_engine import TriggerEngine
-from domain.enums import ExecutionStatus
+from domain.enums import Decision, ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.risk import RiskDecision
 from domain.signal import SignalDecision
@@ -121,6 +124,7 @@ class Runtime:
         self._halt_until_tick: int | None = None
         self._last_order_tick_by_symbol: dict[str, int] = {}
         self._last_portfolio_sync: dict[str, object] = {}
+        self._roll_cooldown_until_tick: dict[str, int] = {}
 
     def run_market_once(
         self,
@@ -170,6 +174,14 @@ class Runtime:
         if not self.trading_calendar.is_trading_time(base, int(ts)):
             self._maybe_save_snapshot()
             return
+        if self._handle_roll_policy_b(
+            decision,
+            base_symbol=base,
+            ts=int(ts),
+            strategy_name=strategy_name,
+            strategy_impl=strategy_impl,
+        ):
+            return
         prepared = self._inject_instrument(decision, base_symbol=base, ts=int(ts))
         self._run_decision(prepared, strategy_name=strategy_name, strategy_impl=strategy_impl)
 
@@ -196,6 +208,178 @@ class Runtime:
             ts=decision.ts if decision.ts is not None else ts,
             bar_ts=decision.bar_ts if decision.bar_ts is not None else ts,
         )
+
+    def _handle_roll_policy_b(
+        self,
+        decision: SignalDecision,
+        *,
+        base_symbol: str,
+        ts: int,
+        strategy_name: str | None,
+        strategy_impl: str | None,
+    ) -> bool:
+        intent = self.instrument_resolver.roll_intent(base_symbol, ts)
+        if intent is None:
+            if self._roll_cooldown_active(base_symbol) and self._is_open_decision(decision):
+                trade_id = self.instrument_resolver.resolve_trade_instrument_id(base_symbol, ts)
+                self._reject_roll_open(
+                    decision,
+                    base_symbol=base_symbol,
+                    trade_instrument_id=trade_id,
+                    reason=ROLL_COOLDOWN_BLOCK,
+                    strategy_name=strategy_name,
+                    strategy_impl=strategy_impl,
+                )
+                return True
+            return False
+
+        old_contract, new_contract = intent
+        if self._cancel_roll_pending(base_symbol):
+            self._maybe_save_snapshot()
+            return True
+
+        if self._close_roll_positions(base_symbol, old_contract):
+            return True
+
+        activated = self.instrument_resolver.activate_roll(base_symbol, ts)
+        if activated is not None:
+            cooldown_ticks = self.instrument_resolver.roll_cooldown_ticks
+            self._roll_cooldown_until_tick[base_symbol] = self._tick + cooldown_ticks
+
+        if self._is_open_decision(decision):
+            self._reject_roll_open(
+                decision,
+                base_symbol=base_symbol,
+                trade_instrument_id=new_contract,
+                reason=ROLL_COOLDOWN_BLOCK,
+                strategy_name=strategy_name,
+                strategy_impl=strategy_impl,
+            )
+            return True
+        self._maybe_save_snapshot()
+        return True
+
+    def _roll_cooldown_active(self, base_symbol: str) -> bool:
+        until = self._roll_cooldown_until_tick.get(base_symbol)
+        return until is not None and self._tick < until
+
+    def _is_open_decision(self, decision: SignalDecision) -> bool:
+        return decision.decision in {Decision.OPEN_LONG, Decision.OPEN_SHORT}
+
+    def _reject_roll_open(
+        self,
+        decision: SignalDecision,
+        *,
+        base_symbol: str,
+        trade_instrument_id: str,
+        reason: str,
+        strategy_name: str | None,
+        strategy_impl: str | None,
+    ) -> None:
+        order = self._order_from_open_decision(
+            decision,
+            base_symbol=base_symbol,
+            trade_instrument_id=trade_instrument_id,
+        )
+        name = strategy_name or decision.strategy_name or "main"
+        self._append_guard_rejection(
+            order,
+            reason=reason,
+            strategy_name=name,
+            strategy_impl=strategy_impl,
+            symbol=base_symbol,
+            count_for_halt=False,
+        )
+
+    def _order_from_open_decision(
+        self,
+        decision: SignalDecision,
+        *,
+        base_symbol: str,
+        trade_instrument_id: str,
+    ) -> ExecutionOrder:
+        position_side = decision.position_side
+        if position_side is None:
+            position_side = (
+                PositionSide.SHORT
+                if decision.decision == Decision.OPEN_SHORT
+                else PositionSide.LONG
+            )
+        return ExecutionOrder(
+            instrument_id=base_symbol,
+            trade_instrument_id=trade_instrument_id,
+            side=decision.side,
+            position_side=position_side,
+            quantity=self.config.default_quantity,
+            order_type="market",
+            stop_loss=decision.stop_loss,
+            take_profit=decision.take_profit,
+        )
+
+    def _cancel_roll_pending(self, base_symbol: str) -> bool:
+        canceled = False
+        cancel = getattr(self.execution.broker, "cancel_order", None)
+        for order_id, ctx in list(self._pending_order_contexts.items()):
+            if ctx.order.instrument_id != base_symbol:
+                continue
+            result = ExecutionResult(
+                success=False,
+                status=ExecutionStatus.REJECTED,
+                ts=self._tick,
+                order_id=order_id,
+                reason=ROLL_CANCEL_PENDING,
+                filled_quantity=ctx.filled_quantity,
+                remaining_quantity=(
+                    ctx.remaining_quantity
+                    if ctx.remaining_quantity is not None
+                    else ctx.order.quantity
+                ),
+                avg_fill_price=None,
+                fill_price=None,
+            )
+            self._maybe_append_order_lifecycle_event(
+                ctx.order,
+                result,
+                strategy_name=ctx.strategy_name,
+                strategy_impl=ctx.strategy_impl,
+                symbol=ctx.symbol,
+                status_override="CANCELED",
+            )
+            if callable(cancel):
+                cancel(order_id, reason=ROLL_CANCEL_PENDING)
+            self._pending_order_contexts.pop(order_id, None)
+            canceled = True
+        return canceled
+
+    def _close_roll_positions(self, base_symbol: str, old_contract: str) -> bool:
+        closed = False
+        for position in list(self.state.portfolio.positions.values()):
+            if position.instrument_id != base_symbol:
+                continue
+            if position.trade_instrument_id != old_contract:
+                continue
+            if position.quantity <= 0:
+                continue
+            side = Side.BUY if position.position_side == PositionSide.SHORT else Side.SELL
+            order = ExecutionOrder(
+                instrument_id=base_symbol,
+                trade_instrument_id=old_contract,
+                side=side,
+                position_side=position.position_side,
+                quantity=position.quantity,
+                order_type="market",
+            )
+            result = self.execution.broker.submit_order(order)
+            roll_result = replace(result, reason=ROLL_CLOSE_POSITION)
+            self.record_broker_result(
+                order,
+                roll_result,
+                strategy_name="roll_policy_B",
+                strategy_impl="RollPolicy",
+                symbol=base_symbol,
+            )
+            closed = True
+        return closed
 
     def _run_decision(
         self,
