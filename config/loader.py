@@ -798,6 +798,7 @@ def _validate_broker_params(
             if confirm_live is not True or token != runtime_id:
                 raise ValueError(
                     "tqkq_live live submit hard gate failed: "
+                    "confirm_live must be true and confirm_live_token must match runtime_id; "
                     f"submit_mode={submit_mode!r}, "
                     f"confirm_live={confirm_live is True}, "
                     f"token_present={bool(token)}, "

@@ -10,7 +10,6 @@ from adapters.broker.order.order_id_generator import OrderIdGenerator
 from adapters.marketdata.base import MarketDataAdapter
 from core.execution.lifecycle_reasons import (
     CANCELED,
-    DUPLICATE_SAME_TICK,
     INVALID_TRADE_INSTRUMENT_ID_MAIN_ALIAS,
     INVALID_TRADE_INSTRUMENT_ID_NOT_REAL_CONTRACT,
     MISSING_TRADE_INSTRUMENT_ID,
@@ -71,7 +70,6 @@ class TqKqLiveBroker(BrokerAdapter):
         self._tracked: dict[str, _TrackedOrder] = {}
         self._execution_costs: dict[str, dict[str, float | None]] = {}
         self._cancel_calls: list[tuple[str, str]] = []
-        self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
 
     @property
     def cancel_calls(self) -> list[tuple[str, str]]:
@@ -79,13 +77,10 @@ class TqKqLiveBroker(BrokerAdapter):
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         order_id = self.order_id_generator.next_id()
-        if self._is_duplicate_order(order):
-            return self._reject(order, order_id=order_id, reason=DUPLICATE_SAME_TICK)
         validation_error = self._validate_order(order)
         if validation_error is not None:
             return self._reject(order, order_id=order_id, reason=validation_error)
 
-        self._remember_order_key(order)
         native_order = None if self.dry_run else self._submit_native_order(order)
         self._tracked[order_id] = _TrackedOrder(
             order=order,
@@ -371,22 +366,6 @@ class TqKqLiveBroker(BrokerAdapter):
             return QUANTITY_BELOW_MIN_QTY
         return None
 
-    def _order_key(self, order: ExecutionOrder) -> tuple[str, str, str, str | None]:
-        return (
-            order.instrument_id,
-            getattr(order.side, "value", str(order.side)),
-            getattr(order.position_side, "value", str(order.position_side)),
-            order.trade_instrument_id,
-        )
-
-    def _is_duplicate_order(self, order: ExecutionOrder) -> bool:
-        return self._order_key(order) in self._order_keys_by_tick.get(self._tick, set())
-
-    def _remember_order_key(self, order: ExecutionOrder) -> None:
-        self._order_keys_by_tick.setdefault(self._tick, set()).add(self._order_key(order))
-        for old_tick in list(self._order_keys_by_tick):
-            if old_tick != self._tick:
-                del self._order_keys_by_tick[old_tick]
 
 
 @dataclass(frozen=True)
