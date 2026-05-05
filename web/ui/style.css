@@ -16,6 +16,7 @@
   --cyan: #18d4ff;
   --sidebar: 220px;
   --radius: 6px;
+  --box-border: 1px;
 }
 
 * { box-sizing: border-box; }
@@ -190,15 +191,15 @@ select {
 .top-strip {
   display: grid;
   grid-template-columns: minmax(220px, 1.2fr) 160px minmax(220px, 1fr) 136px 136px 170px;
-  gap: 8px;
+  gap: 0;
   height: 74px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 
 .field,
 .clock {
   min-width: 0;
-  border: 1px solid var(--line);
+  border: var(--box-border) solid var(--line);
   border-radius: var(--radius);
   background: rgba(4, 17, 30, 0.86);
   padding: 9px 10px;
@@ -282,19 +283,19 @@ select {
 
 .home-grid {
   display: grid;
-  gap: 14px;
+  gap: 0;
 }
 
 .kpi-grid {
   display: grid;
   grid-template-columns: 1.15fr 0.9fr 1.2fr 0.95fr 1.1fr;
-  gap: 12px;
+  gap: 0;
 }
 
 .row-grid-3 {
   display: grid;
   grid-template-columns: 1.1fr 0.8fr 0.66fr;
-  gap: 12px;
+  gap: 0;
 }
 
 .row-grid-3.equal {
@@ -303,7 +304,7 @@ select {
 
 .panel-card {
   min-width: 0;
-  border: 1px solid var(--line);
+  border: var(--box-border) solid var(--line);
   border-radius: var(--radius);
   background:
     linear-gradient(180deg, rgba(14, 33, 52, 0.82), rgba(6, 20, 34, 0.92)),
@@ -312,11 +313,11 @@ select {
   overflow: hidden;
 }
 
-.panel-card.blue { border-color: rgba(39, 167, 255, 0.28); }
-.panel-card.green { border-color: rgba(0, 212, 106, 0.25); }
-.panel-card.purple { border-color: rgba(166, 108, 255, 0.3); }
-.panel-card.red { border-color: rgba(255, 77, 71, 0.3); }
-.panel-card.yellow { border-color: rgba(255, 178, 26, 0.3); }
+.panel-card.blue { border-color: rgba(39, 167, 255, 0.42); }
+.panel-card.green { border-color: rgba(0, 212, 106, 0.38); }
+.panel-card.purple { border-color: rgba(166, 108, 255, 0.44); }
+.panel-card.red { border-color: rgba(255, 77, 71, 0.42); }
+.panel-card.yellow { border-color: rgba(255, 178, 26, 0.42); }
 
 .kpi-card { height: 136px; overflow: hidden; padding: 11px 12px; }
 .h320 { height: 260px; }
@@ -455,7 +456,7 @@ select {
 .table-wrap {
   height: 100%;
   overflow: auto;
-  border: 1px solid rgba(105, 137, 173, 0.14);
+  border: var(--box-border) solid rgba(105, 137, 173, 0.18);
   border-radius: 5px;
 }
 
@@ -653,13 +654,13 @@ select {
 
 .subpage {
   display: grid;
-  gap: 8px;
+  gap: 0;
 }
 
 .subpage-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 0;
 }
 
 .json-block {
