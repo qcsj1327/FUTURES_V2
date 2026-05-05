@@ -427,6 +427,15 @@ class UniverseSession:
         self.universe.run_tick()
         self.tick += 1
 
+    def close(self) -> None:
+        for resource in (self.broker, self.market_data):
+            close = getattr(resource, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+
 
 def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> UniverseSession:
     store_root = plan.datastore.store_root
