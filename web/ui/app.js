@@ -508,7 +508,7 @@ function alertsList() {
 
 function lifecycleTable(rows) {
   const orderById = orderEventById();
-  return table(["时间", "订单ID", "品种", "状态", "方向", "数量", "成交均价", "开仓/止损/止盈", "原因"], rows.map((row) => {
+  return table(["时间", "订单ID", "品种", "状态", "方向", "数量", "成交均价", "开仓价", "止损价", "止盈价", "原因"], rows.map((row) => {
     const order = orderById[row.order_id] || {};
     const x = { ...order, ...row };
     return [
@@ -519,7 +519,9 @@ function lifecycleTable(rows) {
       sideZh(x.side),
       fmtMaybe(x.quantity),
       fmtMaybe(x.avg_fill_price || x.fill_price),
-      `${fmtMaybe(stopOpenValue(x))} / ${fmtMaybe(stopLossValue(x))} / ${fmtMaybe(takeProfitValue(x))}`,
+      fmtMaybe(stopOpenValue(x)),
+      fmtPriceOrUnset(stopLossValue(x)),
+      fmtPriceOrUnset(takeProfitValue(x)),
       zhReason(x.reason),
     ];
   }), { fit: true });
@@ -533,7 +535,7 @@ function orderEventById() {
 }
 
 function stopOpenValue(x) {
-  return x.stop_open_price ?? x.stop_open ?? x.trigger_price ?? x.expected_price ?? x.avg_fill_price ?? x.fill_price ?? x.price;
+  return x.stop_open_price ?? x.stop_open ?? x.trigger_price ?? x.expected_price ?? x.avg_fill_price ?? x.fill_price ?? x.raw_fill_price ?? x.market_price ?? x.price;
 }
 
 function stopLossValue(x) {
@@ -544,13 +546,17 @@ function takeProfitValue(x) {
   return x.take_profit ?? x.take_profit_price;
 }
 
+function fmtPriceOrUnset(value) {
+  return value == null ? `<span class="muted">未设置</span>` : fmtMaybe(value);
+}
+
 function lifecycleStatusBar(rows) {
   const statuses = ["", "NEW", "SUBMITTED", "PARTIAL", "FILLED", "REJECTED", "EXPIRED", "CANCELED"];
   const counts = rows.reduce((acc, row) => {
     acc[row.status] = (acc[row.status] || 0) + 1;
     return acc;
   }, {});
-  return `<div class="status-filter">${statuses.map((status) => {
+  return `<div class="status-filter lifecycle-status-filter scroll-area">${statuses.map((status) => {
     const active = status === state.lifecycleStatusFilter;
     const label = status ? `${zhStatus(status)} ${fmtInt(counts[status] || 0)}` : `全部 ${fmtInt(rows.length)}`;
     return `<button class="filter-chip ${active ? "active" : ""}" data-lifecycle-status="${esc(status)}">${esc(label)}</button>`;
