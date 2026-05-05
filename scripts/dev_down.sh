@@ -104,6 +104,24 @@ fi
 
 rm -f logs/*.pid
 
+sleep 0.8
+
+<<<<<<< HEAD
+if [[ "${DEV_DOWN_SKIP_SWEEP:-0}" != "1" ]]; then
+  for pattern in "${patterns[@]}"; do
+    sweep_pattern "$pattern" KILL
+  done
+fi
+
+rm -f logs/*.pid
+=======
+for pattern in "${patterns[@]}"; do
+  sweep_pattern "$pattern" KILL
+done
+>>>>>>> 1bdf8bf (chore(dev): unify local mode start stop smoke)
+
+rm -f logs/*.pid
+
 echo "----"
 echo "Done"
 echo "Verify no leftovers with:"
