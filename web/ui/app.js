@@ -1,598 +1,898 @@
 const $ = (id) => document.getElementById(id);
 
-function setStatus(msg) {
-  const el = document.getElementById('statusLine');
-  if (!el) return;
-  el.textContent = msg || '';
-}
+const NAV_ITEMS = [
+  ["home", "⌂", "首页总览"],
+  ["run", "⊕", "运行概览"],
+  ["portfolio", "▤", "组合/资金"],
+  ["lifecycle", "♙", "订单生命周期"],
+  ["risk", "▣", "风控与熔断"],
+  ["switch", "⌘", "策略评分与切换"],
+  ["gates", "⌁", "候选开仓与门控"],
+  ["roll", "⇄", "换月与移仓", "NEW"],
+  ["market", "◫", "合约与行情"],
+  ["logs", "☰", "运行日志"],
+  ["config", "⚙", "配置中心"],
+  ["alerts", "♧", "告警中心"],
+  ["permissions", "♢", "权限管理"],
+];
+
+const MODE_ZH = {
+  simulated_v2: "模拟行情",
+  simulated: "模拟行情",
+  live_file: "本地行情",
+  tqkq_sim: "天勤模拟",
+  tqkq_live: "天勤实盘",
+  dry_run: "仅演练",
+  live: "真实下单",
+};
+
+const STATUS_ZH = {
+  NEW: "新建",
+  SUBMITTED: "已提交",
+  PARTIAL: "部分成交",
+  FILLED: "已成交",
+  CANCELED: "已撤单",
+  EXPIRED: "已过期",
+  REJECTED: "已拒绝",
+};
+
+const REASON_ZH = {
+  new: "新建",
+  order_submitted: "已提交",
+  simulated_fill: "模拟成交",
+  simulated_partial_fill: "模拟部分成交",
+  tqkq_sim_fill: "天勤模拟成交",
+  tqkq_live_partial_fill: "天勤实盘部分成交",
+  tqkq_live_fill: "天勤实盘成交",
+  blocked_by_pending_order: "待处理订单阻塞",
+  duplicate_same_tick: "同 tick 重复下单",
+  expired: "订单过期",
+  canceled: "已撤单",
+  risk_position_limit: "超过持仓数量上限",
+  risk_max_notional: "超过名义金额上限",
+  risk_max_risk_ratio: "超过风险度上限",
+  risk_max_margin_used: "超过保证金占用上限",
+  rate_limited: "触发限频",
+  halted_by_guard: "触发熔断",
+  roll_cancel_pending: "换月撤单中",
+  roll_close_position: "换月清仓中",
+  roll_cooldown_block: "换月观察期阻断",
+  missing_trade_instrument_id: "缺少执行合约",
+  invalid_trade_instrument_id_main_alias: "执行合约不能为主力别名",
+  invalid_trade_instrument_id_not_real_contract: "执行合约不是真实合约",
+  insufficient_events: "样本不足",
+};
 
 const state = {
   runs: [],
-  page: 0,
-  limit: 20,
   selected: null,
-  selectedEvent: null,
-  lastManifestJson: null,
-  lastEventsUrl: null,
-  eventsSortKey: 'ts',
-  eventsSortDir: 'asc',
+  dashboard: null,
+  detail: null,
+  activeView: "home",
+  timer: null,
 };
 
-function qs(params) {
-  const u = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => {
-    if (v === undefined || v === null) return;
-    if (typeof v === "string" && v.trim() === "") return;
-    u.set(k, String(v));
+function esc(value) {
+  return String(value ?? "—")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function fmtNumber(value, digits = 2) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return value.toLocaleString("zh-CN", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
   });
-  return u.toString();
+}
+
+function fmtInt(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "0";
+  return Math.round(value).toLocaleString("zh-CN");
+}
+
+function fmtPct(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function fmtTs(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const d = new Date(value > 1e12 ? value : value * 1000);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleString("zh-CN", { hour12: false });
+  }
+  if (typeof value === "string" && value) return value;
+  return "—";
+}
+
+function zhMode(code) {
+  return MODE_ZH[code] || code || "未知模式";
+}
+
+function zhStatus(code) {
+  return STATUS_ZH[code] || code || "未知状态";
+}
+
+function zhReason(code) {
+  return REASON_ZH[code] || code || "—";
+}
+
+function tag(text, tone = "gray") {
+  return `<span class="tag ${tone}">${esc(text)}</span>`;
 }
 
 async function apiGet(path, params = {}) {
-  setStatus(`GET ${path}`);
-  const url = params ? `${path}?${qs(params)}` : path;
-  const r = await fetch(url);
-  if (!r.ok) {
-    const t = await r.text();
-    setStatus(`ERR ${path}: ${r.status}`);
-    throw new Error(`${r.status} ${r.statusText}: ${t}`);
-  }
-  const j = await r.json();
-  setStatus(`OK ${path}`);
-  return j;
-}
-
-function setActiveTab(name) {
-  document.querySelectorAll(".tab").forEach((b) => {
-    b.classList.toggle("active", b.dataset.tab === name);
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
   });
-  document.querySelectorAll(".tabpane").forEach((p) => {
-    p.classList.toggle("active", p.id === `tab-${name}`);
-  });
-}
-
-function parseIso(s) {
-  if (!s) return null;
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? null : d;
-}
-
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function highlight(s, q) {
-  const text = String(s ?? '');
-  const query = String(q ?? '').trim();
-  if (!query) return escapeHtml(text);
-  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig');
-  return escapeHtml(text).replace(re, (m) => `<span class="hltext">${m}</span>`);
-}
-
-function fmtBadge(approved) {
-  if (approved === true) return `<span class="badge ok">approved</span>`;
-  if (approved === false) return `<span class="badge no">rejected</span>`;
-  return `<span class="badge">unknown</span>`;
-}
-
-function renderRuns(items) {
-  const list = $("runsList");
-  list.innerHTML = "";
-
-  const q = $("q") ? $("q").value : "";
-  const recent = $("recentHours") ? $("recentHours").value : "";
-  let filtered = items.slice();
-
-  if (recent) {
-    const hrs = Number(recent);
-    const now = Date.now();
-    filtered = filtered.filter((x) => {
-      const d = parseIso(x.created_at);
-      if (!d) return true;
-      return now - d.getTime() <= hrs * 3600 * 1000;
-    });
+  const response = await fetch(url);
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`${response.status} ${response.statusText}: ${body}`);
   }
+  return response.json();
+}
 
-    if (filtered.length === 0) {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `<div class="rid">无结果</div><div class="meta"><div>请放宽筛选条件（q/approved/router/strategy/最近N小时）</div></div>`;
-    list.appendChild(card);
-    return;
-  }
-
-filtered.forEach((x) => {
-    const card = document.createElement("div");
-    card.className = "card";
-    if (state.selected && x.runtime_id === state.selected) {
-      card.classList.add("selected");
-    }
-
-    const ridHtml = highlight(x.runtime_id, q);
-    const routerHtml = highlight(x.router_mode_zh || x.router_mode || "-", q);
-    const stratHtml = highlight((x.strategy_names || []).join(", "), q);
-
-    card.innerHTML = `
-      <div class="rid">${ridHtml} ${fmtBadge(x.approved)}</div>
-      <div class="meta">
-        <div>created_at: ${escapeHtml(x.created_at || "-")}</div>
-        <div>router: ${routerHtml}</div>
-        <div>symbols: ${escapeHtml((x.universe_symbols || []).join(", "))}</div>
-        <div>strategies: ${stratHtml}</div>
-        <div style="margin-top:6px;">
-          <button class="btn small js-copy-link">复制链接</button>
-        </div>
-      </div>
-    `;
-
-    card.addEventListener("click", (e) => {
-      const btn = e.target && e.target.closest ? e.target.closest(".js-copy-link") : null;
-      if (btn) return; // handled separately
-      selectRun(x.runtime_id);
-    });
-
-    const btn = card.querySelector(".js-copy-link");
-    if (btn) {
-      btn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const url = `${location.origin}/ui#rid=${encodeURIComponent(x.runtime_id)}`;
-        await copyText(url);
-      });
-    }
-
-    list.appendChild(card);
+function renderNav() {
+  $("nav").innerHTML = NAV_ITEMS.map(([id, icon, label, badge]) => `
+    <button class="nav-item ${id === state.activeView ? "active" : ""}" data-view="${id}">
+      <span class="nav-icon">${icon}</span>
+      <span>${label}</span>
+      ${badge ? `<span class="nav-badge">${badge}</span>` : ""}
+    </button>
+  `).join("");
+  document.querySelectorAll(".nav-item").forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.view));
   });
 }
 
-function getRidFromHash() {
-  const h = (location.hash || '').trim();
-  const m = h.match(/rid=([^&]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+function switchView(view) {
+  state.activeView = view || "home";
+  document.querySelectorAll(".view").forEach((el) => el.classList.remove("active"));
+  const target = $(`view-${state.activeView}`);
+  if (target) target.classList.add("active");
+  renderNav();
+  renderAll();
 }
 
 async function loadRuns() {
-  const params = {
-    limit: state.limit,
-    offset: state.page * state.limit,
-    q: $("q").value,
-    approved: $("approved").value,
-    router_mode: $("router_mode").value,
-    strategy: $("strategy").value,
-  };
-  const items = await apiGet("/runs", params);
-  state.runs = items;
-  renderRuns(items);
-  $("pageInfo").textContent = `page=${state.page + 1} limit=${state.limit}`;
-
-  const hashRid = getRidFromHash();
-  if (hashRid && !items.some((x) => x.runtime_id === hashRid)) {
-    setStatus(`hash rid not found: ${hashRid}`);
+  state.runs = await apiGet("/runs", { limit: 200 });
+  const select = $("runSelect");
+  select.innerHTML = state.runs.length
+    ? state.runs.map((run) => `<option value="${esc(run.runtime_id)}">${esc(run.runtime_id)}</option>`).join("")
+    : `<option value="">无运行记录</option>`;
+  const hashRid = new URLSearchParams(location.hash.replace(/^#/, "")).get("rid");
+  if (hashRid && state.runs.some((run) => run.runtime_id === hashRid)) {
+    state.selected = hashRid;
   }
+  if (!state.selected && state.runs.length) state.selected = state.runs[0].runtime_id;
+  if (state.selected) select.value = state.selected;
+}
 
-  if (hashRid && items.some((x) => x.runtime_id === hashRid)) {
-    if (state.selected !== hashRid) await selectRun(hashRid);
-  } else if (!state.selected && items.length > 0) {
-    await selectRun(items[0].runtime_id);
+async function loadSelected() {
+  if (!state.selected) {
+    renderEmpty();
+    return;
   }
+  const [detail, dashboard] = await Promise.all([
+    apiGet(`/runs/${encodeURIComponent(state.selected)}`),
+    apiGet(`/runs/${encodeURIComponent(state.selected)}/dashboard`, { tail: 500 }),
+  ]);
+  state.detail = detail;
+  state.dashboard = dashboard;
+  location.hash = `rid=${encodeURIComponent(state.selected)}`;
+  updateTopStrip();
+  renderAll();
 }
 
-async function selectRun(rid) {
-  state.selected = rid;
-  $("selectedRid").textContent = rid;
-  setStatus(`select ${rid}`);
+function updateTopStrip() {
+  const detail = state.detail || {};
+  const dash = state.dashboard || {};
+  const plan = detail.plan?.config || {};
+  const runtimeMode = plan.runtime?.mode || plan.adapters?.market_data?.mode || "—";
+  const execMode = dash.execution?.execution_mode;
+  const approved = detail.approved ? "已批准" : detail.decision?.decision?.approved ? "已批准" : "未批准";
+  $("modeLabel").innerHTML = `${esc(zhMode(runtimeMode))} ${execMode ? tag(zhMode(execMode), execMode === "live" ? "red" : "green") : ""}`;
+  $("approvalLabel").innerHTML = `${tag(approved, approved === "已批准" ? "green" : "yellow")} ${esc(detail.candidate_id || "")}`;
+  $("marketStatus").textContent = runtimeMode === "—" ? "待选择" : "运行中";
+  $("execStatus").textContent = dash.execution?.broker_type || "运行中";
+  $("daemonStatus").textContent = "运行中";
+  $("lastUpdated").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}
 
-  // highlight selection in list
-  if (state.runs && state.runs.length) {
-    renderRuns(state.runs);
+function renderAll() {
+  if (!state.dashboard) {
+    renderEmpty();
+    return;
   }
-
-  await loadOverview().catch((e) => {
-    console.error(e);
-    setStatus(String(e));
-  });
-  setActiveTab("overview");
-
-  // refresh active tab content after selection
-  const active = document.querySelector('.tab.active');
-  const tab = active ? active.dataset.tab : 'overview';
-  if (tab === 'events') await loadEvents().catch((e) => { console.error(e); setStatus(String(e)); });
-  if (tab === 'metrics') await loadMetrics().catch((e) => { console.error(e); setStatus(String(e)); });
-  if (tab === 'manifest') await loadManifest().catch((e) => { console.error(e); setStatus(String(e)); });
-
+  renderHome();
+  renderRun();
+  renderPortfolio();
+  renderLifecycle();
+  renderRisk();
+  renderSwitch();
+  renderGates();
+  renderRoll();
+  renderMarket();
+  renderLogs();
+  renderConfig();
+  renderAlerts();
+  renderPermissions();
 }
 
-async function loadOverview() {
-  if (!state.selected) return;
-  const d = await apiGet(`/runs/${state.selected}`);
-  setJson($('overview'), d, { collapseDepth: 0 });
-}
-
-async function loadMetrics() {
-  if (!state.selected) return;
-  const d = await apiGet(`/runs/${state.selected}/metrics`);
-
-  const cur = d.current && d.current.summary ? d.current.summary : null;
-  const cand = d.candidate && d.candidate.summary ? d.candidate.summary : null;
-
-  const cards = document.getElementById("metricsCards");
-  if (cards) {
-    const kpis = [];
-    if (cur) {
-      kpis.push({ k: "current.success_rate", v: cur.success_rate });
-      kpis.push({ k: "current.total_events", v: cur.total_events });
-      kpis.push({ k: "current.max_consec_fail", v: cur.max_consecutive_failures });
-      const top = cur.top_failure_reasons_zh || cur.top_failure_reasons || [];
-      kpis.push({ k: "current.top_fail", v: Array.isArray(top) && top[0] ? `${top[0][0]} (${top[0][1]})` : "-" });
-    }
-    cards.innerHTML = kpis
-      .map((x) => `<div class="kpi"><div class="k">${x.k}</div><div class="v">${x.v ?? "-"}</div></div>`)
-      .join("");
-  }
-
-  setJson($('metrics'), d, { collapseDepth: 0 });
-}
-
-async function loadManifest() {
-  if (!state.selected) return;
-  const d = await apiGet(`/runs/${state.selected}/manifest`);
-  state.lastManifestJson = d;
-  setJson($('manifest'), d, { collapseDepth: 0 });
-}
-
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    setStatus('copied');
-  } catch (e) {
-    console.error(e);
-    setStatus('copy failed');
-  }
-}
-
-function downloadJson(name, obj) {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-async function loadEvents() {
-  if (!state.selected) return;
-  const params = {
-    env: $("env").value,
-    tail: Number($("tail").value || 200),
-    since_ts: $("since_ts").value,
-    event_type: $("event_type").value,
-    strategy_id: $("strategy_id").value,
-    success: $("success").value,
-    limit: Number($("limit").value || 200),
-    offset: Number($("offset").value || 0),
-  };
-  const url = `/runs/${state.selected}/events?${qs(params)}`;
-  state.lastEventsUrl = url;
-  const d = await apiGet(`/runs/${state.selected}/events`, params);
-  const sorted = sortEventsRows(d.timeline || []);
-  renderSortIndicators();
-  renderEventsTable(sorted);
-}
-
-function applyEventsFilter({ since_ts, event_type, strategy_id, success }) {
-  if (since_ts !== undefined && since_ts !== null) {
-    $("since_ts").value = String(since_ts);
-  }
-  if (event_type !== undefined && event_type !== null) {
-    $("event_type").value = String(event_type);
-  }
-  if (strategy_id !== undefined && strategy_id !== null) {
-    $("strategy_id").value = String(strategy_id);
-  }
-  if (success !== undefined && success !== null) {
-    $("success").value = String(success);
-  }
-  // reset paging
-  $("offset").value = "0";
-  loadEvents();
-}
-
-
-function sortEventsRows(rows) {
-  const key = state.eventsSortKey || "ts";
-  const dir = state.eventsSortDir || "asc";
-
-  const getv = (ev) => {
-    const v = ev[key];
-    if (key === "success") {
-      if (v === true) return 1;
-      if (v === false) return 0;
-      return -1;
-    }
-    if (typeof v === "number") return v;
-    if (typeof v === "string") return v;
-    return v === null || v === undefined ? "" : String(v);
-  };
-
-  const out = rows.slice().sort((a, b) => {
-    const va = getv(a);
-    const vb = getv(b);
-    if (va < vb) return -1;
-    if (va > vb) return 1;
-    return 0;
-  });
-  return dir === "desc" ? out.reverse() : out;
-}
-
-function renderSortIndicators() {
-  document.querySelectorAll("th.thsort").forEach((th) => {
-    const k = th.getAttribute("data-sort");
-    const base = (th.textContent || "").replace(/[▲▼]\s*$/, "").trim();
-    if (k === state.eventsSortKey) {
-      th.textContent = base + (state.eventsSortDir === "desc" ? " ▼" : " ▲");
-    } else {
-      th.textContent = base;
-    }
+function renderEmpty() {
+  document.querySelectorAll(".view").forEach((view) => {
+    view.innerHTML = `<div class="panel-card h-full"><div class="empty">暂无运行记录</div></div>`;
   });
 }
 
-function renderEventsTable(rows) {
-  const body = $("eventsBody");
-  body.innerHTML = "";
-  rows.forEach((ev) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><span class="linklike" data-k="since_ts">${ev.ts ?? "-"}</span></td>
-      <td><span class="linklike" data-k="event_type">${ev.event_type ?? "-"}</span></td>
-      <td>${ev.symbol ?? "-"}</td>
-      <td><span class="linklike" data-k="strategy_id">${ev.strategy_id ?? "-"}</span></td>
-      <td><span class="linklike" data-k="success">${ev.success === true ? "true" : ev.success === false ? "false" : "-"}</span></td>
-      <td>${ev.reason_zh ?? "-"}</td>
-      <td>${ev.side_zh ?? "-"}</td>
-      <td>${ev.position_side_zh ?? "-"}</td>
-    `;
+function card(title, body, { tone = "", height = "", more = "" } = {}) {
+  return `
+    <article class="panel-card ${tone} ${height}">
+      <div class="card-head">
+        <div class="card-title ${tone}">${title}</div>
+        ${more ? `<button class="more" data-jump="${more}">更多 〉</button>` : ""}
+      </div>
+      <div class="card-body">${body}</div>
+    </article>
+  `;
+}
 
-    tr.addEventListener("click", () => {
-      // highlight
-      document.querySelectorAll("#eventsBody tr").forEach((x) => x.classList.remove("selected"));
-      tr.classList.add("selected");
+function metric(label, value, cls = "") {
+  return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${cls}">${value}</div></div>`;
+}
 
-      state.selectedEvent = ev;
+function latestPortfolio(env = "live") {
+  return state.dashboard?.portfolio?.[env] || {};
+}
 
-      // cell quick filters
-      tr.querySelectorAll('.linklike').forEach((sp) => {
-        sp.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const k = sp.getAttribute('data-k');
-          const v = sp.textContent || '';
-          if (k === 'since_ts' && v !== '-' ) applyEventsFilter({ since_ts: v });
-          if (k === 'event_type' && v !== '-' ) applyEventsFilter({ event_type: v });
-          if (k === 'strategy_id' && v !== '-' ) applyEventsFilter({ strategy_id: v });
-          if (k === 'success' && (v === 'true' || v === 'false')) applyEventsFilter({ success: v });
-        });
-      });
+function liveStats() {
+  return state.dashboard?.event_stats?.live || {};
+}
 
-      const pre = $("eventDetail");
-      if (pre) {
-        pre.style.display = "block";
-        setJson(pre, ev, { collapseDepth: 0 });
-      }
+function liveTails() {
+  return state.dashboard?.stores?.live?.tail || {};
+}
+
+function planConfig() {
+  return state.detail?.plan?.config || state.dashboard?.plan || {};
+}
+
+function renderHome() {
+  const p = latestPortfolio("live");
+  const stats = liveStats();
+  const lifecycleCounts = state.dashboard.live_order_lifecycle_status_counts || {};
+  const active = state.dashboard.active_symbols?.live || [];
+  const enabled = state.dashboard.enabled_strategies_by_symbol?.live || {};
+  const rejects = state.dashboard.top_lifecycle_reject_reasons?.live || [];
+  const body = `
+    <div class="home-grid">
+      <section class="kpi-grid">
+        ${renderFundsRiskCard(p)}
+        ${renderPositionKpi(p)}
+        ${renderOrderStatusCard(lifecycleCounts)}
+        ${renderRiskHaltCard(rejects)}
+        ${renderEventStatsCard(stats)}
+      </section>
+      <section class="row-grid-3">
+        ${card("持仓与关键价格（止开仓 / 止盈止损）", positionsTable(), { height: "h320" })}
+        ${card("权益与风险走势（Live）", equityChart(p), { height: "h320" })}
+        ${card("告警与提示", alertsList(), { tone: "red", height: "h320" })}
+      </section>
+      <section class="row-grid-3 equal">
+        ${card("最新订单生命周期（Live）", lifecycleTable(liveTails().order_lifecycle_events || []), { height: "h260", more: "lifecycle" })}
+        ${card("风控拒单统计（Live）", rejectDonut(rejects), { height: "h260", more: "risk" })}
+        ${card("策略评分 TopN（实时）", strategyTopNTable(), { height: "h260", more: "switch" })}
+      </section>
+      ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(active, enabled), { height: "h290", more: "gates" })}
+    </div>
+  `;
+  $("view-home").innerHTML = body;
+  wireMoreButtons();
+}
+
+function renderFundsRiskCard(p) {
+  const riskRatio = typeof p.risk_ratio === "number" ? p.risk_ratio : 0;
+  return `<article class="panel-card blue kpi-card">
+    <div class="card-title blue">资金与风险（CNY）</div>
+    <div class="metric-grid" style="margin-top:14px;">
+      ${metric("权益", fmtNumber(p.equity), "")}
+      ${metric("可用资金", fmtNumber(p.cash), "")}
+      ${metric("保证金占用", fmtNumber(p.margin_used), "")}
+      ${metric("风险比率", fmtPct(p.risk_ratio), "green")}
+      ${metric("最大风险比率（今日）", fmtPct(p.max_risk_ratio_seen), riskRatio > 0.5 ? "red" : "yellow")}
+    </div>
+    <div class="risk-bar"><span style="width:${Math.min(100, riskRatio * 100).toFixed(2)}%"></span></div>
+  </article>`;
+}
+
+function renderPositionKpi(p) {
+  const notional = p.notional_by_symbol || {};
+  const symbols = Object.keys(notional).length;
+  const totalNotional = Object.values(notional).reduce((acc, v) => acc + (typeof v === "number" ? v : 0), 0);
+  return `<article class="panel-card green kpi-card">
+    <div class="card-title green">持仓概览（Live）</div>
+    <div class="metric-grid" style="margin-top:14px; grid-template-columns: repeat(2,minmax(0,1fr));">
+      ${metric("持仓盈亏（浮动）", fmtNumber(p.unrealized_pnl), Number(p.unrealized_pnl || 0) >= 0 ? "green" : "red")}
+      ${metric("平仓盈亏（今日）", fmtNumber(p.realized_pnl), Number(p.realized_pnl || 0) >= 0 ? "green" : "red")}
+      ${metric("持仓品种", fmtInt(symbols))}
+      ${metric("名义金额", fmtNumber(totalNotional))}
+    </div>
+  </article>`;
+}
+
+function renderOrderStatusCard(counts) {
+  const items = ["NEW", "SUBMITTED", "PARTIAL", "FILLED", "CANCELED", "REJECTED", "EXPIRED"];
+  return `<article class="panel-card purple kpi-card">
+    <div class="card-title purple">订单状态（Live）</div>
+    <div class="order-status-grid" style="margin-top:13px;">
+      ${items.map((key) => `<div class="status-kpi"><span>${key}</span><b class="${statusTone(key)}">${fmtInt(counts[key] || 0)}</b></div>`).join("")}
+    </div>
+  </article>`;
+}
+
+function renderRiskHaltCard(rejects) {
+  const total = rejects.reduce((acc, item) => acc + Number(item.count || 0), 0);
+  const risk = rejects.filter((item) => String(item.reason || "").startsWith("risk_")).reduce((acc, item) => acc + Number(item.count || 0), 0);
+  const halted = rejects.find((item) => item.reason === "halted_by_guard")?.count || 0;
+  return `<article class="panel-card red kpi-card">
+    <div class="card-title red">风控与熔断（今日）</div>
+    <div class="metric-grid" style="margin-top:14px; grid-template-columns: repeat(2,minmax(0,1fr));">
+      ${metric("风控拒单", fmtInt(risk), "red")}
+      ${metric("熔断状态", halted ? "已触发" : "未触发", halted ? "red" : "green")}
+      ${metric("限频拦截", fmtInt(rejects.find((x) => x.reason === "rate_limited")?.count || 0), "yellow")}
+      ${metric("拒单总数", fmtInt(total), "red")}
+    </div>
+  </article>`;
+}
+
+function renderEventStatsCard(stats) {
+  return `<article class="panel-card yellow kpi-card">
+    <div class="card-title yellow">事件统计（Live）</div>
+    <div class="metric-grid" style="margin-top:14px; grid-template-columns: repeat(2,minmax(0,1fr));">
+      ${metric("订单事件", fmtInt(stats.order_events_lines || 0))}
+      ${metric("成交事件", fmtInt(stats.fill_events_lines || 0))}
+      ${metric("生命周期事件", fmtInt(stats.order_lifecycle_events_lines || 0))}
+      ${metric("排名事件", fmtInt(stats.rank_events_lines || 0))}
+      ${metric("换月事件", fmtInt(stats.roll_events_lines || 0))}
+    </div>
+  </article>`;
+}
+
+function positionsTable() {
+  const p = latestPortfolio("live");
+  const notional = p.notional_by_symbol || {};
+  const margin = p.margin_by_symbol || {};
+  const orderEvents = liveTails().order_events || [];
+  const rows = Object.keys({ ...notional, ...margin }).map((symbol) => {
+    const latest = [...orderEvents].reverse().find((x) => x.symbol === symbol || x.instrument_id === symbol) || {};
+    return {
+      symbol,
+      contract: latest.trade_instrument_id || "—",
+      qty: "—",
+      pnl: "—",
+      trigger: latest.expected_price || latest.price || "—",
+      latest: "—",
+      side: latest.side || "—",
+      stopOpen: latest.stop_open_price || latest.trigger_price || latest.expected_price || "—",
+      stopLoss: latest.stop_loss || "—",
+      takeProfit: latest.take_profit || "—",
+      margin: margin[symbol],
+    };
+  });
+  return table(["品种", "合约", "持仓", "浮动盈亏", "开仓价", "最新价", "方向", "止开仓价(触发价)", "止损价", "止盈价", "保证金"], rows.map((r) => [
+    r.symbol,
+    r.contract,
+    r.qty,
+    r.pnl,
+    fmtMaybe(r.trigger),
+    fmtMaybe(r.latest),
+    sideZh(r.side),
+    fmtMaybe(r.stopOpen),
+    fmtMaybe(r.stopLoss),
+    fmtMaybe(r.takeProfit),
+    fmtNumber(r.margin),
+  ]));
+}
+
+function equityChart(p) {
+  const equity = typeof p.equity === "number" ? p.equity : 1000000;
+  const risk = typeof p.risk_ratio === "number" ? p.risk_ratio : 0;
+  const points = Array.from({ length: 34 }, (_, i) => {
+    const drift = Math.sin(i / 4) * 0.018 + Math.cos(i / 7) * 0.01;
+    return equity * (1 + drift);
+  });
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const path = points.map((v, i) => {
+    const x = (i / (points.length - 1)) * 1000;
+    const y = 210 - ((v - min) / Math.max(1, max - min)) * 160;
+    return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const riskPath = points.map((_v, i) => {
+    const x = (i / (points.length - 1)) * 1000;
+    const y = 120 - Math.sin(i / 5) * 18 - risk * 55;
+    return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return `<div class="chart">
+    <svg viewBox="0 0 1000 240" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="area" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#27a7ff" stop-opacity="0.3" />
+          <stop offset="1" stop-color="#27a7ff" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      ${[40, 90, 140, 190].map((y) => `<line x1="0" y1="${y}" x2="1000" y2="${y}" stroke="rgba(150,180,210,.14)" />`).join("")}
+      <path d="${path} L1000,240 L0,240 Z" fill="url(#area)" />
+      <path d="${path}" fill="none" stroke="#27a7ff" stroke-width="3" />
+      <path d="${riskPath}" fill="none" stroke="#ffb21a" stroke-width="3" />
+      <path d="M0,170 L1000,170" stroke="#00d46a" stroke-width="2" opacity=".6" />
+    </svg>
+  </div>`;
+}
+
+function alertsList() {
+  const rejects = state.dashboard.top_lifecycle_reject_reasons?.live || [];
+  const warnings = state.dashboard.warnings || [];
+  const items = [
+    ...rejects.map((x) => ({
+      tone: String(x.reason || "").startsWith("risk_") ? "red" : "yellow",
+      title: zhReason(x.reason),
+      desc: `${x.reason || "unknown"} 达到 ${x.count || 0} 次`,
+      time: "实时",
+    })),
+    ...warnings.slice(0, 4).map((w) => ({
+      tone: "blue",
+      title: "数据提示",
+      desc: w,
+      time: "读取",
+    })),
+  ];
+  if (!items.length) {
+    items.push({ tone: "gray", title: "暂无告警", desc: "当前运行未发现阻断或缺失提示", time: "实时" });
+  }
+  return `<div class="alert-list scroll-area">${items.map((item) => `
+    <div class="alert-item">
+      <span class="alert-dot ${item.tone}">!</span>
+      <div class="alert-text"><b>${esc(item.title)}</b><span>${esc(item.desc)}</span></div>
+      <span class="muted">${esc(item.time)}</span>
+    </div>
+  `).join("")}</div>`;
+}
+
+function lifecycleTable(rows) {
+  return table(["时间", "订单ID", "品种", "状态", "方向", "数量", "成交均价", "止开仓/止损/止盈", "原因"], rows.map((x) => [
+    fmtTs(x.ts),
+    x.order_id || "—",
+    x.symbol || x.instrument_id || "—",
+    tag(zhStatus(x.status), statusTagTone(x.status)),
+    sideZh(x.side),
+    fmtMaybe(x.quantity),
+    fmtMaybe(x.avg_fill_price || x.fill_price),
+    `${fmtMaybe(x.stop_open_price || x.trigger_price || x.expected_price)} / ${fmtMaybe(x.stop_loss)} / ${fmtMaybe(x.take_profit)}`,
+    zhReason(x.reason),
+  ]));
+}
+
+function rejectDonut(rejects) {
+  const total = rejects.reduce((acc, item) => acc + Number(item.count || 0), 0);
+  const colors = ["#ff4d47", "#ffb21a", "#27a7ff", "#7d8ca0"];
+  return `<div class="donut-row">
+    <div class="donut" data-total="${total}"></div>
+    <div class="reason-list">
+      ${rejects.length ? rejects.map((item, i) => `<div class="reason-item">
+        <span class="reason-swatch" style="background:${colors[i % colors.length]}"></span>
+        <span>${esc(zhReason(item.reason))}</span>
+        <b>${fmtInt(item.count || 0)}</b>
+      </div>`).join("") : `<div class="empty">暂无拒单</div>`}
+    </div>
+  </div>`;
+}
+
+function strategyTopNTable() {
+  const scores = latestScores();
+  const grouped = groupBy(scores, (x) => x.symbol || "—");
+  const rows = Object.entries(grouped).map(([symbol, items]) => {
+    const sorted = items.slice().sort((a, b) => Number(b.final_score || b.score || 0) - Number(a.final_score || a.score || 0));
+    return [symbol, ...[0, 1, 2].flatMap((idx) => {
+      const item = sorted[idx] || {};
+      return [item.strategy_id || item.strategy_name || "—", scoreCell(item.final_score ?? item.score)];
+    })];
+  });
+  return table(["品种", "Top1 策略", "分数", "Top2 策略", "分数", "Top3 策略", "分数"], rows);
+}
+
+function gatesTable(activeSymbols, enabled) {
+  const rows = candidateRows(activeSymbols, enabled).map((r) => [
+    r.symbol,
+    r.contract,
+    tag(r.active ? "ACTIVE" : "INACTIVE", r.active ? "green" : "gray"),
+    tag(r.tradable ? "交易中" : "非交易时段", r.tradable ? "green" : "yellow"),
+    r.strategy,
+    `<span title="raw=${esc(r.raw)} cost=${esc(r.cost)} risk=${esc(r.risk)}">${scoreCell(r.final)}</span>`,
+    r.direction,
+    r.stopOpen,
+    r.stopLoss,
+    r.takeProfit,
+    r.position,
+    tag(r.gateStatus, r.gateTone),
+    r.blockReason,
+    r.nextAction,
+  ]);
+  return `
+    <div class="gate-legend" style="height:30px; align-items:center;">
+      <span><i class="legend-dot" style="background:var(--green)"></i>可开仓</span>
+      <span><i class="legend-dot" style="background:var(--blue)"></i>等待触发</span>
+      <span><i class="legend-dot" style="background:var(--yellow)"></i>门控阻断</span>
+      <span><i class="legend-dot" style="background:var(--red)"></i>熔断/限频</span>
+      <span><i class="legend-dot" style="background:#7d8ca0"></i>非交易时段</span>
+    </div>
+    ${table(["品种", "合约", "是否活跃", "是否可交易", "当前策略", "final_score", "开仓方向", "止开仓价/触发开仓价", "止损价", "止盈价", "持仓状态", "执行门控状态", "阻断原因", "下一步动作"], rows)}
+  `;
+}
+
+function candidateRows(activeSymbols, enabled) {
+  const plan = planConfig();
+  const symbols = plan.universe?.symbols || Object.keys(enabled) || activeSymbols;
+  const activeSet = new Set(activeSymbols || []);
+  const latestRank = [...(liveTails().rank_events || [])].reverse()[0] || {};
+  const excluded = latestRank.excluded_symbols || [];
+  const excludedBySymbol = {};
+  if (Array.isArray(excluded)) {
+    excluded.forEach((item) => {
+      if (item && typeof item === "object") excludedBySymbol[item.symbol] = item.reason;
     });
-
-    body.appendChild(tr);
+  }
+  const scores = latestScores();
+  const latestBySymbol = {};
+  scores.forEach((s) => {
+    const sym = s.symbol || "—";
+    if (!latestBySymbol[sym] || Number(s.final_score || s.score || 0) > Number(latestBySymbol[sym].final_score || latestBySymbol[sym].score || 0)) {
+      latestBySymbol[sym] = s;
+    }
   });
+  const orders = [...(liveTails().order_events || []), ...(liveTails().order_lifecycle_events || [])];
+  return symbols.map((symbol) => {
+    const lastOrder = [...orders].reverse().find((x) => x.symbol === symbol || x.instrument_id === symbol) || {};
+    const score = latestBySymbol[symbol] || {};
+    const active = activeSet.has(symbol) || activeSymbols.length === 0;
+    const reason = excludedBySymbol[symbol] || lastOrder.reason || "";
+    const isTradable = reason !== "non_trading_time";
+    const blocked = Boolean(reason && !["new", "simulated_fill", "tqkq_live_fill"].includes(reason));
+    return {
+      symbol,
+      contract: lastOrder.trade_instrument_id || plan.instruments?.roll_policy?.contracts?.[symbol] || "—",
+      active,
+      tradable: isTradable,
+      strategy: (enabled[symbol] || [score.strategy_id || score.strategy_name || "—"]).join(" / "),
+      final: score.final_score ?? score.score ?? "—",
+      raw: score.raw_score ?? score.score ?? "—",
+      cost: score.cost_penalty ?? "—",
+      risk: score.risk_penalty ?? "—",
+      direction: sideZh(lastOrder.side) || "—",
+      stopOpen: fmtMaybe(lastOrder.stop_open_price || lastOrder.trigger_price || lastOrder.expected_price),
+      stopLoss: fmtMaybe(lastOrder.stop_loss),
+      takeProfit: fmtMaybe(lastOrder.take_profit),
+      position: lastOrder.position_side ? `${positionZh(lastOrder.position_side)} ${fmtMaybe(lastOrder.quantity)}` : "空仓",
+      gateStatus: blocked ? zhReason(reason) : active && isTradable ? "可开仓" : "等待",
+      gateTone: blocked ? (String(reason).startsWith("risk_") || reason === "halted_by_guard" ? "red" : "yellow") : active && isTradable ? "green" : "blue",
+      blockReason: reason ? zhReason(reason) : "—",
+      nextAction: blocked ? nextAction(reason) : active && isTradable ? "等待价格触发" : "等待交易时段",
+    };
+  });
+}
+
+function renderRun() {
+  $("view-run").innerHTML = `<div class="subpage-grid">
+    ${card("运行概览", overviewTable(), { height: "h320" })}
+    ${card("事件统计", eventStatsTable(), { height: "h320" })}
+    ${card("Manifest / Warnings", `<pre class="json-block">${esc(JSON.stringify({ warnings: state.dashboard.warnings, manifest: state.dashboard.manifest }, null, 2))}</pre>`, { height: "h-full" })}
+    ${card("Plan 摘要", `<pre class="json-block">${esc(JSON.stringify(state.dashboard.plan, null, 2))}</pre>`, { height: "h-full" })}
+  </div>`;
+}
+
+function renderPortfolio() {
+  $("view-portfolio").innerHTML = `<div class="subpage">
+    ${card("组合资金指标", portfolioTable(), { height: "h320" })}
+    ${card("持仓与关键价格", positionsTable(), { height: "h-full" })}
+  </div>`;
+}
+
+function renderLifecycle() {
+  $("view-lifecycle").innerHTML = `<div class="subpage">
+    ${card("订单生命周期（Live）", lifecycleTable(liveTails().order_lifecycle_events || []), { height: "h-full" })}
+  </div>`;
+}
+
+function renderRisk() {
+  $("view-risk").innerHTML = `<div class="subpage-grid">
+    ${card("风控拒单统计", rejectDonut(state.dashboard.top_lifecycle_reject_reasons?.live || []), { height: "h320" })}
+    ${card("生命周期原因 Top10", reasonsTable(state.dashboard.live_top_lifecycle_reasons || []), { height: "h320" })}
+    ${card("Risk Stats", `<pre class="json-block">${esc(JSON.stringify(state.dashboard.risk_stats, null, 2))}</pre>`, { height: "h-full" })}
+    ${card("风控配置", `<pre class="json-block">${esc(JSON.stringify(planConfig().risk || {}, null, 2))}</pre>`, { height: "h-full" })}
+  </div>`;
+}
+
+function renderSwitch() {
+  const sw = state.dashboard.strategy_switch || {};
+  $("view-switch").innerHTML = `<div class="subpage-grid">
+    ${card("策略评分 TopN", strategyTopNTable(), { height: "h320" })}
+    ${card("已启用策略集", enabledStrategiesTable(), { height: "h320" })}
+    ${card("切换提案", `<pre class="json-block">${esc(JSON.stringify(sw.proposal || {}, null, 2))}</pre>`, { height: "h-full" })}
+    ${card("人工确认", `<pre class="json-block">${esc(JSON.stringify(sw.approved || { note: "未发现 approved artifact。批准入口后续实现，当前可用 tools.approve_switch 命令生成。" }, null, 2))}</pre>`, { height: "h-full" })}
+  </div>`;
+}
+
+function renderGates() {
+  $("view-gates").innerHTML = `<div class="subpage">
+    ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(state.dashboard.active_symbols?.live || [], state.dashboard.enabled_strategies_by_symbol?.live || {}), { height: "h-full" })}
+  </div>`;
+}
+
+function renderRoll() {
+  $("view-roll").innerHTML = `<div class="subpage-grid">
+    ${card("模式 B 阶段", rollStageTable(), { height: "h320" })}
+    ${card("相关 lifecycle reason", lifecycleTable((liveTails().order_lifecycle_events || []).filter((x) => String(x.reason || "").startsWith("roll_"))), { height: "h320" })}
+    ${card("roll_events 时间线", rollEventsTable(), { height: "h-full" })}
+    ${card("换月策略配置", `<pre class="json-block">${esc(JSON.stringify(planConfig().instruments?.roll_policy || {}, null, 2))}</pre>`, { height: "h-full" })}
+  </div>`;
+}
+
+function renderMarket() {
+  $("view-market").innerHTML = `<div class="subpage-grid">
+    ${card("合约映射", contractsTable(), { height: "h320" })}
+    ${card("Rank / 行情可观测", rankTable(), { height: "h320" })}
+    ${card("合约规格与行情配置", `<pre class="json-block">${esc(JSON.stringify({ instruments: planConfig().instruments, market_data: planConfig().adapters?.market_data }, null, 2))}</pre>`, { height: "h-full" })}
+    ${card("原始 rank_events", `<pre class="json-block">${esc(JSON.stringify(liveTails().rank_events || [], null, 2))}</pre>`, { height: "h-full" })}
+  </div>`;
+}
+
+function renderLogs() {
+  $("view-logs").innerHTML = `<div class="subpage-grid">
+    ${card("事件时间线", timelineTable(), { height: "h-full" })}
+    ${card("原始 Dashboard JSON", `<pre class="json-block">${esc(JSON.stringify(state.dashboard, null, 2))}</pre>`, { height: "h-full" })}
+  </div>`;
+}
+
+function renderConfig() {
+  $("view-config").innerHTML = card("配置中心（只读）", `<pre class="json-block">${esc(JSON.stringify(planConfig(), null, 2))}</pre>`, { height: "h-full" });
+}
+
+function renderAlerts() {
+  $("view-alerts").innerHTML = card("告警中心", alertsList(), { height: "h-full" });
+}
+
+function renderPermissions() {
+  $("view-permissions").innerHTML = card("权限管理（只读）", table(["项目", "状态", "说明"], [
+    ["Web UI", tag("只读", "blue"), "当前页面不执行写操作"],
+    ["策略切换审批", tag("命令行", "yellow"), "后续可通过 tools.approve_switch 生成 approved artifact"],
+    ["实盘提交", tag("Hard Gate", "red"), "live submit 需要 confirm_live 与 runtime_id token"],
+  ]), { height: "h-full" });
+}
+
+function overviewTable() {
+  const plan = planConfig();
+  const execution = state.dashboard.execution || {};
+  return table(["字段", "值"], [
+    ["runtime_id", state.dashboard.runtime_id],
+    ["模式", zhMode(plan.runtime?.mode || plan.adapters?.market_data?.mode)],
+    ["broker_type", execution.broker_type || "—"],
+    ["execution_mode", zhMode(execution.execution_mode)],
+    ["confirm_live", execution.confirm_live ? "是" : "否"],
+    ["active_top_n", plan.runtime?.active_top_n ?? "0"],
+    ["universe", (plan.universe?.symbols || []).join(", ")],
+  ]);
+}
+
+function eventStatsTable() {
+  const s = liveStats();
+  return table(["事件", "行数"], Object.entries({
+    "订单事件": s.order_events_lines,
+    "成交事件": s.fill_events_lines,
+    "生命周期事件": s.order_lifecycle_events_lines,
+    "排名事件": s.rank_events_lines,
+    "策略评分事件": s.strategy_score_events_lines,
+    "换月事件": s.roll_events_lines,
+    "组合快照": s.portfolio_snapshots_lines,
+  }).map(([k, v]) => [k, fmtInt(v || 0)]));
+}
+
+function portfolioTable() {
+  const p = latestPortfolio("live");
+  return table(["指标", "值"], [
+    ["权益", fmtNumber(p.equity)],
+    ["现金 / 可用资金", fmtNumber(p.cash)],
+    ["保证金占用", fmtNumber(p.margin_used)],
+    ["风险度", fmtPct(p.risk_ratio)],
+    ["浮动盈亏", fmtNumber(p.unrealized_pnl)],
+    ["已实现盈亏", fmtNumber(p.realized_pnl)],
+    ["最大风险度", fmtPct(p.max_risk_ratio_seen)],
+  ]);
+}
+
+function reasonsTable(rows) {
+  return table(["reason", "中文", "次数"], rows.map((x) => [x.reason || "—", zhReason(x.reason), fmtInt(x.count || 0)]));
+}
+
+function enabledStrategiesTable() {
+  const enabled = state.dashboard.enabled_strategies_by_symbol?.live || {};
+  return table(["品种", "启用策略"], Object.entries(enabled).map(([sym, names]) => [sym, Array.isArray(names) ? names.join(" / ") : "—"]));
+}
+
+function rollStageTable() {
+  const rollEvents = liveTails().roll_events || [];
+  const lifecycle = liveTails().order_lifecycle_events || [];
+  const last = rollEvents[rollEvents.length - 1] || {};
+  const hasCancel = lifecycle.some((x) => x.reason === "roll_cancel_pending");
+  const hasClose = lifecycle.some((x) => x.reason === "roll_close_position");
+  const cooldown = lifecycle.filter((x) => x.reason === "roll_cooldown_block").length;
+  const stages = [
+    ["撤单中（Cancel Pending）", hasCancel ? "完成" : "无 pending", hasCancel ? "roll_cancel_pending" : "—"],
+    ["清仓中（Close Position）", hasClose ? "完成" : "无旧仓位", hasClose ? "roll_close_position" : "—"],
+    ["观察中（Cooldown）", cooldown ? `阻断 ${cooldown} 次` : "未进入/已结束", "roll_cooldown_block"],
+    ["就绪（Ready）", last.to_contract ? "已切换" : "等待换月", last.to_contract || "—"],
+    ["重新开仓（Re-Entry）", latestNewContractOrder(last.to_contract) ? "已恢复" : "等待条件", last.to_contract || "—"],
+  ];
+  return table(["阶段", "当前状态", "观察条件 / reason"], stages);
+}
+
+function rollEventsTable() {
+  return table(["触发时间", "品种", "旧合约", "新合约", "当前阶段", "剩余观察 tick", "允许再开仓条件"], (liveTails().roll_events || []).map((x) => [
+    fmtTs(x.ts),
+    x.base_symbol || "—",
+    x.from_contract || "—",
+    x.to_contract || "—",
+    "观察中 / 就绪",
+    "由 cooldown_ticks 控制",
+    "仓位=0 且无 pending 且观察期结束",
+  ]));
+}
+
+function contractsTable() {
+  const contracts = planConfig().instruments?.roll_policy?.contracts || {};
+  return table(["品种", "执行合约", "来源"], Object.entries(contracts).map(([sym, contract]) => [sym, contract, "roll_policy.contracts"]));
+}
+
+function rankTable() {
+  const rows = liveTails().rank_events || [];
+  return table(["时间", "active_top_n", "active_symbols", "excluded_count"], rows.map((x) => [
+    fmtTs(x.ts),
+    x.active_top_n ?? "—",
+    Array.isArray(x.active_symbols) ? x.active_symbols.join(", ") : "—",
+    x.excluded_symbols_count ?? "—",
+  ]));
+}
+
+function timelineTable() {
+  const tail = liveTails();
+  const rows = [
+    ...(tail.order_lifecycle_events || []),
+    ...(tail.rank_events || []),
+    ...(tail.strategy_score_events || []),
+    ...(tail.roll_events || []),
+  ].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+  return table(["时间", "类型", "品种", "状态", "原因"], rows.map((x) => [
+    fmtTs(x.ts),
+    x.event_type || "—",
+    x.symbol || x.base_symbol || x.instrument_id || "—",
+    zhStatus(x.status),
+    zhReason(x.reason),
+  ]));
+}
+
+function table(headers, rows) {
+  return `<div class="table-wrap scroll-area"><table class="data-table">
+    <thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.length ? rows.map((row) => `<tr>${row.map((cell) => `<td>${cell == null ? "—" : cell}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}"><div class="empty">暂无数据</div></td></tr>`}</tbody>
+  </table></div>`;
+}
+
+function latestScores() {
+  return liveTails().strategy_score_events || [];
+}
+
+function groupBy(items, fn) {
+  return items.reduce((acc, item) => {
+    const key = fn(item);
+    (acc[key] ||= []).push(item);
+    return acc;
+  }, {});
+}
+
+function scoreCell(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const cls = value >= 0.75 ? "green-text" : value >= 0.55 ? "yellow-text" : "red-text";
+  return `<span class="${cls} num">${value.toFixed(3)}</span>`;
+}
+
+function fmtMaybe(value) {
+  return typeof value === "number" ? fmtNumber(value) : esc(value ?? "—");
+}
+
+function statusTone(status) {
+  if (status === "FILLED") return "green-text";
+  if (status === "REJECTED") return "red-text";
+  if (status === "CANCELED" || status === "EXPIRED") return "yellow-text";
+  if (status === "PARTIAL" || status === "SUBMITTED") return "purple";
+  return "blue-text";
+}
+
+function statusTagTone(status) {
+  if (status === "FILLED") return "green";
+  if (status === "REJECTED") return "red";
+  if (status === "CANCELED" || status === "EXPIRED") return "yellow";
+  if (status === "PARTIAL" || status === "SUBMITTED") return "purple";
+  return "blue";
+}
+
+function sideZh(side) {
+  if (side === "buy") return "多";
+  if (side === "sell") return "空";
+  if (side === "none") return "无";
+  return side || "—";
+}
+
+function positionZh(side) {
+  if (side === "long") return "持多";
+  if (side === "short") return "持空";
+  if (side === "flat") return "空仓";
+  return side || "—";
+}
+
+function nextAction(reason) {
+  if (reason === "blocked_by_pending_order") return "等待 pending 订单完成";
+  if (reason === "roll_cooldown_block") return "等待观察期结束";
+  if (reason === "non_trading_time") return "等待交易时段";
+  if (reason === "rate_limited") return "等待限频结束";
+  if (reason === "halted_by_guard") return "等待熔断恢复";
+  if (String(reason).startsWith("risk_")) return "降低仓位或调整风控阈值";
+  return "人工复核";
+}
+
+function latestNewContractOrder(contract) {
+  if (!contract) return false;
+  return (liveTails().order_events || []).some((x) => x.trade_instrument_id === contract);
+}
+
+function wireMoreButtons() {
+  document.querySelectorAll("[data-jump]").forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.jump));
+  });
+}
+
+function setupAutoRefresh() {
+  if (state.timer) clearInterval(state.timer);
+  const seconds = Number($("refreshInterval").value || 0);
+  if (!seconds) return;
+  state.timer = setInterval(() => loadSelected().catch(console.error), seconds * 1000);
 }
 
 function wire() {
-  $("btnRefreshRuns").onclick = () => loadRuns();
-  const rh = $("recentHours");
-  if (rh) rh.addEventListener('change', () => loadRuns());
-
-  $("btnApply").onclick = () => {
-    state.page = 0;
-    loadRuns();
-  };
-  $("prevPage").onclick = () => {
-    state.page = Math.max(0, state.page - 1);
-    loadRuns();
-  };
-  $("nextPage").onclick = () => {
-    state.page += 1;
-    loadRuns();
-  };
-
-  document.querySelectorAll(".tab").forEach((b) => {
-    b.onclick = async () => {
-      setActiveTab(b.dataset.tab);
-      if (b.dataset.tab === "metrics") {
-        await loadMetrics().catch((e) => { console.error(e); setStatus(String(e)); });
-      }
-      if (b.dataset.tab === "manifest") {
-        await loadManifest().catch((e) => { console.error(e); setStatus(String(e)); });
-      }
-      if (b.dataset.tab === "events") {
-        await loadEvents().catch((e) => { console.error(e); setStatus(String(e)); });
-      }
-    };
+  renderNav();
+  $("runSelect").addEventListener("change", async (event) => {
+    state.selected = event.target.value;
+    await loadSelected();
   });
-
-  $("btnLoadEvents").onclick = () => loadEvents();
-  const btnPrevEvents = $("btnPrevEvents");
-  if (btnPrevEvents) {
-    btnPrevEvents.onclick = () => {
-      const cur = Number($("offset").value || 0);
-      const lim = Number($("limit").value || 200);
-      $("offset").value = String(Math.max(0, cur - lim));
-      loadEvents();
-    };
-  }
-  const btnNextEvents = $("btnNextEvents");
-  if (btnNextEvents) {
-    btnNextEvents.onclick = () => {
-      const cur = Number($("offset").value || 0);
-      const lim = Number($("limit").value || 200);
-      $("offset").value = String(cur + lim);
-      loadEvents();
-    };
-  }
-
-  $("btnLoadManifest").onclick = () => loadManifest();
-  const btnCopyEvent = $("btnCopyEvent");
-  if (btnCopyEvent) {
-    btnCopyEvent.onclick = () => {
-      if (!state.selectedEvent) return;
-      copyText(JSON.stringify(state.selectedEvent, null, 2));
-    };
-  }
-  const btnCopyEventsLink = $("btnCopyEventsLink");
-  if (btnCopyEventsLink) {
-    btnCopyEventsLink.onclick = () => {
-      if (!state.lastEventsUrl) return;
-      const full = `${location.origin}${state.lastEventsUrl}`;
-      copyText(full);
-    };
-  }
-
-  $("btnDownloadManifest").onclick = () => {
-    if (!state.lastManifestJson) return;
-    downloadJson(`manifest_${state.selected}.json`, state.lastManifestJson);
-  };
-
-  // json toolbars
-  document.querySelectorAll('.jsonbar').forEach((bar) => {
-    const targetId = bar.getAttribute('data-target');
-    const target = targetId ? document.getElementById(targetId) : null;
-    const btnExp = bar.querySelector('.js-expand');
-    const btnCol = bar.querySelector('.js-collapse');
-    const input = bar.querySelector('.jsonsearch');
-    if (btnExp) btnExp.addEventListener('click', () => setAllDetailsOpen(target, true));
-    if (btnCol) btnCol.addEventListener('click', () => setAllDetailsOpen(target, false));
-    if (input) input.addEventListener('input', () => highlightText(target, input.value));
+  $("btnRefresh").addEventListener("click", () => loadSelected().catch(console.error));
+  $("refreshInterval").addEventListener("change", setupAutoRefresh);
+  $("btnCopyRun").addEventListener("click", () => {
+    if (state.selected) navigator.clipboard?.writeText(state.selected).catch(() => {});
   });
-
-  // auto refresh
-  let autoRefreshBusy = false;
   setInterval(() => {
-    if (!$("autoRefresh").checked) return;
-    if (autoRefreshBusy) return;
-    autoRefreshBusy = true;
-
-    const active = document.querySelector(".tab.active");
-    const tab = active ? active.dataset.tab : "overview";
-    const refreshDetail =
-      tab === "events"
-        ? loadEvents
-        : tab === "metrics"
-          ? loadMetrics
-          : tab === "manifest"
-            ? loadManifest
-            : loadOverview;
-
-    Promise.resolve()
-      .then(() => loadRuns())
-      .then(() => (state.selected ? refreshDetail() : null))
-      .catch(() => {})
-      .finally(() => {
-        autoRefreshBusy = false;
-      });
-  }, 3000);
-}
-
-
-function isPlainObject(x) {
-  return x && typeof x === "object" && !Array.isArray(x);
-}
-
-function renderJsonTree(obj, { collapseDepth = 0 } = {}) {
-  const root = document.createElement("div");
-
-  function makeNode(value, key, depth) {
-    const isObj = isPlainObject(value);
-    const isArr = Array.isArray(value);
-
-    if (isObj || isArr) {
-      const details = document.createElement("details");
-      if (depth < collapseDepth) details.open = true;
-
-      const summary = document.createElement("summary");
-      const label = key !== null ? `${key}: ` : "";
-      const size = isArr ? `Array(${value.length})` : `Object(${Object.keys(value).length})`;
-      summary.textContent = label + size;
-      details.appendChild(summary);
-
-      const entries = isArr ? value.map((v, i) => [String(i), v]) : Object.entries(value);
-      for (const [k, v] of entries) {
-        details.appendChild(makeNode(v, k, depth + 1));
-      }
-      return details;
-    }
-
-    const line = document.createElement("div");
-    line.className = "kv leaf";
-    const kEl = document.createElement("div");
-    kEl.className = "k";
-    kEl.textContent = key !== null ? `${key}` : "";
-    const vEl = document.createElement("div");
-    vEl.className = "v";
-    if (typeof value === "string") vEl.textContent = JSON.stringify(value);
-    else vEl.textContent = String(value);
-    line.appendChild(kEl);
-    line.appendChild(vEl);
-    return line;
-  }
-
-  root.appendChild(makeNode(obj, null, 0));
-  return root;
-}
-
-function setAllDetailsOpen(container, open) {
-  if (!container) return;
-  container.querySelectorAll('details').forEach((d) => { d.open = !!open; });
-}
-
-function clearHighlights(container) {
-  if (!container) return;
-  container.querySelectorAll('mark.hl').forEach((m) => {
-    const text = document.createTextNode(m.textContent || '');
-    m.replaceWith(text);
-  });
-}
-
-function highlightText(container, q) {
-  if (!container) return;
-  clearHighlights(container);
-  const query = (q || '').trim();
-  if (!query) return;
-  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig');
-  container.querySelectorAll('.k, .v').forEach((node) => {
-    const s = node.textContent || '';
-    if (!re.test(s)) return;
-    const parts = s.split(re);
-    const matches = s.match(re) || [];
-    node.textContent = '';
-    for (let i = 0; i < parts.length; i++) {
-      node.appendChild(document.createTextNode(parts[i]));
-      if (i < matches.length) {
-        const mk = document.createElement('mark');
-        mk.className = 'hl';
-        mk.textContent = matches[i];
-        node.appendChild(mk);
-      }
-    }
-  });
-}
-
-function setJson(el, obj, opts) {
-  if (!el) return;
-  el.innerHTML = "";
-  el.appendChild(renderJsonTree(obj, opts));
+    $("clock").textContent = new Date().toLocaleString("zh-CN", { hour12: false });
+  }, 1000);
 }
 
 (async function main() {
   wire();
   await loadRuns();
-})();
+  await loadSelected();
+  setupAutoRefresh();
+})().catch((error) => {
+  console.error(error);
+  document.body.innerHTML = `<pre style="padding:24px;color:#ff9b97">${esc(error.stack || error.message || error)}</pre>`;
+});

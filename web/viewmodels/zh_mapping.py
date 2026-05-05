@@ -29,6 +29,26 @@ POSITION_SIDE_ZH: dict[str, str] = {
     PositionSide.FLAT.value: "空仓",
 }
 
+MODE_ZH: dict[str, str] = {
+    "simulated_v2": "模拟行情",
+    "simulated": "模拟行情",
+    "live_file": "本地行情",
+    "tqkq_sim": "天勤模拟",
+    "tqkq_live": "天勤实盘",
+    "dry_run": "仅演练",
+    "live": "真实下单",
+}
+
+STATUS_ZH: dict[str, str] = {
+    "NEW": "新建",
+    "SUBMITTED": "已提交",
+    "PARTIAL": "部分成交",
+    "FILLED": "已成交",
+    "CANCELED": "已撤单",
+    "EXPIRED": "已过期",
+    "REJECTED": "已拒绝",
+}
+
 # Common execution / chain reasons (extend as new codes appear)
 REASON_ZH: dict[str, str] = {
     # execution engine
@@ -39,7 +59,29 @@ REASON_ZH: dict[str, str] = {
     "hold_with_directional_side": "观望但方向字段不一致",
     "triggered_hold": "触发后观望",
     # broker/sim
+    "new": "新建",
+    "order_submitted": "已提交",
     "simulated_fill": "模拟成交",
+    "simulated_partial_fill": "模拟部分成交",
+    "tqkq_sim_fill": "天勤模拟成交",
+    "tqkq_live_partial_fill": "天勤实盘部分成交",
+    "tqkq_live_fill": "天勤实盘成交",
+    "blocked_by_pending_order": "待处理订单阻塞",
+    "duplicate_same_tick": "同 tick 重复下单",
+    "expired": "订单过期",
+    "canceled": "已撤单",
+    "risk_position_limit": "超过持仓数量上限",
+    "risk_max_notional": "超过名义金额上限",
+    "risk_max_risk_ratio": "超过风险度上限",
+    "risk_max_margin_used": "超过保证金占用上限",
+    "rate_limited": "触发限频",
+    "halted_by_guard": "触发熔断",
+    "roll_cancel_pending": "换月撤单中",
+    "roll_close_position": "换月清仓中",
+    "roll_cooldown_block": "换月观察期阻断",
+    "missing_trade_instrument_id": "缺少执行合约",
+    "invalid_trade_instrument_id_main_alias": "执行合约不能为主力别名",
+    "invalid_trade_instrument_id_not_real_contract": "执行合约不是真实合约",
     # promotion gate (typical)
     "insufficient_events": "样本不足",
     "insufficient_success_rate_improvement": "胜率提升不足",
@@ -63,6 +105,18 @@ def zh_reason(reason_code: str | None) -> str:
     if reason_code is None:
         return "未知原因"
     return REASON_ZH.get(reason_code, "未知原因")
+
+
+def zh_mode(mode_code: str | None) -> str:
+    if mode_code is None:
+        return "未知模式"
+    return MODE_ZH.get(mode_code, mode_code)
+
+
+def zh_status(status_code: str | None) -> str:
+    if status_code is None:
+        return "未知状态"
+    return STATUS_ZH.get(status_code, status_code)
 
 
 def zh_side(side_code: str | None) -> str:

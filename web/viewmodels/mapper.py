@@ -8,6 +8,7 @@ from web.viewmodels.zh_mapping import (
     zh_reason,
     zh_router_mode,
     zh_side,
+    zh_status,
 )
 
 
@@ -73,6 +74,12 @@ def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
     rank_raw = payload.get("rank_events")
     rank_events = rank_raw if isinstance(rank_raw, list) else []
 
+    roll_raw = payload.get("roll_events")
+    roll_events = roll_raw if isinstance(roll_raw, list) else []
+
+    score_raw = payload.get("strategy_score_events")
+    strategy_score_events = score_raw if isinstance(score_raw, list) else []
+
     lifecycle_raw = payload.get("order_lifecycle_events")
     order_lifecycle_events = lifecycle_raw if isinstance(lifecycle_raw, list) else []
 
@@ -87,6 +94,9 @@ def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
 
         r = ev.get("reason") if isinstance(ev.get("reason"), str) else None
         ev2["reason_zh"] = zh_reason(r)
+
+        status = ev.get("status") if isinstance(ev.get("status"), str) else None
+        ev2["status_zh"] = zh_status(status)
 
         side = ev.get("side") if isinstance(ev.get("side"), str) else None
         ev2["side_zh"] = zh_side(side)
@@ -103,7 +113,9 @@ def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
         "paths": payload.get("paths"),
         "fill_events": [_annotate(x) for x in fill_events],
         "order_events": [_annotate(x) for x in order_events],
+        "roll_events": [_annotate(x) for x in roll_events],
         "rank_events": [_annotate(x) for x in rank_events],
+        "strategy_score_events": [_annotate(x) for x in strategy_score_events],
         "order_lifecycle_events": [_annotate(x) for x in order_lifecycle_events],
         "timeline": [_annotate(x) for x in timeline],
     }
