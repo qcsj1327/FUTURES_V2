@@ -1,23 +1,68 @@
 {
   "schema_version": 1,
   "env": "dev",
+  "universe": {
+    "symbols": ["au", "ag", "cu", "rb", "zn"]
+  },
+  "runtime": {
+    "mode": "tqkq_live",
+    "warmup_seconds": 8,
+    "ticks_live": 2,
+    "ticks_sandbox": 0,
+    "default_quantity": 1.0
+  },
   "adapters": {
     "market_data": {
       "mode": "tqkq",
-      "prices_path": null,
       "params": {
         "tq_symbols": {
-          "au": "SHFE.au2406"
+          "au": "SHFE.au2606",
+          "ag": "SHFE.ag2606",
+          "cu": "SHFE.cu2606",
+          "rb": "SHFE.rb2610",
+          "zn": "SHFE.zn2606"
         },
         "warmup_seconds": 8
       }
+    },
+    "broker": {
+      "mode": "tqkq_live",
+      "params": {
+        "submit_mode": "dry_run"
+      }
     }
   },
-  "universe": { "symbols": ["au"] },
+  "execution": {
+    "max_pending_ticks": 2
+  },
+  "instruments": {
+    "roll_policy": {
+      "mode": "fixed_contract",
+      "contracts": {
+        "au": "SHFE.au2606",
+        "ag": "SHFE.ag2606",
+        "cu": "SHFE.cu2606",
+        "rb": "SHFE.rb2610",
+        "zn": "SHFE.zn2606"
+      }
+    }
+  },
   "strategies": [
-    { "name": "simple_strategy", "params": {}, "symbols": ["au"], "priority": 10, "weight": 1.0 }
+    {
+      "name": "simple_strategy",
+      "params": {},
+      "symbols": ["au", "ag", "cu", "rb", "zn"],
+      "priority": 10,
+      "weight": 1.0
+    }
   ],
-  "runtime": { "ticks_live": 2, "ticks_sandbox": 2, "default_quantity": 1.0 },
-  "promotion": { "min_events": 1, "min_success_rate_improvement": -1.0, "max_consecutive_failures": 99 },
-  "router": { "mode": "priority", "tie_breaker": "priority" }
+  "promotion": {
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0,
+    "max_consecutive_failures": 99
+  },
+  "router": {
+    "mode": "priority",
+    "tie_breaker": "priority"
+  }
 }
