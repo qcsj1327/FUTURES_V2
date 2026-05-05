@@ -34,6 +34,89 @@ from strategies.strategy_set import StrategyEntry, StrategySet
 Env = Literal["live", "sandbox"]
 
 
+@dataclass
+class _FakeTqKqQuote:
+    last_price: float
+    volume: float
+    datetime: str
+    price_tick: float = 0.2
+    volume_multiple: float = 1000.0
+
+
+class _FakeTqKqApi:
+    def __init__(self, *, fake_quotes: dict[str, _FakeTqKqQuote]) -> None:
+        self._quotes = fake_quotes
+
+    def get_quote(self, symbol: str) -> _FakeTqKqQuote:
+        quote = self._quotes.get(symbol)
+        if quote is None:
+            raise KeyError(f"fake tqkq quote missing for {symbol}")
+        return quote
+
+    def wait_update(self, deadline: float | None = None) -> bool:
+        _ = deadline
+        for quote in self._quotes.values():
+            quote.volume += 1.0
+        return True
+
+    def get_account(self) -> dict[str, float]:
+        return {"cash": 990000.0, "equity": 1000000.0, "margin_used": 10000.0}
+
+    def get_position(self) -> list[dict[str, object]]:
+        return []
+
+    def close(self) -> None:
+        return
+
+
+def _fake_tqkq_quotes(params: dict[str, Any]) -> dict[str, _FakeTqKqQuote] | None:
+    raw = params.get("fake_quotes")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("adapters.market_data.params.fake_quotes must be object")
+    quotes: dict[str, _FakeTqKqQuote] = {}
+    for symbol, payload in raw.items():
+        if not isinstance(symbol, str) or not symbol:
+            raise ValueError("adapters.market_data.params.fake_quotes keys must be str")
+        if not isinstance(payload, dict):
+            raise ValueError(f"adapters.market_data.params.fake_quotes.{symbol} must be object")
+        price = payload.get("price")
+        volume = payload.get("volume", 1000.0)
+        ts = payload.get("datetime", "2026-05-04 10:00:00.000000")
+        tick = payload.get("price_tick", 0.2)
+        multiplier = payload.get("volume_multiple", 1000.0)
+        if not isinstance(price, (int, float)) or isinstance(price, bool):
+            raise ValueError(
+                f"adapters.market_data.params.fake_quotes.{symbol}.price must be number"
+            )
+        if not isinstance(volume, (int, float)) or isinstance(volume, bool):
+            raise ValueError(
+                f"adapters.market_data.params.fake_quotes.{symbol}.volume must be number"
+            )
+        if not isinstance(ts, str):
+            raise ValueError(
+                f"adapters.market_data.params.fake_quotes.{symbol}.datetime must be str"
+            )
+        if not isinstance(tick, (int, float)) or isinstance(tick, bool):
+            raise ValueError(
+                f"adapters.market_data.params.fake_quotes.{symbol}.price_tick must be number"
+            )
+        if not isinstance(multiplier, (int, float)) or isinstance(multiplier, bool):
+            raise ValueError(
+                "adapters.market_data.params.fake_quotes."
+                f"{symbol}.volume_multiple must be number"
+            )
+        quotes[symbol] = _FakeTqKqQuote(
+            last_price=float(price),
+            volume=float(volume),
+            datetime=ts,
+            price_tick=float(tick),
+            volume_multiple=float(multiplier),
+        )
+    return quotes
+
+
 def _call_with_supported_kwargs(fn: Any, /, *args: Any, **kwargs: Any) -> Any:
     sig = inspect.signature(fn)
     filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
@@ -55,16 +138,27 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
         if not mapping:
             raise ValueError("tqkq requires non-empty tq_symbols mapping")
         import os
+        fake_quotes = _fake_tqkq_quotes(params)
         user = os.environ.get("TQKQ_USER", "").strip()
         passwd = os.environ.get("TQKQ_PASS", "").strip()
-        if not user or not passwd:
+        if fake_quotes is None and (not user or not passwd):
             raise ValueError("TQKQ_USER/TQKQ_PASS must be set in environment")
         from adapters.marketdata.tqkq_market_data import TqKqMarketData
         warmup_raw = plan.runtime.warmup_seconds
         if warmup_raw is None:
             warmup_raw = params.get("warmup_seconds", 8.0)
         warmup_seconds = float(warmup_raw) if isinstance(warmup_raw, (int, float)) else 8.0
-        md = TqKqMarketData(tq_symbols=mapping, auth_user=user, auth_pass=passwd)
+        md = TqKqMarketData(
+            tq_symbols=mapping,
+            auth_user=user,
+            auth_pass=passwd,
+            api_factory=(
+                None
+                if fake_quotes is None
+                else lambda: _FakeTqKqApi(fake_quotes=fake_quotes)
+            ),
+            start_background=fake_quotes is None,
+        )
         try:
             md.warmup(list(plan.universe.symbols), timeout_s=warmup_seconds)
         except Exception as exc:
@@ -147,13 +241,19 @@ def build_broker_with_specs(
                 "adapters.broker.mode=tqkq_live requires real trade contracts: "
                 f"{bad_contracts}"
             )
+        submit_mode = str(plan.adapters.broker.params.get("submit_mode", "dry_run"))
+        if submit_mode == "live" and plan.adapters.broker.params.get("confirm_live") is not True:
+            raise ValueError(
+                "adapters.broker.params.confirm_live must be true when "
+                "adapters.broker.params.submit_mode=live"
+            )
         return TqKqLiveBroker(
             market_data=market_data,
             instrument_specs=(
                 instrument_specs
                 or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
             ),
-            dry_run=bool(plan.adapters.broker.params.get("dry_run", True)),
+            dry_run=submit_mode == "dry_run",
         )
 
     if plan.adapters.broker.mode == "tqkq_sim":
@@ -361,6 +461,7 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
     )
     live_runtime.max_pending_ticks = plan.execution.max_pending_ticks
     live_runtime.max_rejects_in_window = plan.execution.max_rejects_in_window
+    live_runtime.reject_window_ticks = plan.execution.reject_window_ticks
     live_runtime.halt_ticks = plan.execution.halt_ticks
     live_runtime.min_order_interval_ticks = plan.execution.min_order_interval_ticks
     live_runtime.symbol_position_limit = SymbolPositionLimit(
@@ -387,6 +488,7 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
         )
         executor.max_pending_ticks = plan.execution.max_pending_ticks
         executor.max_rejects_in_window = plan.execution.max_rejects_in_window
+        executor.reject_window_ticks = plan.execution.reject_window_ticks
         executor.halt_ticks = plan.execution.halt_ticks
         executor.min_order_interval_ticks = plan.execution.min_order_interval_ticks
         executor.symbol_position_limit = SymbolPositionLimit(

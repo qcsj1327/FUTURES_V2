@@ -42,7 +42,7 @@ def test_tqkq_live_broker_rejects_invalid_trade_id_contracts() -> None:
         runtime_id="rt_invalid_tqkq_live",
     )
 
-    for trade_id in (None, "au_main", "au2406"):
+    for trade_id in (None, "au_main", "au2406", "SHFE.au"):
         order = _order(trade_id)
         result = broker.submit_order(order)
         runtime.record_broker_result(

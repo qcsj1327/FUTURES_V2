@@ -6,24 +6,34 @@
   },
   "runtime": {
     "mode": "tqkq_live",
-    "warmup_seconds": 8,
-    "ticks_live": 3,
+    "warmup_seconds": 1,
+    "ticks_live": 4,
     "ticks_sandbox": 0,
     "default_quantity": 1.0
   },
   "adapters": {
     "market_data": {
+      "mode": "tqkq",
       "params": {
         "tq_symbols": {
           "au": "SHFE.au2406"
         },
-        "warmup_seconds": 8
+        "warmup_seconds": 1,
+        "fake_quotes": {
+          "SHFE.au2406": {
+            "price": 450.0,
+            "volume": 1000.0,
+            "datetime": "2026-05-04 10:00:00.000000",
+            "price_tick": 0.2,
+            "volume_multiple": 1000.0
+          }
+        }
       }
     },
     "broker": {
+      "mode": "tqkq_live",
       "params": {
-        "submit_mode": "live",
-        "confirm_live": true
+        "submit_mode": "dry_run"
       }
     }
   },

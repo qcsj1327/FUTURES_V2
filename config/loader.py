@@ -266,6 +266,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         {
             "max_pending_ticks",
             "max_rejects_in_window",
+            "reject_window_ticks",
             "halt_ticks",
             "min_order_interval_ticks",
         },
@@ -285,6 +286,13 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     max_rejects_in_window = None if max_rejects_raw is None else int(max_rejects_raw)
     if max_rejects_in_window is not None and max_rejects_in_window < 1:
         raise ValueError("execution.max_rejects_in_window must be >= 1")
+    reject_window_raw = execution_raw.get(
+        "reject_window_ticks",
+        base.execution.reject_window_ticks,
+    )
+    reject_window_ticks = None if reject_window_raw is None else int(reject_window_raw)
+    if reject_window_ticks is not None and reject_window_ticks < 1:
+        raise ValueError("execution.reject_window_ticks must be >= 1")
     halt_ticks_raw = execution_raw.get("halt_ticks", base.execution.halt_ticks)
     halt_ticks = None if halt_ticks_raw is None else int(halt_ticks_raw)
     if halt_ticks is not None and halt_ticks < 1:
@@ -299,6 +307,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     execution = ExecutionSpec(
         max_pending_ticks=max_pending_ticks,
         max_rejects_in_window=max_rejects_in_window,
+        reject_window_ticks=reject_window_ticks,
         halt_ticks=halt_ticks,
         min_order_interval_ticks=min_order_interval_ticks,
     )
@@ -706,7 +715,15 @@ def _validate_tqkq_contracts(*, mode: str, instruments: InstrumentsSpec) -> None
 
 def _validate_broker_params(*, broker_mode: str, params: dict[str, Any]) -> None:
     if broker_mode == "tqkq_live":
-        allowed = {"dry_run"}
+        allowed = {"submit_mode", "confirm_live"}
+        submit_mode = params.get("submit_mode", "dry_run")
+        if submit_mode not in {"dry_run", "live"}:
+            raise ValueError("adapters.broker.params.submit_mode must be dry_run or live")
+        if submit_mode == "live" and params.get("confirm_live") is not True:
+            raise ValueError(
+                "adapters.broker.params.confirm_live must be true when "
+                "adapters.broker.params.submit_mode=live"
+            )
     elif broker_mode == "tqkq_sim":
         allowed = {"no_fill"}
     else:

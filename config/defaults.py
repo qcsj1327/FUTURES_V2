@@ -51,6 +51,7 @@ def default_plan(*, runtime_id: str) -> RunPlan:
         execution=ExecutionSpec(
             max_pending_ticks=None,
             max_rejects_in_window=None,
+            reject_window_ticks=None,
             halt_ticks=None,
             min_order_interval_ticks=None,
         ),
