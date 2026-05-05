@@ -62,6 +62,8 @@ const REASON_ZH = {
   invalid_trade_instrument_id_not_real_contract: "执行合约不是真实合约",
   insufficient_events: "样本不足",
   non_trading_time: "非交易时段",
+  pending_order: "待处理订单",
+  unknown: "未知原因",
 };
 
 const state = {
@@ -76,6 +78,7 @@ const state = {
 
 const WARNING_ZH = {
   missing_candidate_summary: "缺少候选摘要",
+  missing_current_summary: "缺少当前摘要",
   missing_decision: "缺少决策结果",
   missing_approved: "缺少审批结果",
   missing_strategy_switch_approved: "缺少策略切换审批",
@@ -123,6 +126,15 @@ function fmtTs(value) {
   }
   if (typeof value === "string" && value) return value;
   return "—";
+}
+
+function isLogicTick(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value < 1000000000;
+}
+
+function fmtEventTime(value) {
+  if (isLogicTick(value)) return `tick ${fmtInt(value)}`;
+  return fmtTs(value);
 }
 
 function zhMode(code) {
@@ -294,11 +306,26 @@ function planConfig() {
   return state.detail?.plan?.config || state.dashboard?.plan || {};
 }
 
+function topNEnabled() {
+  return Number(planConfig().runtime?.active_top_n || 0) > 0;
+}
+
+function activeSymbolsForDisplay() {
+  if (!topNEnabled()) return planConfig().universe?.symbols || [];
+  return state.dashboard?.active_symbols?.live || [];
+}
+
+function activeSymbolsLabel() {
+  if (!topNEnabled()) return "N/A（未启用 TopN，按 universe 展示）";
+  const symbols = state.dashboard?.active_symbols?.live || [];
+  return symbols.length ? symbols.join(", ") : "无活跃品种";
+}
+
 function renderHome() {
   const p = latestPortfolio("live");
   const stats = liveStats();
   const lifecycleCounts = state.dashboard.live_order_lifecycle_status_counts || {};
-  const active = state.dashboard.active_symbols?.live || [];
+  const active = activeSymbolsForDisplay();
   const enabled = state.dashboard.enabled_strategies_by_symbol?.live || {};
   const rejects = state.dashboard.top_lifecycle_reject_reasons?.live || [];
   const body = `
@@ -363,7 +390,7 @@ function renderOrderStatusCard(counts) {
   return `<article class="panel-card purple kpi-card">
     <div class="card-title purple">订单状态（Live）</div>
     <div class="order-status-grid" style="margin-top:8px;">
-      ${items.map((key) => `<div class="status-kpi"><span>${key}</span><b class="${statusTone(key)}">${fmtInt(counts[key] || 0)}</b></div>`).join("")}
+      ${items.map((key) => `<div class="status-kpi"><span title="${esc(key)}">${zhStatus(key)}</span><b class="${statusTone(key)}">${fmtInt(counts[key] || 0)}</b></div>`).join("")}
     </div>
   </article>`;
 }
@@ -401,34 +428,37 @@ function positionsTable() {
   const notional = p.notional_by_symbol || {};
   const margin = p.margin_by_symbol || {};
   const orderEvents = liveTails().order_events || [];
-  const rows = Object.keys({ ...notional, ...margin }).map((symbol) => {
-    const latest = [...orderEvents].reverse().find((x) => x.symbol === symbol || x.instrument_id === symbol) || {};
+  const lifecycle = liveTails().order_lifecycle_events || [];
+  const planSymbols = planConfig().universe?.symbols || [];
+  const rows = [...new Set([...planSymbols, ...Object.keys(notional), ...Object.keys(margin), ...orderEvents.map((x) => x.symbol || x.instrument_id).filter(Boolean), ...lifecycle.map((x) => x.symbol || x.instrument_id).filter(Boolean)])].map((symbol) => {
+    const latest = [...orderEvents, ...lifecycle].reverse().find((x) => x.symbol === symbol || x.instrument_id === symbol) || {};
     return {
       symbol,
       contract: latest.trade_instrument_id || "—",
-      qty: "—",
-      pnl: "—",
-      trigger: latest.expected_price || latest.price || "—",
-      latest: "—",
+      position: latest.position_side ? `${positionZh(latest.position_side)} ${fmtMaybe(latest.quantity)}` : "未持仓",
+      pnl: fmtNumber(symbolValue(p.unrealized_pnl_by_symbol, symbol)),
+      entry: latest.avg_fill_price ?? latest.fill_price ?? latest.market_price ?? null,
+      latest: latest.market_price ?? latest.price ?? null,
       side: latest.side || "—",
-      stopOpen: latest.stop_open_price || latest.trigger_price || latest.expected_price || "—",
-      stopLoss: latest.stop_loss || "—",
-      takeProfit: latest.take_profit || "—",
+      stopOpen: stopOpenValue(latest),
+      stopLoss: stopLossValue(latest),
+      takeProfit: takeProfitValue(latest),
+      reason: latest.reason || "",
       margin: margin[symbol],
     };
   });
-  return table(["品种", "合约", "持仓", "开仓/触发", "止损", "止盈", "最新", "方向", "盈亏", "保证金"], rows.map((r) => [
+  return table(["品种", "合约", "持仓方向/手数", "开仓均价", "最新价", "浮动盈亏", "止开仓/触发", "止损价", "止盈价", "保证金"], rows.map((r) => [
     r.symbol,
     r.contract,
-    r.qty,
-    fmtMaybe(r.stopOpen),
-    fmtPriceOrUnset(r.stopLoss === "—" ? null : r.stopLoss),
-    fmtPriceOrUnset(r.takeProfit === "—" ? null : r.takeProfit),
+    r.position,
+    fmtPriceState(r.entry, r.reason),
     fmtMaybe(r.latest),
-    sideZh(r.side),
     r.pnl,
+    fmtPriceState(r.stopOpen, r.reason),
+    fmtPriceState(r.stopLoss, r.reason),
+    fmtPriceState(r.takeProfit, r.reason),
     fmtNumber(r.margin),
-  ]), { fit: true });
+  ]), { minWidth: "1180px" });
 }
 
 function equityChart(p) {
@@ -508,20 +538,20 @@ function alertsList() {
 
 function lifecycleTable(rows) {
   const orderById = orderEventById();
-  return table(["时间", "订单ID", "品种", "状态", "方向", "数量", "成交均价", "开仓价", "止损价", "止盈价", "原因"], rows.map((row) => {
+  return table(["时间/tick", "订单ID", "品种", "状态", "方向", "数量", "成交均价", "开仓价", "止损价", "止盈价", "原因"], rows.map((row) => {
     const order = orderById[row.order_id] || {};
     const x = { ...order, ...row };
     return [
-      fmtTs(x.ts),
+      fmtEventTime(x.event_time ?? x.created_at ?? x.observed_at ?? x.ts),
       x.order_id || "—",
       x.symbol || x.instrument_id || "—",
       tag(zhStatus(x.status), statusTagTone(x.status)),
       sideZh(x.side),
       fmtMaybe(x.quantity),
       fmtMaybe(x.avg_fill_price || x.fill_price),
-      fmtMaybe(stopOpenValue(x)),
-      fmtPriceOrUnset(stopLossValue(x)),
-      fmtPriceOrUnset(takeProfitValue(x)),
+      fmtPriceState(stopOpenValue(x), x.reason),
+      fmtPriceState(stopLossValue(x), x.reason),
+      fmtPriceState(takeProfitValue(x), x.reason),
       zhReason(x.reason),
     ];
   }), { fit: true });
@@ -535,11 +565,11 @@ function homeLifecycleTable(rows) {
     return [
       x.symbol || x.instrument_id || "—",
       tag(zhStatus(x.status), statusTagTone(x.status)),
-      `${fmtMaybe(stopOpenValue(x))} / ${fmtPriceOrUnset(stopLossValue(x))} / ${fmtPriceOrUnset(takeProfitValue(x))}`,
+      `${fmtPriceState(stopOpenValue(x), x.reason)} / ${fmtPriceState(stopLossValue(x), x.reason)} / ${fmtPriceState(takeProfitValue(x), x.reason)}`,
       zhReason(x.reason),
     ];
   });
-  return table(["品种", "状态", "开仓/止损/止盈", "原因"], compact, { fit: true });
+  return `${compactStatusBar(rows)}${table(["品种", "状态", "开仓/止损/止盈", "原因"], compact, { fit: true })}`;
 }
 
 function orderEventById() {
@@ -565,6 +595,20 @@ function fmtPriceOrUnset(value) {
   return value == null ? `<span class="muted">未设置</span>` : fmtMaybe(value);
 }
 
+function fmtPriceState(value, reason = "") {
+  if (value != null && value !== "—") return fmtMaybe(value);
+  if (reason === "non_trading_time") return `<span class="muted">非交易时段</span>`;
+  if (reason === "roll_cooldown_block") return `<span class="muted">观察期阻断</span>`;
+  if (reason === "halted_by_guard") return `<span class="muted">熔断阻断</span>`;
+  if (String(reason).startsWith("risk_")) return `<span class="muted">风控阻断</span>`;
+  if (reason === "blocked_by_pending_order") return `<span class="muted">pending 阻断</span>`;
+  return `<span class="muted">未配置</span>`;
+}
+
+function symbolValue(obj, symbol) {
+  return obj && typeof obj === "object" ? obj[symbol] : undefined;
+}
+
 function lifecycleStatusBar(rows) {
   const statuses = ["", "NEW", "SUBMITTED", "PARTIAL", "FILLED", "REJECTED", "EXPIRED", "CANCELED"];
   const counts = rows.reduce((acc, row) => {
@@ -576,6 +620,17 @@ function lifecycleStatusBar(rows) {
     const label = status ? `${zhStatus(status)} ${fmtInt(counts[status] || 0)}` : `全部 ${fmtInt(rows.length)}`;
     return `<button class="filter-chip ${active ? "active" : ""}" data-lifecycle-status="${esc(status)}">${esc(label)}</button>`;
   }).join("")}</div>`;
+}
+
+function compactStatusBar(rows) {
+  const statuses = ["NEW", "SUBMITTED", "PARTIAL", "FILLED", "CANCELED", "EXPIRED", "REJECTED"];
+  const counts = rows.reduce((acc, row) => {
+    acc[row.status] = (acc[row.status] || 0) + 1;
+    return acc;
+  }, {});
+  return `<div class="status-filter compact-status-filter">${statuses.map((status) => `
+    <button class="filter-chip" data-jump="lifecycle" title="${esc(status)}">${esc(zhStatus(status))} ${fmtInt(counts[status] || 0)}</button>
+  `).join("")}</div>`;
 }
 
 function rejectDonut(rejects) {
@@ -594,13 +649,16 @@ function rejectDonut(rejects) {
 }
 
 function strategyTopNTable() {
-  const scores = latestScores();
+  const scores = latestScoreSnapshot();
   const grouped = groupBy(scores, (x) => x.symbol || "—");
   const rows = Object.entries(grouped).map(([symbol, items]) => {
     const sorted = items.slice().sort((a, b) => Number(b.final_score || b.score || 0) - Number(a.final_score || a.score || 0));
     return [symbol, ...[0, 1, 2].flatMap((idx) => {
       const item = sorted[idx] || {};
-      return [item.strategy_id || item.strategy_name || "—", scoreCell(item.final_score ?? item.score)];
+      return [
+        item.strategy_id || item.strategy_name || "—",
+        `<span title="raw=${titleText(item.raw_score ?? item.score)} cost=${titleText(item.cost_penalty)} risk=${titleText(item.risk_penalty)}">${scoreCell(item.final_score ?? item.score)}</span>`,
+      ];
     })];
   });
   return table(["品种", "Top1 策略", "分数", "Top2 策略", "分数", "Top3 策略", "分数"], rows, { minWidth: "900px" });
@@ -610,7 +668,7 @@ function gatesTable(activeSymbols, enabled) {
   const rows = candidateRows(activeSymbols, enabled).map((r) => [
     r.symbol,
     r.contract,
-    tag(r.active ? "活跃" : "未活跃", r.active ? "green" : "gray"),
+    tag(r.activeLabel, r.activeTone),
     tag(r.tradable ? "交易中" : "非交易时段", r.tradable ? "green" : "yellow"),
     r.strategy,
     `<span title="raw=${esc(r.raw)} cost=${esc(r.cost)} risk=${esc(r.risk)}">${scoreCell(r.final)}</span>`,
@@ -639,6 +697,7 @@ function candidateRows(activeSymbols, enabled) {
   const plan = planConfig();
   const symbols = plan.universe?.symbols || Object.keys(enabled) || activeSymbols;
   const activeSet = new Set(activeSymbols || []);
+  const usesTopN = topNEnabled();
   const latestRank = [...(liveTails().rank_events || [])].reverse()[0] || {};
   const excluded = latestRank.excluded_symbols || [];
   const excludedBySymbol = {};
@@ -647,7 +706,7 @@ function candidateRows(activeSymbols, enabled) {
       if (item && typeof item === "object") excludedBySymbol[item.symbol] = item.reason;
     });
   }
-  const scores = latestScores();
+  const scores = latestScoreSnapshot();
   const latestBySymbol = {};
   scores.forEach((s) => {
     const sym = s.symbol || "—";
@@ -659,7 +718,7 @@ function candidateRows(activeSymbols, enabled) {
   return symbols.map((symbol) => {
     const lastOrder = [...orders].reverse().find((x) => x.symbol === symbol || x.instrument_id === symbol) || {};
     const score = latestBySymbol[symbol] || {};
-    const active = activeSet.has(symbol) || activeSymbols.length === 0;
+    const active = usesTopN ? activeSet.has(symbol) : true;
     const reason = excludedBySymbol[symbol] || lastOrder.reason || "";
     const isTradable = reason !== "non_trading_time";
     const blocked = Boolean(reason && !["new", "simulated_fill", "tqkq_live_fill"].includes(reason));
@@ -667,6 +726,8 @@ function candidateRows(activeSymbols, enabled) {
       symbol,
       contract: lastOrder.trade_instrument_id || plan.instruments?.roll_policy?.contracts?.[symbol] || "—",
       active,
+      activeLabel: usesTopN ? (active ? "活跃" : "未活跃") : "N/A",
+      activeTone: usesTopN ? (active ? "green" : "gray") : "blue",
       tradable: isTradable,
       strategy: (enabled[symbol] || [score.strategy_id || score.strategy_name || "—"]).join(" / "),
       final: score.final_score ?? score.score ?? "—",
@@ -735,7 +796,7 @@ function renderSwitch() {
 
 function renderGates() {
   $("view-gates").innerHTML = `<div class="subpage">
-    ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(state.dashboard.active_symbols?.live || [], state.dashboard.enabled_strategies_by_symbol?.live || {}), { height: "h-full" })}
+    ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(activeSymbolsForDisplay(), state.dashboard.enabled_strategies_by_symbol?.live || {}), { height: "h-full" })}
   </div>`;
 }
 
@@ -793,7 +854,8 @@ function overviewTable() {
     ["broker_type", execution.broker_type || "—"],
     ["execution_mode", zhMode(execution.execution_mode)],
     ["confirm_live", execution.confirm_live ? "是" : "否"],
-    ["active_top_n", plan.runtime?.active_top_n ?? "0"],
+    ["active_top_n", topNEnabled() ? plan.runtime?.active_top_n : "N/A（未启用 TopN）"],
+    ["active_symbols", activeSymbolsLabel()],
     ["universe", (plan.universe?.symbols || []).join(", ")],
   ]);
 }
@@ -807,7 +869,8 @@ function overviewTiles() {
     ["Broker", execution.broker_type || "—"],
     ["执行模式", zhMode(execution.execution_mode)],
     ["真实确认", execution.confirm_live ? "是" : "否"],
-    ["TopN", plan.runtime?.active_top_n ?? "0"],
+    ["TopN", topNEnabled() ? `启用 Top ${plan.runtime?.active_top_n}` : "未启用"],
+    ["active_symbols", activeSymbolsLabel()],
     ["Universe", (plan.universe?.symbols || []).join(", ")],
     ["Warnings", (state.dashboard.warnings || []).map(zhWarning).join(" / ") || "—"],
   ];
@@ -882,7 +945,7 @@ function strategyScoreDecisionTable() {
   const enabled = state.dashboard.enabled_strategies_by_symbol?.live || {};
   const approved = state.dashboard.strategy_switch?.approved || {};
   const approvedSymbols = approved.enabled_strategies_by_symbol || approved.enabled || {};
-  const rows = latestScores()
+  const rows = latestScoreSnapshot()
     .slice()
     .sort((a, b) => Number(b.final_score || b.score || 0) - Number(a.final_score || a.score || 0))
     .slice(0, 80)
@@ -929,25 +992,25 @@ function rollStageTable() {
   const hasClose = lifecycle.some((x) => x.reason === "roll_close_position");
   const cooldown = lifecycle.filter((x) => x.reason === "roll_cooldown_block").length;
   const stages = [
-    ["撤单中（Cancel Pending）", last.from_contract || "—", last.to_contract || "—", fmtTs(last.ts), hasCancel ? "完成" : "无 pending", hasCancel ? "roll_cancel_pending" : "—"],
-    ["清仓中（Close Position）", last.from_contract || "—", last.to_contract || "—", fmtTs(last.ts), hasClose ? "完成" : "无旧仓位", hasClose ? "roll_close_position" : "—"],
-    ["观察中（Cooldown）", last.from_contract || "—", last.to_contract || "—", fmtTs(last.ts), cooldown ? `剩余/阻断 ${cooldown} 次` : "未进入/已结束", "roll_cooldown_block"],
-    ["就绪（Ready）", last.from_contract || "—", last.to_contract || "—", fmtTs(last.ts), last.to_contract ? "已切换" : "等待换月", last.to_contract || "—"],
-    ["重新开仓（Re-Entry）", last.from_contract || "—", last.to_contract || "—", fmtTs(last.ts), latestNewContractOrder(last.to_contract) ? "已恢复" : "等待条件", last.to_contract || "—"],
+    ["撤单中（Cancel Pending）", last.from_contract || "—", last.to_contract || "—", fmtEventTime(last.event_time ?? last.created_at ?? last.ts), hasCancel ? "完成" : "无 pending", hasCancel ? "roll_cancel_pending" : "—"],
+    ["清仓中（Close Position）", last.from_contract || "—", last.to_contract || "—", fmtEventTime(last.event_time ?? last.created_at ?? last.ts), hasClose ? "完成" : "无旧仓位", hasClose ? "roll_close_position" : "—"],
+    ["观察中（Cooldown）", last.from_contract || "—", last.to_contract || "—", fmtEventTime(last.event_time ?? last.created_at ?? last.ts), cooldown ? `剩余/阻断 ${cooldown} 次` : "未进入/已结束", "roll_cooldown_block"],
+    ["就绪（Ready）", last.from_contract || "—", last.to_contract || "—", fmtEventTime(last.event_time ?? last.created_at ?? last.ts), last.to_contract ? "已切换" : "等待换月", last.to_contract || "—"],
+    ["重新开仓（Re-Entry）", last.from_contract || "—", last.to_contract || "—", fmtEventTime(last.event_time ?? last.created_at ?? last.ts), latestNewContractOrder(last.to_contract) ? "已恢复" : "等待条件", last.to_contract || "—"],
   ];
   return table(["阶段", "旧合约", "新合约", "触发时间", "当前状态", "观察条件 / reason"], stages, { minWidth: "1060px" });
 }
 
 function rollEventsTable() {
-  return table(["触发时间", "品种", "旧合约", "新合约", "当前阶段", "剩余观察 tick", "允许再开仓条件"], (liveTails().roll_events || []).map((x) => [
-    fmtTs(x.ts),
+  return table(["触发时间/tick", "品种", "旧合约", "新合约", "当前阶段", "剩余观察 tick", "允许再开仓条件"], (liveTails().roll_events || []).map((x) => [
+    fmtEventTime(x.event_time ?? x.created_at ?? x.ts),
     x.base_symbol || "—",
     x.from_contract || "—",
     x.to_contract || "—",
     "观察中 / 就绪",
     "由 cooldown_ticks 控制",
     "仓位=0 且无 pending 且观察期结束",
-  ]), { minWidth: "1120px" });
+  ]), { minWidth: "1120px", emptyMessage: "暂无换月事件；需要 fixed_main 且发生主力切换后才会产生 roll_events。" });
 }
 
 function rollConditionTable() {
@@ -963,17 +1026,17 @@ function rollConditionTable() {
 
 function contractsTable() {
   const contracts = planConfig().instruments?.roll_policy?.contracts || {};
-  return table(["品种", "执行合约", "来源"], Object.entries(contracts).map(([sym, contract]) => [sym, contract, "roll_policy.contracts"]));
+  return table(["品种", "执行合约", "来源"], Object.entries(contracts).map(([sym, contract]) => [sym, contract, "roll_policy.contracts"]), { emptyMessage: "暂无固定合约映射；fixed_main 或未配置 contracts 时不会显示映射。" });
 }
 
 function rankTable() {
   const rows = liveTails().rank_events || [];
-  return table(["时间", "active_top_n", "active_symbols", "excluded_count"], rows.map((x) => [
-    fmtTs(x.ts),
+  return table(["时间/tick", "active_top_n", "active_symbols", "excluded_count"], rows.map((x) => [
+    fmtEventTime(x.event_time ?? x.created_at ?? x.ts),
     x.active_top_n ?? "—",
     Array.isArray(x.active_symbols) ? x.active_symbols.join(", ") : "—",
     x.excluded_symbols_count ?? "—",
-  ]));
+  ]), { emptyMessage: topNEnabled() ? "暂无 rank_events；等待运行 tick 产生排名事件。" : "未启用 TopN，rank_events 不会产生。" });
 }
 
 function timelineTable() {
@@ -984,8 +1047,8 @@ function timelineTable() {
     ...(tail.strategy_score_events || []),
     ...(tail.roll_events || []),
   ].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
-  return table(["时间", "类型", "品种", "状态", "原因"], rows.map((x) => [
-    fmtTs(x.ts),
+  return table(["时间/tick", "类型", "品种", "状态", "原因"], rows.map((x) => [
+    fmtEventTime(x.event_time ?? x.created_at ?? x.ts),
     x.event_type || "—",
     x.symbol || x.base_symbol || x.instrument_id || "—",
     zhStatus(x.status),
@@ -993,15 +1056,25 @@ function timelineTable() {
   ]));
 }
 
-function table(headers, rows, { minWidth = "100%", fit = false } = {}) {
+function table(headers, rows, { minWidth = "100%", fit = false, emptyMessage = "暂无数据" } = {}) {
   return `<div class="table-wrap scroll-area ${fit ? "no-x" : ""}"><table class="data-table ${fit ? "fit-table" : ""}" style="--table-min:${esc(minWidth)}">
     <thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
-    <tbody>${rows.length ? rows.map((row) => `<tr>${row.map((cell) => `<td title="${titleText(cell)}">${cell == null ? "—" : cell}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}"><div class="empty">暂无数据</div></td></tr>`}</tbody>
+    <tbody>${rows.length ? rows.map((row) => `<tr>${row.map((cell) => `<td title="${titleText(cell)}">${cell == null ? "—" : cell}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}"><div class="empty">${esc(emptyMessage)}</div></td></tr>`}</tbody>
   </table></div>`;
 }
 
 function latestScores() {
   return liveTails().strategy_score_events || [];
+}
+
+function latestScoreSnapshot() {
+  const rows = latestScores();
+  if (!rows.length) return [];
+  const maxTs = rows.reduce((acc, row) => {
+    const ts = Number(row.ts ?? row.tick ?? 0);
+    return Number.isFinite(ts) && ts > acc ? ts : acc;
+  }, -Infinity);
+  return rows.filter((row) => Number(row.ts ?? row.tick ?? 0) === maxTs);
 }
 
 function groupBy(items, fn) {
