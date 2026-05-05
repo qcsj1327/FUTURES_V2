@@ -524,7 +524,11 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     broker_params = broker_raw.get("params", {})
     if not isinstance(broker_params, dict):
         raise ValueError("adapters.broker.params must be object")
-    _validate_broker_params(broker_mode=broker_mode, params=broker_params)
+    _validate_broker_params(
+        broker_mode=broker_mode,
+        params=broker_params,
+        runtime_id=runtime_id,
+    )
     runtime, adapters, instruments = _normalize_runtime_mode(
         runtime=runtime,
         runtime_mode_explicit=runtime_mode_explicit,
@@ -713,17 +717,30 @@ def _validate_tqkq_contracts(*, mode: str, instruments: InstrumentsSpec) -> None
         )
 
 
-def _validate_broker_params(*, broker_mode: str, params: dict[str, Any]) -> None:
+def _validate_broker_params(
+    *,
+    broker_mode: str,
+    params: dict[str, Any],
+    runtime_id: str,
+) -> None:
     if broker_mode == "tqkq_live":
-        allowed = {"submit_mode", "confirm_live"}
+        allowed = {"submit_mode", "confirm_live", "confirm_live_token"}
         submit_mode = params.get("submit_mode", "dry_run")
         if submit_mode not in {"dry_run", "live"}:
             raise ValueError("adapters.broker.params.submit_mode must be dry_run or live")
-        if submit_mode == "live" and params.get("confirm_live") is not True:
-            raise ValueError(
-                "adapters.broker.params.confirm_live must be true when "
-                "adapters.broker.params.submit_mode=live"
-            )
+        if submit_mode == "live":
+            confirm_live = params.get("confirm_live")
+            token_raw = params.get("confirm_live_token")
+            token = token_raw if isinstance(token_raw, str) else ""
+            if confirm_live is not True or token != runtime_id:
+                raise ValueError(
+                    "tqkq_live live submit hard gate failed: "
+                    f"submit_mode={submit_mode!r}, "
+                    f"confirm_live={confirm_live is True}, "
+                    f"token_present={bool(token)}, "
+                    f"expected_token=runtime_id:{runtime_id}, "
+                    f"actual_token={_masked_token(token)}"
+                )
     elif broker_mode == "tqkq_sim":
         allowed = {"no_fill"}
     else:
@@ -737,3 +754,11 @@ def _validate_broker_params(*, broker_mode: str, params: dict[str, Any]) -> None
     extra = set(params) - allowed
     if extra:
         raise ValueError(f"unknown keys at adapters.broker.params: {sorted(extra)}")
+
+
+def _masked_token(token: str) -> str:
+    if not token:
+        return "<empty>"
+    if len(token) <= 4:
+        return f"<len:{len(token)}>"
+    return f"{token[:2]}***{token[-2:]}<len:{len(token)}>"

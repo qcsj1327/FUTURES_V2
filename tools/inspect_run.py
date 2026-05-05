@@ -217,6 +217,26 @@ def _enabled_strategies(
     return _enabled_strategies_from_plan(plan_cfg)
 
 
+def _execution_observability(plan_cfg: dict[str, Any]) -> dict[str, Any]:
+    adapters = plan_cfg.get("adapters")
+    broker_cfg: dict[str, Any] = {}
+    if isinstance(adapters, dict):
+        raw_broker = adapters.get("broker")
+        if isinstance(raw_broker, dict):
+            broker_cfg = raw_broker
+    broker_type = str(broker_cfg.get("mode", "simulated"))
+    raw_params = broker_cfg.get("params")
+    params = raw_params if isinstance(raw_params, dict) else {}
+    submit_mode = str(params.get("submit_mode", "dry_run"))
+    token = params.get("confirm_live_token")
+    return {
+        "execution_mode": submit_mode if submit_mode in {"dry_run", "live"} else "dry_run",
+        "confirm_live": params.get("confirm_live") is True,
+        "confirm_live_token_present": isinstance(token, str) and bool(token),
+        "broker_type": broker_type,
+    }
+
+
 def _find_latest_manifest(*, runtime_id: str, manifests_dir: Path) -> Path | None:
     if not manifests_dir.exists():
         return None
@@ -343,6 +363,7 @@ def inspect_run(
             "live": _pending_orders_count(live_dir / "order_lifecycle_events.jsonl"),
             "sandbox": _pending_orders_count(sandbox_dir / "order_lifecycle_events.jsonl"),
         },
+        "execution": _execution_observability(plan_cfg),
         "portfolio": {
             "live": _portfolio_summary(live_dir),
             "sandbox": _portfolio_summary(sandbox_dir),

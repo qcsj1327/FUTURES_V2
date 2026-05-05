@@ -242,10 +242,20 @@ def build_broker_with_specs(
                 f"{bad_contracts}"
             )
         submit_mode = str(plan.adapters.broker.params.get("submit_mode", "dry_run"))
-        if submit_mode == "live" and plan.adapters.broker.params.get("confirm_live") is not True:
+        token = plan.adapters.broker.params.get("confirm_live_token")
+        if (
+            submit_mode == "live"
+            and (
+                plan.adapters.broker.params.get("confirm_live") is not True
+                or token != plan.runtime.runtime_id
+            )
+        ):
             raise ValueError(
-                "adapters.broker.params.confirm_live must be true when "
-                "adapters.broker.params.submit_mode=live"
+                "tqkq_live live submit hard gate failed in session_builder: "
+                f"submit_mode={submit_mode!r}, "
+                f"confirm_live={plan.adapters.broker.params.get('confirm_live') is True}, "
+                f"token_present={isinstance(token, str) and bool(token)}, "
+                f"expected_token=runtime_id:{plan.runtime.runtime_id}"
             )
         return TqKqLiveBroker(
             market_data=market_data,
