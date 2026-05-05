@@ -21,6 +21,31 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 - 推荐格式：只写 **基础 symbol**（例如 `au`, `ag`）
 - 交易/执行层可能会请求 `*_main`（例如 `au_main`），`LiveFileMarketData` 会将其映射到 base symbol 读取
 - 文件里只允许 base symbol；出现任何 `*_main` key 都认为数据源污染，直接报错
+- 顶层 quote 继续保留 `price` / `volume` / `ts`
+- 可选写入 `bars.5m` / `bars.15m` / `bars.1h` / `bars.1d`，每个 bar 包含 `open` / `high` / `low` / `close` / `volume` / `ts`
+- `scripts/mock_prices_writer.py` 使用本地虚拟 tick 桶聚合这些 bar：`5m=5 ticks`、`15m=15 ticks`、`1h=60 ticks`、`1d=240 ticks`
+
+示例：
+
+```json
+{
+  "au": {
+    "price": 180.5,
+    "volume": 1020.0,
+    "ts": 1710000001,
+    "bars": {
+      "5m": {
+        "open": 180.0,
+        "high": 181.0,
+        "low": 179.8,
+        "close": 180.5,
+        "volume": 5100.0,
+        "ts": 1710000001
+      }
+    }
+  }
+}
+```
 
 ## runtime.mode
 
@@ -29,11 +54,20 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 - `simulated_v2`：`adapters.market_data.mode=simulated_v2`，`adapters.broker.mode=simulated`
 - `live_file`：`adapters.market_data.mode=live_file`，`adapters.broker.mode=simulated`
 - `tqkq_sim`：`adapters.market_data.mode=tqkq`，`adapters.broker.mode=tqkq_sim`
+- `tqkq_live`：`adapters.market_data.mode=tqkq`，`adapters.broker.mode=tqkq_live`
 
 显式填写旧的分散字段时必须与 `runtime.mode` 推导一致，否则 loader 会直接报错并给出冲突字段、期望值、实际值。
 `tqkq_sim` 需要本地 `.env` 提供 `TQKQ_USER` / `TQKQ_PASS`，并要求 `instruments.roll_policy.contracts` 使用真实合约，例如 `SHFE.au2406`。
 
 示例：`plans/dev.mode_simulated_v2.json`、`plans/dev.mode_live_file.json`、`plans/dev.mode_tqkq_sim.json`。
+
+本地开发脚本 `scripts/dev_up.sh` 的 daemon 菜单只提供：
+
+- `live_file`
+- `tqkq_dryrun`
+- `tqkq_live_submit`
+
+`tqkq_sim` 不在 daemon 菜单中，因为 `scripts.run_daemon` 当前明确拒绝 `runtime.mode=tqkq_sim`。
 
 ## instruments
 
@@ -59,6 +93,15 @@ python -m tools.validate_plan --config plans/dev.live_file.json --runtime-id rt_
 - `rank_emit_events`：`1` 时写 `rank_events.jsonl`，供 inspect/web 读取。
 
 示例：`plans/dev.topn.json`。
+
+## volume strategy timeframe
+
+volume 系列策略支持 `params.timeframe`：
+
+- `spot`：默认值，使用顶层 `quote.price` / `quote.volume`
+- `5m` / `15m` / `1h` / `1d`：使用对应 bar 的 `close` / `volume`
+
+未配置 `timeframe` 时保持旧行为。示例：`plans/dev.live_file_bars.json`。
 
 ## strategy switch
 

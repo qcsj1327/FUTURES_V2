@@ -80,17 +80,27 @@ patterns=(
   "TqApi"
 )
 
-for pattern in "${patterns[@]}"; do
-  sweep_pattern "$pattern" TERM
-done
+if [[ "${DEV_DOWN_SKIP_SWEEP:-0}" != "1" ]]; then
+  for pattern in "${patterns[@]}"; do
+    sweep_pattern "$pattern" TERM
+  done
+else
+  echo "[SKIP] process sweep disabled by DEV_DOWN_SKIP_SWEEP=1"
+fi
 
-cleanup_web_port
+if [[ "${DEV_DOWN_SKIP_PORT_CLEANUP:-0}" != "1" ]]; then
+  cleanup_web_port
+else
+  echo "[SKIP] web port cleanup disabled by DEV_DOWN_SKIP_PORT_CLEANUP=1"
+fi
 
 sleep 0.8
 
-for pattern in "${patterns[@]}"; do
-  sweep_pattern "$pattern" KILL
-done
+if [[ "${DEV_DOWN_SKIP_SWEEP:-0}" != "1" ]]; then
+  for pattern in "${patterns[@]}"; do
+    sweep_pattern "$pattern" KILL
+  done
+fi
 
 rm -f logs/*.pid
 
