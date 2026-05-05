@@ -22,10 +22,17 @@ def test_marketdata_adapter_exposes_quote_only_interface() -> None:
 def test_market_quote_schema_contains_price_volume_and_ts() -> None:
     quote = MarketQuote(symbol="au", price=100.0, volume=None, ts=1)
 
-    assert [f.name for f in fields(MarketQuote)] == ["symbol", "price", "volume", "ts"]
+    assert [f.name for f in fields(MarketQuote)] == [
+        "symbol",
+        "price",
+        "volume",
+        "ts",
+        "bars",
+    ]
     assert quote.price == 100.0
     assert quote.volume is None
     assert quote.ts == 1
+    assert quote.bars == {}
 
 
 @pytest.mark.parametrize(

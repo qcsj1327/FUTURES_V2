@@ -25,10 +25,18 @@ gate before a mainline merge.
 
 - Start the local loop with `scripts/dev_up.sh`.
 - Stop it with `scripts/dev_down.sh` before starting another loop.
-- `scripts/dev_up.sh` starts three process groups and records pids in `logs/`:
+- `scripts/dev_up.sh` prompts for a local mode unless `DEV_START_MODE` is set:
+  - `live_file`: starts web, `mock_prices_writer`, and daemon.
+  - `tqkq_dryrun`: starts web and daemon with the TqKq live-broker dry-run plan.
+  - `tqkq_live_submit`: starts web and daemon only after the runtime-id hard gate
+    token is confirmed; this is the real submit path.
+- `tqkq_sim` is intentionally not in the daemon menu because
+  `scripts.run_daemon` rejects `runtime.mode=tqkq_sim`.
+- `scripts/dev_up.sh` records pids in `logs/`:
   - `web`: `logs/web.pid`, `logs/web.log`, listens on `127.0.0.1:8000`
   - `prices`: `logs/prices.pid`, `logs/prices.log`, writes `plans/prices.json`
-  - `daemon`: `logs/daemon.pid`, `logs/daemon.log`, runs `rt_livefile`
+    only in `live_file` mode
+  - `daemon`: `logs/daemon.pid`, `logs/daemon.log`
 - If the web port is already occupied, stop the existing loop first:
   `scripts/dev_down.sh`.
 - If the port is still occupied, locate the holder with:
@@ -44,18 +52,27 @@ For a 2-5 minute local smoke run:
 scripts/long_run_smoke.sh
 ```
 
-The smoke script starts `scripts/dev_up.sh`, waits for `SMOKE_SECONDS` seconds
-(`180` by default), calls `python -m tools.inspect_run rt_livefile`, and checks
-the web endpoints with `curl`.
+The smoke script starts `scripts/dev_up.sh` using `DEV_START_MODE`, waits for
+`SMOKE_SECONDS` seconds (`180` by default), calls `python -m tools.inspect_run`,
+and checks the web endpoints with `curl`.
+
+Examples:
+
+```bash
+DEV_START_MODE=live_file SMOKE_SECONDS=60 scripts/long_run_smoke.sh
+DEV_START_MODE=tqkq_dryrun SMOKE_SECONDS=60 scripts/long_run_smoke.sh
+```
 
 Expected growth signals:
 
 - Quote source: `plans/prices.json` should keep receiving quote schema updates.
-- Snapshots: `portfolio_snapshots.jsonl` should grow for `rt_livefile`.
+- Snapshots: `portfolio_snapshots.jsonl` can grow for the selected runtime.
 - Orders and fills: `order_events.jsonl` and `fill_events.jsonl` should grow
   when the configured strategy emits executable decisions.
 - Lifecycle: `order_lifecycle_events.jsonl` grows when broker lifecycle tracking
   emits pending, partial, filled, cancelled, expired, or rejected statuses.
+- Strategy score: `strategy_score_events.jsonl` grows when strategy scoring is
+  enabled.
 - Rank: `rank_events.jsonl` grows only for plans with `runtime.active_top_n > 0`
   and `runtime.rank_emit_events = 1`.
 - Roll: `roll_events.jsonl` grows only when `fixed_main` roll policy observes a

@@ -10,6 +10,8 @@ from adapters.marketdata.base import MarketQuote
 from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
 
+ALLOWED_TIMEFRAMES = {"spot", "5m", "15m", "1h", "1d"}
+
 
 def strict_positive_int(params: dict[str, object], name: str) -> int:
     value = params.get(name)
@@ -35,6 +37,28 @@ def strict_direction(params: dict[str, object], name: str) -> str:
     if value in {"long", "short", "both"}:
         return str(value)
     raise ValueError(f"{name} must be long|short|both")
+
+
+def strict_timeframe(params: dict[str, object], name: str = "timeframe") -> str:
+    value = params.get(name, "spot")
+    if value in ALLOWED_TIMEFRAMES:
+        return str(value)
+    raise ValueError(f"{name} must be spot|5m|15m|1h|1d")
+
+
+def quote_for_timeframe(quote: MarketQuote, timeframe: str) -> MarketQuote:
+    if timeframe == "spot":
+        return quote
+    bar = quote.get_bar(timeframe)
+    if bar is None:
+        raise KeyError(timeframe)
+    return MarketQuote(
+        symbol=quote.symbol,
+        price=bar.close,
+        volume=bar.volume,
+        ts=bar.ts,
+        bars=quote.bars,
+    )
 
 
 def mean(values: Iterable[float]) -> float:

@@ -43,7 +43,8 @@
         "momentum_window": 3,
         "vol_window": 5,
         "min_vol_mult": 0.8,
-        "direction": "both"
+        "direction": "both",
+        "timeframe": "1h"
       },
       "symbols": [
         "au"

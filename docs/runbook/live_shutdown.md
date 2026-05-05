@@ -20,18 +20,20 @@ scripts/dev_down.sh
 `dev_down.sh` stops the pid-file process groups for:
 
 - `web` (`uvicorn`)
-- `prices` (`scripts/mock_prices_writer.py`)
+- `prices` (`scripts/mock_prices_writer.py`, live_file mode only)
 - `daemon` (`python -m scripts.run_daemon`)
 
 It then sweeps matching leftover local processes for `uvicorn`,
-`run_daemon`, `mock_prices_writer`, `tqsdk`, and `TqApi`.
+`run_daemon`, `run_plan`, `run_local`, `tools.inspect_run`,
+`mock_prices_writer`, `tqsdk`, and `TqApi`. It also attempts to clear the web
+listen port, `8000` by default.
 
 ## Verify Shutdown
 
 After shutdown, run:
 
 ```bash
-pgrep -fl "uvicorn|run_daemon|mock_prices_writer|tqsdk|TqApi" | sort
+pgrep -fl "uvicorn|run_daemon|mock_prices_writer|run_plan|run_local|inspect_run|tqsdk|TqApi" | sort
 ```
 
 No project process should remain. If a process still appears, inspect the
@@ -61,3 +63,13 @@ Then stop the owning process before running `scripts/dev_up.sh` again.
 The TqKq market data adapter and live broker expose idempotent `close()`
 methods. Normal `run_daemon` shutdown calls close on the active session, and
 `dev_down.sh` remains the fallback for interrupted local shells.
+
+## Noninteractive Checks
+
+Script contracts can use these test-only switches to avoid interactive prompts
+or local process sweeps:
+
+```bash
+DEV_NONINTERACTIVE=1 DEV_AUTO_CONFIRM=1 DEV_START_MODE=live_file scripts/dev_up.sh
+DEV_DOWN_SKIP_SWEEP=1 DEV_DOWN_SKIP_PORT_CLEANUP=1 scripts/dev_down.sh
+```

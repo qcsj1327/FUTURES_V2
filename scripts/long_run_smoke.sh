@@ -1,10 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUNTIME_ID="${RUNTIME_ID:-rt_livefile}"
+MODE="${DEV_START_MODE:-live_file}"
+RUNTIME_ID="${DEV_RUNTIME_ID:-}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 SMOKE_SECONDS="${SMOKE_SECONDS:-180}"
 KEEP_UP="${KEEP_UP:-0}"
+PYTHON_BIN="${PYTHON:-python}"
+
+default_runtime_id() {
+  case "$1" in
+    live_file) echo "rt_livefile" ;;
+    tqkq_dryrun) echo "rt_tqkq_dryrun" ;;
+    tqkq_live_submit) echo "rt_tqkq_live_submit" ;;
+    *) echo "unsupported DEV_START_MODE=$1" >&2; return 1 ;;
+  esac
+}
+
+RUNTIME_ID="${RUNTIME_ID:-$(default_runtime_id "$MODE")}"
 
 before="$(mktemp)"
 after="$(mktemp)"
@@ -17,24 +30,45 @@ cleanup() {
 }
 trap cleanup EXIT
 
+echo "long_run_smoke startup summary"
+echo "  mode: $MODE"
+echo "  runtime_id: $RUNTIME_ID"
+echo "  seconds: $SMOKE_SECONDS"
+echo "  keep_up: $KEEP_UP"
+
+if [[ "${DEV_AUTO_CONFIRM:-0}" != "1" && "${DEV_NONINTERACTIVE:-0}" != "1" ]]; then
+  read -r -p "Start smoke run? [y/N]: " answer
+  [[ "$answer" == "y" || "$answer" == "Y" ]] || exit 1
+fi
+
 scripts/dev_down.sh >/dev/null 2>&1 || true
-scripts/dev_up.sh
+DEV_START_MODE="$MODE" \
+DEV_RUNTIME_ID="$RUNTIME_ID" \
+DEV_AUTO_CONFIRM="${DEV_AUTO_CONFIRM:-1}" \
+DEV_NONINTERACTIVE="${DEV_NONINTERACTIVE:-1}" \
+bash scripts/dev_up.sh
 
 sleep 3
-python -m tools.inspect_run "$RUNTIME_ID" --tail 1 > "$before" || true
+"$PYTHON_BIN" -m tools.inspect_run "$RUNTIME_ID" --tail 1 > "$before" || true
 
 sleep "$SMOKE_SECONDS"
 
-python -m tools.inspect_run "$RUNTIME_ID" --tail 5 > "$after"
+"$PYTHON_BIN" -m tools.inspect_run "$RUNTIME_ID" --tail 5 > "$after"
 curl -fsS "$BASE_URL/runs/$RUNTIME_ID" >/dev/null
 curl -fsS "$BASE_URL/runs/$RUNTIME_ID/events?env=live&tail=20" >/dev/null
 
-python - "$before" "$after" <<'PY'
+"$PYTHON_BIN" - "$before" "$after" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
+
+LIVENESS_KEYS = {
+    "portfolio_snapshots_lines",
+    "order_lifecycle_events_lines",
+    "strategy_score_events_lines",
+}
 
 
 def read(path: str) -> dict[str, object]:
@@ -61,11 +95,14 @@ def live_stats(report: dict[str, object]) -> dict[str, int]:
 before = live_stats(read(sys.argv[1]))
 after = live_stats(read(sys.argv[2]))
 print("long_run_smoke stats:")
-for key in sorted(set(before) | set(after)):
+for key in sorted(set(before) | set(after) | LIVENESS_KEYS):
     print(f"  {key}: {before.get(key, 0)} -> {after.get(key, 0)}")
 
-if after.get("portfolio_snapshots_lines", 0) <= before.get("portfolio_snapshots_lines", 0):
-    raise SystemExit("portfolio_snapshots_lines did not grow")
+if not any(after.get(key, 0) > before.get(key, 0) for key in LIVENESS_KEYS):
+    raise SystemExit(
+        "no liveness metric grew: "
+        + ", ".join(sorted(LIVENESS_KEYS))
+    )
 PY
 
 echo "OK: $RUNTIME_ID smoke passed"
