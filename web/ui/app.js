@@ -417,18 +417,18 @@ function positionsTable() {
       margin: margin[symbol],
     };
   });
-  return table(["品种", "合约", "持仓", "开仓价/触发价", "止损价", "止盈价", "最新价", "方向", "浮动盈亏", "保证金"], rows.map((r) => [
+  return table(["品种", "合约", "持仓", "开仓/触发", "止损", "止盈", "最新", "方向", "盈亏", "保证金"], rows.map((r) => [
     r.symbol,
     r.contract,
     r.qty,
     fmtMaybe(r.stopOpen),
-    fmtMaybe(r.stopLoss),
-    fmtMaybe(r.takeProfit),
+    fmtPriceOrUnset(r.stopLoss === "—" ? null : r.stopLoss),
+    fmtPriceOrUnset(r.takeProfit === "—" ? null : r.takeProfit),
     fmtMaybe(r.latest),
     sideZh(r.side),
     r.pnl,
     fmtNumber(r.margin),
-  ]), { minWidth: "960px" });
+  ]), { fit: true });
 }
 
 function equityChart(p) {
