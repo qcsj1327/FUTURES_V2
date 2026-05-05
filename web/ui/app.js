@@ -286,8 +286,8 @@ function card(title, body, { tone = "", height = "", more = "" } = {}) {
   `;
 }
 
-function metric(label, value, cls = "") {
-  return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${cls}" title="${titleText(value)}">${value}</div></div>`;
+function metric(label, value, cls = "", title = value) {
+  return `<div class="metric"><div class="metric-label" title="${esc(label)}">${label}</div><div class="metric-value ${cls}" title="${titleText(title)}">${value}</div></div>`;
 }
 
 function latestPortfolio(env = "live") {
@@ -300,6 +300,25 @@ function liveStats() {
 
 function liveTails() {
   return state.dashboard?.stores?.live?.tail || {};
+}
+
+function totalPositionQty() {
+  const p = latestPortfolio("live");
+  const positions = p.positions_by_symbol || p.positions || {};
+  if (positions && typeof positions === "object" && Object.keys(positions).length) {
+    return Object.values(positions).reduce((acc, item) => {
+      if (typeof item === "number") return acc + Math.abs(item);
+      if (item && typeof item === "object" && typeof item.quantity === "number") return acc + Math.abs(item.quantity);
+      if (item && typeof item === "object" && typeof item.qty === "number") return acc + Math.abs(item.qty);
+      return acc;
+    }, 0);
+  }
+  const latestBySymbol = {};
+  [...(liveTails().order_events || []), ...(liveTails().order_lifecycle_events || [])].forEach((item) => {
+    const sym = item.symbol || item.instrument_id;
+    if (sym) latestBySymbol[sym] = item;
+  });
+  return Object.values(latestBySymbol).reduce((acc, item) => acc + (typeof item.quantity === "number" ? Math.abs(item.quantity) : 0), 0);
 }
 
 function planConfig() {
@@ -316,7 +335,7 @@ function activeSymbolsForDisplay() {
 }
 
 function activeSymbolsLabel() {
-  if (!topNEnabled()) return "N/A（未启用 TopN，按 universe 展示）";
+  if (!topNEnabled()) return "未启用 TopN（按 universe 展示）";
   const symbols = state.dashboard?.active_symbols?.live || [];
   return symbols.length ? symbols.join(", ") : "无活跃品种";
 }
@@ -338,16 +357,16 @@ function renderHome() {
         ${renderEventStatsCard(stats)}
       </section>
       <section class="row-grid-3">
-        ${card("持仓与关键价格（止开仓 / 止盈止损）", positionsTable(), { height: "h320" })}
+        ${card("持仓与关键价格（止开仓 / 止盈止损）", positionsTable({ summary: true }), { height: "h320" })}
         ${card("权益与风险走势（Live）", equityChart(p), { height: "h320" })}
         ${card("告警与提示", alertsList(), { tone: "red", height: "h320" })}
       </section>
       <section class="row-grid-3 equal">
         ${card("最新订单生命周期（Live）", homeLifecycleTable(liveTails().order_lifecycle_events || []), { height: "h260", more: "lifecycle" })}
         ${card("风控拒单统计（Live）", rejectDonut(rejects), { height: "h260", more: "risk" })}
-        ${card("策略评分 TopN（实时）", strategyTopNTable(), { height: "h260", more: "switch" })}
+        ${card("策略评分 TopN（实时）", strategyTopNTable({ summary: true }), { height: "h260", more: "switch" })}
       </section>
-      ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(active, enabled), { height: "h290", more: "gates" })}
+      ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(active, enabled, { summary: true }), { height: "h290", more: "gates" })}
     </div>
   `;
   $("view-home").innerHTML = body;
@@ -360,9 +379,9 @@ function renderFundsRiskCard(p) {
   return `<article class="panel-card blue kpi-card">
     <div class="card-title blue">资金与风险（CNY）</div>
     <div class="metric-grid" style="margin-top:8px;">
-      ${metric("权益", fmtCompact(p.equity), "")}
-      ${metric("可用资金", fmtCompact(p.cash), "")}
-      ${metric("保证金占用", fmtCompact(p.margin_used), "")}
+      ${metric("权益", fmtCompact(p.equity), "", fmtNumber(p.equity))}
+      ${metric("可用资金", fmtCompact(p.cash), "", fmtNumber(p.cash))}
+      ${metric("保证金占用", fmtCompact(p.margin_used), "", fmtNumber(p.margin_used))}
       ${metric("风险比率", fmtPct(p.risk_ratio), "green")}
       ${metric("最大风险比率（今日）", fmtPct(p.max_risk_ratio_seen), riskRatio > 0.5 ? "red" : "yellow")}
     </div>
@@ -373,14 +392,16 @@ function renderFundsRiskCard(p) {
 function renderPositionKpi(p) {
   const notional = p.notional_by_symbol || {};
   const symbols = Object.keys(notional).length;
+  const totalQty = totalPositionQty();
   const totalNotional = Object.values(notional).reduce((acc, v) => acc + (typeof v === "number" ? v : 0), 0);
   return `<article class="panel-card green kpi-card">
     <div class="card-title green">持仓概览（Live）</div>
-    <div class="metric-grid" style="margin-top:8px; grid-template-columns: repeat(2,minmax(0,1fr));">
-      ${metric("持仓盈亏（浮动）", fmtCompact(p.unrealized_pnl), Number(p.unrealized_pnl || 0) >= 0 ? "green" : "red")}
-      ${metric("平仓盈亏（今日）", fmtCompact(p.realized_pnl), Number(p.realized_pnl || 0) >= 0 ? "green" : "red")}
+    <div class="metric-grid" style="margin-top:8px;">
+      ${metric("持仓盈亏（浮动）", fmtCompact(p.unrealized_pnl), Number(p.unrealized_pnl || 0) >= 0 ? "green" : "red", fmtNumber(p.unrealized_pnl))}
+      ${metric("平仓盈亏（今日）", fmtCompact(p.realized_pnl), Number(p.realized_pnl || 0) >= 0 ? "green" : "red", fmtNumber(p.realized_pnl))}
       ${metric("持仓品种", fmtInt(symbols))}
-      ${metric("名义金额", fmtCompact(totalNotional))}
+      ${metric("总持仓手数", fmtMaybe(totalQty))}
+      ${metric("名义金额", fmtCompact(totalNotional), "", fmtNumber(totalNotional))}
     </div>
   </article>`;
 }
@@ -417,13 +438,14 @@ function renderEventStatsCard(stats) {
       ${metric("订单事件", fmtInt(stats.order_events_lines || 0))}
       ${metric("成交事件", fmtInt(stats.fill_events_lines || 0))}
       ${metric("生命周期事件", fmtInt(stats.order_lifecycle_events_lines || 0))}
+      ${metric("评分事件", fmtInt(stats.strategy_score_events_lines || 0))}
       ${metric("排名事件", fmtInt(stats.rank_events_lines || 0))}
       ${metric("换月事件", fmtInt(stats.roll_events_lines || 0))}
     </div>
   </article>`;
 }
 
-function positionsTable() {
+function positionsTable({ summary = false } = {}) {
   const p = latestPortfolio("live");
   const notional = p.notional_by_symbol || {};
   const margin = p.margin_by_symbol || {};
@@ -447,7 +469,7 @@ function positionsTable() {
       margin: margin[symbol],
     };
   });
-  return table(["品种", "合约", "持仓方向/手数", "开仓均价", "最新价", "浮动盈亏", "止开仓/触发", "止损价", "止盈价", "保证金"], rows.map((r) => [
+  const mapped = rows.map((r) => [
     r.symbol,
     r.contract,
     r.position,
@@ -458,7 +480,15 @@ function positionsTable() {
     fmtPriceState(r.stopLoss, r.reason),
     fmtPriceState(r.takeProfit, r.reason),
     fmtNumber(r.margin),
-  ]), { minWidth: "1180px" });
+  ]);
+  if (summary) {
+    return table(
+      ["品种", "合约", "持仓方向/手数", "开仓均价", "最新价", "浮动盈亏", "止开仓/触发", "止损价", "止盈价"],
+      mapped.map((row) => row.slice(0, 9)),
+      { minWidth: "1040px", className: "summary-table", colWidths: ["72px", "120px", "120px", "96px", "96px", "104px", "132px", "96px", "96px"] },
+    );
+  }
+  return table(["品种", "合约", "持仓方向/手数", "开仓均价", "最新价", "浮动盈亏", "止开仓/触发", "止损价", "止盈价", "保证金"], mapped, { minWidth: "1180px" });
 }
 
 function equityChart(p) {
@@ -480,7 +510,11 @@ function equityChart(p) {
     const y = 120 - Math.sin(i / 5) * 18 - risk * 55;
     return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");
-  return `<div class="chart">
+  return `<div class="chart-legend">
+    <span><i style="background:var(--blue)"></i>权益</span>
+    <span><i style="background:var(--yellow)"></i>风险比率</span>
+    <span><i style="background:var(--green)"></i>保证金占用</span>
+  </div><div class="chart">
     <svg viewBox="0 0 1000 240" preserveAspectRatio="none">
       <defs>
         <linearGradient id="area" x1="0" x2="0" y1="0" y2="1">
@@ -525,7 +559,7 @@ function alertsList() {
   }
   const severityOrder = { 高: 0, 中: 1, 低: 2 };
   items.sort((a, b) => Number(a.handled) - Number(b.handled) || severityOrder[a.severity] - severityOrder[b.severity]);
-  return `<div class="alert-list scroll-area">${items.map((item) => `
+  return `<div class="alert-list scroll-area">${items.slice(0, 5).map((item) => `
     <div class="alert-item" data-alert-target="${esc(item.target)}">
       <span class="alert-dot ${item.tone}">!</span>
       <div class="alert-text"><b>${esc(item.title)}</b><span>${esc(item.desc)}</span></div>
@@ -563,13 +597,18 @@ function homeLifecycleTable(rows) {
     const order = orderById[row.order_id] || {};
     const x = { ...order, ...row };
     return [
-      x.symbol || x.instrument_id || "—",
+      fmtEventTime(x.event_time ?? x.created_at ?? x.observed_at ?? x.ts),
       tag(zhStatus(x.status), statusTagTone(x.status)),
+      x.symbol || x.instrument_id || "—",
       `${fmtPriceState(stopOpenValue(x), x.reason)} / ${fmtPriceState(stopLossValue(x), x.reason)} / ${fmtPriceState(takeProfitValue(x), x.reason)}`,
       zhReason(x.reason),
     ];
   });
-  return `${compactStatusBar(rows)}${table(["品种", "状态", "开仓/止损/止盈", "原因"], compact, { fit: true })}`;
+  return `${compactStatusBar(rows)}${table(["时间", "状态", "品种", "开仓/止损/止盈", "原因"], compact, {
+    fit: true,
+    className: "summary-table",
+        colWidths: ["86px", "82px", "72px", "150px", "160px"],
+  })}`;
 }
 
 function orderEventById() {
@@ -639,7 +678,7 @@ function rejectDonut(rejects) {
   return `<div class="donut-row">
     <div class="donut" data-total="${total}"></div>
     <div class="reason-list">
-      ${rejects.length ? rejects.map((item, i) => `<div class="reason-item">
+      ${rejects.length ? rejects.slice(0, 3).map((item, i) => `<div class="reason-item">
         <span class="reason-swatch" style="background:${colors[i % colors.length]}"></span>
         <span>${esc(zhReason(item.reason))}</span>
         <b>${fmtInt(item.count || 0)}</b>
@@ -648,11 +687,21 @@ function rejectDonut(rejects) {
   </div>`;
 }
 
-function strategyTopNTable() {
+function strategyTopNTable({ summary = false } = {}) {
   const scores = latestScoreSnapshot();
   const grouped = groupBy(scores, (x) => x.symbol || "—");
   const rows = Object.entries(grouped).map(([symbol, items]) => {
     const sorted = items.slice().sort((a, b) => Number(b.final_score || b.score || 0) - Number(a.final_score || a.score || 0));
+    if (summary) {
+      const top = sorted[0] || {};
+      return [
+        symbol,
+        top.strategy_id || top.strategy_name || "—",
+        `<span title="raw=${titleText(top.raw_score ?? top.score)} cost=${titleText(top.cost_penalty)} risk=${titleText(top.risk_penalty)}">${scoreCell(top.final_score ?? top.score)}</span>`,
+        strategyEnabledLabel(symbol, top),
+        switchRecommendationLabel(symbol, top),
+      ];
+    }
     return [symbol, ...[0, 1, 2].flatMap((idx) => {
       const item = sorted[idx] || {};
       return [
@@ -661,11 +710,48 @@ function strategyTopNTable() {
       ];
     })];
   });
+  if (summary) {
+    return table(["品种", "Top1 策略", "final_score", "当前启用", "推荐状态"], rows, {
+      fit: true,
+      className: "summary-table",
+      colWidths: ["64px", "170px", "96px", "88px", "96px"],
+    });
+  }
   return table(["品种", "Top1 策略", "分数", "Top2 策略", "分数", "Top3 策略", "分数"], rows, { minWidth: "900px" });
 }
 
-function gatesTable(activeSymbols, enabled) {
-  const rows = candidateRows(activeSymbols, enabled).map((r) => [
+function strategyEnabledLabel(symbol, top) {
+  const enabled = state.dashboard.enabled_strategies_by_symbol?.live?.[symbol] || [];
+  const name = top.strategy_id || top.strategy_name;
+  if (!name) return tag("未启用", "gray");
+  return tag(enabled.includes(name) ? "已启用" : "未启用", enabled.includes(name) ? "green" : "gray");
+}
+
+function switchRecommendationLabel(symbol, top) {
+  const sw = state.dashboard.strategy_switch || {};
+  const approved = sw.approved?.enabled_strategies_by_symbol?.[symbol] || sw.approved?.enabled?.[symbol] || [];
+  const proposed = sw.proposal?.recommended_strategies_by_symbol?.[symbol] || sw.proposal?.enabled_strategies_by_symbol?.[symbol] || sw.proposal?.recommendations?.[symbol] || [];
+  const name = top.strategy_id || top.strategy_name;
+  if (name && Array.isArray(approved) && approved.includes(name)) return tag("已批准", "green");
+  if (name && Array.isArray(proposed) && proposed.includes(name)) return tag("推荐", "blue");
+  return tag(sw.approved ? "未推荐" : "待审批", sw.approved ? "gray" : "yellow");
+}
+
+function gatesTable(activeSymbols, enabled, { summary = false } = {}) {
+  const rows = candidateRows(activeSymbols, enabled).map((r) => summary ? [
+    r.symbol,
+    r.contract,
+    tag(r.activeLabel, r.activeTone),
+    tag(r.tradable ? "交易中" : "非交易时段", r.tradable ? "green" : "yellow"),
+    r.strategy,
+    `<span title="raw=${esc(r.raw)} cost=${esc(r.cost)} risk=${esc(r.risk)}">${scoreCell(r.final)}</span>`,
+    r.direction,
+    r.stopOpen,
+    r.stopLoss,
+    r.takeProfit,
+    tag(r.gateStatus, r.gateTone),
+    r.nextAction,
+  ] : [
     r.symbol,
     r.contract,
     tag(r.activeLabel, r.activeTone),
@@ -681,6 +767,12 @@ function gatesTable(activeSymbols, enabled) {
     r.blockReason,
     r.nextAction,
   ]);
+  const headers = summary
+    ? ["品种", "合约", "是否活跃", "是否可交易", "当前策略", "final_score", "开仓方向", "触发价", "止损价", "止盈价", "门控状态", "下一步动作"]
+    : ["品种", "合约", "是否活跃", "是否可交易", "当前策略", "final_score", "开仓方向", "止开仓价/触发开仓价", "止损价", "止盈价", "持仓状态", "执行门控状态", "阻断原因", "下一步动作"];
+  const tableOptions = summary
+    ? { minWidth: "1280px", className: "summary-table", colWidths: ["64px", "112px", "88px", "96px", "170px", "96px", "82px", "120px", "96px", "96px", "104px", "150px"] }
+    : { minWidth: "1680px" };
   return `
     <div class="gate-legend" style="height:30px; align-items:center;">
       <span><i class="legend-dot" style="background:var(--green)"></i>可开仓</span>
@@ -689,7 +781,7 @@ function gatesTable(activeSymbols, enabled) {
       <span><i class="legend-dot" style="background:var(--red)"></i>熔断/限频</span>
       <span><i class="legend-dot" style="background:#7d8ca0"></i>非交易时段</span>
     </div>
-    ${table(["品种", "合约", "是否活跃", "是否可交易", "当前策略", "final_score", "开仓方向", "止开仓价/触发开仓价", "止损价", "止盈价", "持仓状态", "执行门控状态", "阻断原因", "下一步动作"], rows, { minWidth: "1680px" })}
+    ${table(headers, rows, tableOptions)}
   `;
 }
 
@@ -726,7 +818,7 @@ function candidateRows(activeSymbols, enabled) {
       symbol,
       contract: lastOrder.trade_instrument_id || plan.instruments?.roll_policy?.contracts?.[symbol] || "—",
       active,
-      activeLabel: usesTopN ? (active ? "活跃" : "未活跃") : "N/A",
+      activeLabel: usesTopN ? (active ? "活跃" : "未活跃") : "未启用 TopN",
       activeTone: usesTopN ? (active ? "green" : "gray") : "blue",
       tradable: isTradable,
       strategy: (enabled[symbol] || [score.strategy_id || score.strategy_name || "—"]).join(" / "),
@@ -735,9 +827,9 @@ function candidateRows(activeSymbols, enabled) {
       cost: score.cost_penalty ?? "—",
       risk: score.risk_penalty ?? "—",
       direction: sideZh(lastOrder.side) || "—",
-      stopOpen: fmtMaybe(lastOrder.stop_open_price || lastOrder.trigger_price || lastOrder.expected_price),
-      stopLoss: fmtMaybe(lastOrder.stop_loss),
-      takeProfit: fmtMaybe(lastOrder.take_profit),
+      stopOpen: fmtPriceState(lastOrder.stop_open_price || lastOrder.trigger_price || lastOrder.expected_price, reason),
+      stopLoss: fmtPriceState(lastOrder.stop_loss, reason),
+      takeProfit: fmtPriceState(lastOrder.take_profit, reason),
       position: lastOrder.position_side ? `${positionZh(lastOrder.position_side)} ${fmtMaybe(lastOrder.quantity)}` : "空仓",
       gateStatus: blocked ? zhReason(reason) : active && isTradable ? "可开仓" : "等待",
       gateTone: blocked ? (String(reason).startsWith("risk_") || reason === "halted_by_guard" ? "red" : "yellow") : active && isTradable ? "green" : "blue",
@@ -1071,8 +1163,12 @@ function timelineTable() {
   ]));
 }
 
-function table(headers, rows, { minWidth = "100%", fit = false, emptyMessage = "暂无数据" } = {}) {
-  return `<div class="table-wrap scroll-area ${fit ? "no-x" : ""}"><table class="data-table ${fit ? "fit-table" : ""}" style="--table-min:${esc(minWidth)}">
+function table(headers, rows, { minWidth = "100%", fit = false, emptyMessage = "暂无数据", className = "", colWidths = [] } = {}) {
+  const colgroup = colWidths.length
+    ? `<colgroup>${colWidths.map((width) => `<col style="width:${esc(width)}">`).join("")}</colgroup>`
+    : "";
+  return `<div class="table-wrap scroll-area ${fit ? "no-x" : ""}"><table class="data-table ${className} ${fit ? "fit-table" : ""}" style="--table-min:${esc(minWidth)}">
+    ${colgroup}
     <thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
     <tbody>${rows.length ? rows.map((row) => `<tr>${row.map((cell) => `<td title="${titleText(cell)}">${cell == null ? "—" : cell}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}"><div class="empty">${esc(emptyMessage)}</div></td></tr>`}</tbody>
   </table></div>`;
