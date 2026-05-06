@@ -101,6 +101,27 @@ if [[ "${DEV_DOWN_SKIP_SWEEP:-0}" != "1" ]]; then
     sweep_pattern "$pattern" KILL
   done
 fi
+<<<<<<< HEAD
+
+rm -f logs/*.pid
+
+sleep 0.8
+
+<<<<<<< HEAD
+if [[ "${DEV_DOWN_SKIP_SWEEP:-0}" != "1" ]]; then
+  for pattern in "${patterns[@]}"; do
+    sweep_pattern "$pattern" KILL
+  done
+fi
+
+rm -f logs/*.pid
+=======
+for pattern in "${patterns[@]}"; do
+  sweep_pattern "$pattern" KILL
+done
+>>>>>>> 1bdf8bf (chore(dev): unify local mode start stop smoke)
+=======
+>>>>>>> 24169b3 (test: lock live file bars strategy timeframes and dev scripts)
 
 rm -f logs/*.pid
 

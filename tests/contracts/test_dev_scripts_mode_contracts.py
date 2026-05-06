@@ -7,12 +7,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+<<<<<<< HEAD
 def run_script(script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+=======
+def run_script(
+    script: str,
+    env: dict[str, str],
+    *,
+    user_input: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+>>>>>>> 24169b3 (test: lock live file bars strategy timeframes and dev scripts)
     merged = {**os.environ, **env}
     return subprocess.run(
         ["bash", script],
         cwd=ROOT,
         env=merged,
+<<<<<<< HEAD
+=======
+        input=user_input,
+>>>>>>> 24169b3 (test: lock live file bars strategy timeframes and dev scripts)
         text=True,
         capture_output=True,
         timeout=20,
@@ -20,6 +33,21 @@ def run_script(script: str, env: dict[str, str]) -> subprocess.CompletedProcess[
     )
 
 
+<<<<<<< HEAD
+=======
+def test_dev_up_interactive_mode_menu_is_visible() -> None:
+    result = run_script(
+        "scripts/dev_up.sh",
+        {},
+        user_input="\n",
+    )
+    assert result.returncode == 1
+    assert "1) live_file" in result.stderr
+    assert "2) tqkq_dryrun" in result.stderr
+    assert "3) tqkq_live_submit" in result.stderr
+
+
+>>>>>>> 24169b3 (test: lock live file bars strategy timeframes and dev scripts)
 def test_dev_up_live_file_mode_shows_writer_enabled_without_starting() -> None:
     result = run_script(
         "scripts/dev_up.sh",
