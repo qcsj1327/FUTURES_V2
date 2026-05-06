@@ -82,6 +82,12 @@ REASON_ZH: dict[str, str] = {
     "missing_trade_instrument_id": "缺少执行合约",
     "invalid_trade_instrument_id_main_alias": "执行合约不能为主力别名",
     "invalid_trade_instrument_id_not_real_contract": "执行合约不是真实合约",
+    "quote_not_recorded": "未记录行情价",
+    "contract_quote_unmapped": "合约未映射行情",
+    "missing_candidate_summary": "缺少候选摘要",
+    "missing_decision": "缺少决策结果",
+    "missing_approved": "缺少审批结果",
+    "missing_strategy_switch_approved": "缺少策略切换审批",
     # promotion gate (typical)
     "insufficient_events": "样本不足",
     "insufficient_success_rate_improvement": "胜率提升不足",

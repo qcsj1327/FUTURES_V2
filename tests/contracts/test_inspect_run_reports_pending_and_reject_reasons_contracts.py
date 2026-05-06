@@ -72,7 +72,13 @@ def test_inspect_pending_reports_count_and_reject_reasons(
         tail=50,
     )
 
+    assert "missing_candidate_summary" not in report["warnings"]
+    assert "missing_strategy_switch_approved" in report["optional_warnings"]
     assert report["pending_orders_count"]["live"] == 1
+    projection_pending = report["dashboard_projection"]["pending_orders"]["live"]
+    assert projection_pending["count"] == 1
+    assert projection_pending["items"][0]["status"] in {"NEW", "SUBMITTED", "PARTIAL"}
+    assert report["dashboard_projection"]["positions"]["live"]["items"] == []
     reasons = {
         item["reason"]
         for item in report["top_lifecycle_reject_reasons"]["live"]

@@ -60,6 +60,8 @@ const REASON_ZH = {
   missing_trade_instrument_id: "缺少执行合约",
   invalid_trade_instrument_id_main_alias: "执行合约不能为主力别名",
   invalid_trade_instrument_id_not_real_contract: "执行合约不是真实合约",
+  quote_not_recorded: "未记录行情价",
+  contract_quote_unmapped: "合约未映射行情",
   insufficient_events: "样本不足",
   non_trading_time: "非交易时段",
   pending_order: "待处理订单",
@@ -291,7 +293,7 @@ function metric(label, value, cls = "", title = value) {
 }
 
 function latestPortfolio(env = "live") {
-  return state.dashboard?.portfolio?.[env] || {};
+  return projection()?.portfolio?.[env] || state.dashboard?.portfolio?.[env] || {};
 }
 
 function liveStats() {
@@ -302,23 +304,41 @@ function liveTails() {
   return state.dashboard?.stores?.live?.tail || {};
 }
 
+function projection() {
+  return state.dashboard?.dashboard_projection || {};
+}
+
+function projectionLive(key) {
+  return projection()?.[key]?.live || {};
+}
+
+function projectionItems(key) {
+  const block = projectionLive(key);
+  return Array.isArray(block.items) ? block.items : [];
+}
+
+function projectionStrategySwitch() {
+  return projection()?.strategy_switch || state.dashboard?.strategy_switch || {};
+}
+
+function projectionEnabledStrategies() {
+  return projectionStrategySwitch().enabled_strategies_by_symbol || {};
+}
+
+function quoteFor(symbol, contract) {
+  const quotes = projectionLive("quotes");
+  return quotes.by_symbol?.[symbol] || quotes.by_contract?.[contract] || null;
+}
+
+function quoteUnavailableLabel(q) {
+  return zhReason(q?.reason || "quote_not_recorded");
+}
+
 function totalPositionQty() {
-  const p = latestPortfolio("live");
-  const positions = p.positions_by_symbol || p.positions || {};
-  if (positions && typeof positions === "object" && Object.keys(positions).length) {
-    return Object.values(positions).reduce((acc, item) => {
-      if (typeof item === "number") return acc + Math.abs(item);
-      if (item && typeof item === "object" && typeof item.quantity === "number") return acc + Math.abs(item.quantity);
-      if (item && typeof item === "object" && typeof item.qty === "number") return acc + Math.abs(item.qty);
-      return acc;
-    }, 0);
-  }
-  const latestBySymbol = {};
-  [...(liveTails().order_events || []), ...(liveTails().order_lifecycle_events || [])].forEach((item) => {
-    const sym = item.symbol || item.instrument_id;
-    if (sym) latestBySymbol[sym] = item;
-  });
-  return Object.values(latestBySymbol).reduce((acc, item) => acc + (typeof item.quantity === "number" ? Math.abs(item.quantity) : 0), 0);
+  return projectionItems("positions").reduce((acc, item) => {
+    const qty = typeof item.quantity === "number" ? item.quantity : 0;
+    return acc + Math.abs(qty);
+  }, 0);
 }
 
 function planConfig() {
@@ -330,14 +350,13 @@ function topNEnabled() {
 }
 
 function activeSymbolsForDisplay() {
-  if (!topNEnabled()) return planConfig().universe?.symbols || [];
-  return state.dashboard?.active_symbols?.live || [];
+  return projectionLive("active_symbols").symbols || [];
 }
 
 function activeSymbolsLabel() {
-  if (!topNEnabled()) return "未启用 TopN（按 universe 展示）";
-  const symbols = state.dashboard?.active_symbols?.live || [];
-  return symbols.length ? symbols.join(", ") : "无活跃品种";
+  const active = projectionLive("active_symbols");
+  const symbols = active.symbols || [];
+  return symbols.length ? `${symbols.join(", ")}（${active.source || "unknown"}）` : active.explanation || "无活跃品种";
 }
 
 function renderHome() {
@@ -345,8 +364,8 @@ function renderHome() {
   const stats = liveStats();
   const lifecycleCounts = state.dashboard.live_order_lifecycle_status_counts || {};
   const active = activeSymbolsForDisplay();
-  const enabled = state.dashboard.enabled_strategies_by_symbol?.live || {};
-  const rejects = state.dashboard.top_lifecycle_reject_reasons?.live || [];
+  const enabled = projectionEnabledStrategies();
+  const rejects = projection()?.risk_summary?.live?.top_risk_reject_reasons || state.dashboard.top_lifecycle_reject_reasons?.live || [];
   const body = `
     <div class="home-grid">
       <section class="kpi-grid">
@@ -358,13 +377,13 @@ function renderHome() {
       </section>
       <section class="row-grid-3">
         ${card("持仓与关键价格（止开仓 / 止盈止损）", positionsTable({ summary: true }), { height: "h320" })}
+        ${card("待成交 / 挂单（Live）", pendingOrdersTable({ summary: true }), { height: "h320", more: "portfolio" })}
         ${card("权益与风险走势（Live）", equityChart(p), { height: "h320" })}
-        ${card("告警与提示", alertsList(), { tone: "red", height: "h320" })}
       </section>
       <section class="row-grid-3 equal">
         ${card("最新订单生命周期（Live）", homeLifecycleTable(liveTails().order_lifecycle_events || []), { height: "h260", more: "lifecycle" })}
         ${card("风控拒单统计（Live）", rejectDonut(rejects), { height: "h260", more: "risk" })}
-        ${card("策略评分 TopN（实时）", strategyTopNTable({ summary: true }), { height: "h260", more: "switch" })}
+        ${card("告警中心", alertsList(), { tone: "red", height: "h260", more: "alerts" })}
       </section>
       ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(active, enabled, { summary: true }), { height: "h290", more: "gates" })}
     </div>
@@ -391,7 +410,8 @@ function renderFundsRiskCard(p) {
 
 function renderPositionKpi(p) {
   const notional = p.notional_by_symbol || {};
-  const symbols = Object.keys(notional).length;
+  const positions = projectionItems("positions");
+  const symbols = positions.length;
   const totalQty = totalPositionQty();
   const totalNotional = Object.values(notional).reduce((acc, v) => acc + (typeof v === "number" ? v : 0), 0);
   return `<article class="panel-card green kpi-card">
@@ -447,48 +467,78 @@ function renderEventStatsCard(stats) {
 
 function positionsTable({ summary = false } = {}) {
   const p = latestPortfolio("live");
-  const notional = p.notional_by_symbol || {};
   const margin = p.margin_by_symbol || {};
-  const orderEvents = liveTails().order_events || [];
-  const lifecycle = liveTails().order_lifecycle_events || [];
-  const planSymbols = planConfig().universe?.symbols || [];
-  const rows = [...new Set([...planSymbols, ...Object.keys(notional), ...Object.keys(margin), ...orderEvents.map((x) => x.symbol || x.instrument_id).filter(Boolean), ...lifecycle.map((x) => x.symbol || x.instrument_id).filter(Boolean)])].map((symbol) => {
-    const latest = [...orderEvents, ...lifecycle].reverse().find((x) => x.symbol === symbol || x.instrument_id === symbol) || {};
+  const rows = projectionItems("positions").map((pos) => {
+    const symbol = pos.symbol || "—";
+    const contract = pos.trade_instrument_id || planConfig().instruments?.roll_policy?.contracts?.[symbol] || null;
+    const quote = quoteFor(symbol, contract);
+    const latestPrice = quote?.latest_market_price;
     return {
       symbol,
-      contract: latest.trade_instrument_id || "—",
-      position: latest.position_side ? `${positionZh(latest.position_side)} ${fmtMaybe(latest.quantity)}` : "未持仓",
-      pnl: fmtNumber(symbolValue(p.unrealized_pnl_by_symbol, symbol)),
-      entry: latest.avg_fill_price ?? latest.fill_price ?? latest.market_price ?? null,
-      latest: latest.market_price ?? latest.price ?? null,
-      side: latest.side || "—",
-      stopOpen: stopOpenValue(latest),
-      stopLoss: stopLossValue(latest),
-      takeProfit: takeProfitValue(latest),
-      reason: latest.reason || "",
+      contract: contract || "—",
+      position: `${positionZh(pos.position_side)} ${fmtMaybe(pos.quantity)}`,
+      pnl: fmtNumber(pos.unrealized_pnl ?? symbolValue(p.unrealized_pnl_by_symbol, symbol)),
+      entry: pos.avg_price ?? null,
+      latest: latestPrice,
+      latestReason: quote?.available ? "ok" : quoteUnavailableLabel(quote),
+      stopOpen: null,
+      stopLoss: null,
+      takeProfit: null,
       margin: margin[symbol],
+      source: pos.source || "—",
     };
   });
   const mapped = rows.map((r) => [
     r.symbol,
     r.contract,
     r.position,
-    fmtPriceState(r.entry, r.reason),
-    fmtMaybe(r.latest),
+    fmtMaybe(r.entry),
+    r.latest == null ? `<span class="muted">${esc(r.latestReason)}</span>` : fmtMaybe(r.latest),
     r.pnl,
-    fmtPriceState(r.stopOpen, r.reason),
-    fmtPriceState(r.stopLoss, r.reason),
-    fmtPriceState(r.takeProfit, r.reason),
+    fmtPriceOrUnset(r.stopOpen),
+    fmtPriceOrUnset(r.stopLoss),
+    fmtPriceOrUnset(r.takeProfit),
     fmtNumber(r.margin),
+    r.source,
   ]);
   if (summary) {
     return table(
       ["品种", "合约", "持仓方向/手数", "开仓均价", "最新价", "浮动盈亏", "止开仓/触发", "止损价", "止盈价"],
       mapped.map((row) => row.slice(0, 9)),
-      { minWidth: "1040px", className: "summary-table", colWidths: ["72px", "120px", "120px", "96px", "96px", "104px", "132px", "96px", "96px"] },
+      { minWidth: "1040px", className: "summary-table", colWidths: ["72px", "120px", "120px", "96px", "120px", "104px", "132px", "96px", "96px"], emptyMessage: "暂无真实持仓。" },
     );
   }
-  return table(["品种", "合约", "持仓方向/手数", "开仓均价", "最新价", "浮动盈亏", "止开仓/触发", "止损价", "止盈价", "保证金"], mapped, { minWidth: "1180px" });
+  return table(["品种", "合约", "持仓方向/手数", "开仓均价", "最新价", "浮动盈亏", "止开仓/触发", "止损价", "止盈价", "保证金", "来源"], mapped, {
+    minWidth: "1280px",
+    emptyMessage: "暂无真实持仓。",
+  });
+}
+
+function pendingOrdersTable({ summary = false } = {}) {
+  const rows = projectionItems("pending_orders").map((item) => [
+    item.order_id || "—",
+    item.symbol || "—",
+    item.trade_instrument_id || "—",
+    sideZh(item.side),
+    positionZh(item.position_side),
+    fmtMaybe(item.quantity),
+    fmtMaybe(item.filled_quantity),
+    fmtMaybe(item.remaining_quantity),
+    tag(zhStatus(item.status), statusTagTone(item.status)),
+    zhReason(item.reason),
+    fmtEventTime(item.ts),
+  ]);
+  if (summary) {
+    return table(
+      ["订单ID", "品种", "合约", "方向", "数量", "剩余", "状态", "原因"],
+      rows.map((row) => [row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9]]),
+      { minWidth: "940px", className: "summary-table", emptyMessage: "暂无待成交 / 挂单。" },
+    );
+  }
+  return table(["订单ID", "品种", "合约", "方向", "持仓方向", "数量", "已成交", "剩余", "状态", "原因", "时间"], rows, {
+    minWidth: "1240px",
+    emptyMessage: "暂无待成交 / 挂单。",
+  });
 }
 
 function equityChart(p) {
@@ -532,30 +582,19 @@ function equityChart(p) {
 }
 
 function alertsList() {
-  const rejects = state.dashboard.top_lifecycle_reject_reasons?.live || [];
-  const warnings = state.dashboard.warnings || [];
-  const items = [
-    ...rejects.map((x) => ({
-      tone: String(x.reason || "").startsWith("risk_") ? "red" : "yellow",
-      severity: String(x.reason || "").startsWith("risk_") || x.reason === "halted_by_guard" ? "高" : "中",
-      handled: false,
-      title: zhReason(x.reason),
-      desc: `${x.reason || "unknown"} 达到 ${x.count || 0} 次`,
-      time: "实时",
-      target: String(x.reason || "").startsWith("risk_") || x.reason === "halted_by_guard" ? "risk" : "lifecycle",
-    })),
-    ...warnings.slice(0, 4).map((w) => ({
-      tone: "blue",
-      severity: "低",
-      handled: false,
-      title: "数据提示",
-      desc: zhWarning(w),
-      time: "读取",
-      target: "run",
-    })),
-  ];
+  const alerts = projection()?.alerts?.items || [];
+  const severityByLevel = { error: "高", warning: "中", info: "低" };
+  const items = alerts.map((x) => ({
+    tone: x.level === "error" ? "red" : x.level === "warning" ? "yellow" : "blue",
+    severity: severityByLevel[x.level] || "低",
+    handled: false,
+    title: zhReason(x.code),
+    desc: x.message || x.code || "—",
+    time: x.source || "projection",
+    target: String(x.source || "").includes("risk") || String(x.code || "").startsWith("risk_") ? "risk" : "lifecycle",
+  }));
   if (!items.length) {
-    items.push({ tone: "gray", severity: "低", handled: true, title: "暂无告警", desc: "当前运行未发现阻断或缺失提示", time: "实时", target: "alerts" });
+    items.push({ tone: "gray", severity: "低", handled: true, title: "暂无告警", desc: "当前运行未发现主要告警", time: "projection", target: "alerts" });
   }
   const severityOrder = { 高: 0, 中: 1, 低: 2 };
   items.sort((a, b) => Number(a.handled) - Number(b.handled) || severityOrder[a.severity] - severityOrder[b.severity]);
@@ -688,16 +727,15 @@ function rejectDonut(rejects) {
 }
 
 function strategyTopNTable({ summary = false } = {}) {
-  const scores = latestScoreSnapshot();
-  const grouped = groupBy(scores, (x) => x.symbol || "—");
-  const rows = Object.entries(grouped).map(([symbol, items]) => {
-    const sorted = items.slice().sort((a, b) => Number(b.final_score || b.score || 0) - Number(a.final_score || a.score || 0));
+  const rowsBySymbol = projectionStrategyRowsBySymbol();
+  const rows = Object.entries(rowsBySymbol).map(([symbol, items]) => {
+    const sorted = items.slice().sort((a, b) => Number(b.final_score || 0) - Number(a.final_score || 0));
     if (summary) {
       const top = sorted[0] || {};
       return [
         symbol,
         top.strategy_id || top.strategy_name || "—",
-        `<span title="raw=${titleText(top.raw_score ?? top.score)} cost=${titleText(top.cost_penalty)} risk=${titleText(top.risk_penalty)}">${scoreCell(top.final_score ?? top.score)}</span>`,
+        `<span title="source=dashboard_projection">${scoreCell(top.final_score)}</span>`,
         strategyEnabledLabel(symbol, top),
         switchRecommendationLabel(symbol, top),
       ];
@@ -706,7 +744,7 @@ function strategyTopNTable({ summary = false } = {}) {
       const item = sorted[idx] || {};
       return [
         item.strategy_id || item.strategy_name || "—",
-        `<span title="raw=${titleText(item.raw_score ?? item.score)} cost=${titleText(item.cost_penalty)} risk=${titleText(item.risk_penalty)}">${scoreCell(item.final_score ?? item.score)}</span>`,
+        `<span title="source=dashboard_projection">${scoreCell(item.final_score)}</span>`,
       ];
     })];
   });
@@ -721,14 +759,14 @@ function strategyTopNTable({ summary = false } = {}) {
 }
 
 function strategyEnabledLabel(symbol, top) {
-  const enabled = state.dashboard.enabled_strategies_by_symbol?.live?.[symbol] || [];
+  const enabled = projectionEnabledStrategies()?.[symbol] || [];
   const name = top.strategy_id || top.strategy_name;
   if (!name) return tag("未启用", "gray");
   return tag(enabled.includes(name) ? "已启用" : "未启用", enabled.includes(name) ? "green" : "gray");
 }
 
 function switchRecommendationLabel(symbol, top) {
-  const sw = state.dashboard.strategy_switch || {};
+  const sw = projectionStrategySwitch();
   const approved = sw.approved?.enabled_strategies_by_symbol?.[symbol] || sw.approved?.enabled?.[symbol] || [];
   const proposed = sw.proposal?.recommended_strategies_by_symbol?.[symbol] || sw.proposal?.enabled_strategies_by_symbol?.[symbol] || sw.proposal?.recommendations?.[symbol] || [];
   const name = top.strategy_id || top.strategy_name;
@@ -787,54 +825,55 @@ function gatesTable(activeSymbols, enabled, { summary = false } = {}) {
 
 function candidateRows(activeSymbols, enabled) {
   const plan = planConfig();
-  const symbols = plan.universe?.symbols || Object.keys(enabled) || activeSymbols;
+  const symbols = [...new Set([...(plan.universe?.symbols || []), ...Object.keys(enabled || {}), ...(activeSymbols || [])])];
   const activeSet = new Set(activeSymbols || []);
   const usesTopN = topNEnabled();
-  const latestRank = [...(liveTails().rank_events || [])].reverse()[0] || {};
-  const excluded = latestRank.excluded_symbols || [];
-  const excludedBySymbol = {};
-  if (Array.isArray(excluded)) {
-    excluded.forEach((item) => {
-      if (item && typeof item === "object") excludedBySymbol[item.symbol] = item.reason;
-    });
-  }
-  const scores = latestScoreSnapshot();
+  const scores = Object.values(projectionStrategyRowsBySymbol()).flat();
   const latestBySymbol = {};
   scores.forEach((s) => {
     const sym = s.symbol || "—";
-    if (!latestBySymbol[sym] || Number(s.final_score || s.score || 0) > Number(latestBySymbol[sym].final_score || latestBySymbol[sym].score || 0)) {
+    if (!latestBySymbol[sym] || Number(s.final_score || 0) > Number(latestBySymbol[sym].final_score || 0)) {
       latestBySymbol[sym] = s;
     }
   });
-  const orders = [...(liveTails().order_events || []), ...(liveTails().order_lifecycle_events || [])];
+  const pendingBySymbol = {};
+  projectionItems("pending_orders").forEach((item) => {
+    if (item.symbol) pendingBySymbol[item.symbol] = item;
+  });
+  const positionsBySymbol = {};
+  projectionItems("positions").forEach((item) => {
+    if (item.symbol) positionsBySymbol[item.symbol] = item;
+  });
   return symbols.map((symbol) => {
-    const lastOrder = [...orders].reverse().find((x) => x.symbol === symbol || x.instrument_id === symbol) || {};
     const score = latestBySymbol[symbol] || {};
+    const pending = pendingBySymbol[symbol] || {};
+    const position = positionsBySymbol[symbol] || {};
     const active = usesTopN ? activeSet.has(symbol) : true;
-    const reason = excludedBySymbol[symbol] || lastOrder.reason || "";
-    const isTradable = reason !== "non_trading_time";
-    const blocked = Boolean(reason && !["new", "simulated_fill", "tqkq_live_fill"].includes(reason));
+    const reason = pending.reason || "";
+    const blocked = Boolean(pending.order_id);
+    const quote = quoteFor(symbol, pending.trade_instrument_id || plan.instruments?.roll_policy?.contracts?.[symbol]);
+    const isTradable = quote?.reason !== "non_trading_time";
     return {
       symbol,
-      contract: lastOrder.trade_instrument_id || plan.instruments?.roll_policy?.contracts?.[symbol] || "—",
+      contract: pending.trade_instrument_id || plan.instruments?.roll_policy?.contracts?.[symbol] || "—",
       active,
       activeLabel: usesTopN ? (active ? "活跃" : "未活跃") : "未启用 TopN",
       activeTone: usesTopN ? (active ? "green" : "gray") : "blue",
       tradable: isTradable,
       strategy: (enabled[symbol] || [score.strategy_id || score.strategy_name || "—"]).join(" / "),
-      final: score.final_score ?? score.score ?? "—",
-      raw: score.raw_score ?? score.score ?? "—",
-      cost: score.cost_penalty ?? "—",
-      risk: score.risk_penalty ?? "—",
-      direction: sideZh(lastOrder.side) || "—",
-      stopOpen: fmtPriceState(lastOrder.stop_open_price || lastOrder.trigger_price || lastOrder.expected_price, reason),
-      stopLoss: fmtPriceState(lastOrder.stop_loss, reason),
-      takeProfit: fmtPriceState(lastOrder.take_profit, reason),
-      position: lastOrder.position_side ? `${positionZh(lastOrder.position_side)} ${fmtMaybe(lastOrder.quantity)}` : "空仓",
-      gateStatus: blocked ? zhReason(reason) : active && isTradable ? "可开仓" : "等待",
+      final: score.final_score ?? "—",
+      raw: "projection",
+      cost: "projection",
+      risk: "projection",
+      direction: sideZh(pending.side) || "—",
+      stopOpen: quote?.latest_market_price == null ? `<span class="muted">${esc(quoteUnavailableLabel(quote))}</span>` : fmtMaybe(quote.latest_market_price),
+      stopLoss: fmtPriceOrUnset(null),
+      takeProfit: fmtPriceOrUnset(null),
+      position: position.symbol ? `${positionZh(position.position_side)} ${fmtMaybe(position.quantity)}` : "空仓",
+      gateStatus: blocked ? "待成交/挂单" : active && isTradable ? "可开仓" : "等待",
       gateTone: blocked ? (String(reason).startsWith("risk_") || reason === "halted_by_guard" ? "red" : "yellow") : active && isTradable ? "green" : "blue",
       blockReason: reason ? zhReason(reason) : "—",
-      nextAction: blocked ? nextAction(reason) : active && isTradable ? "等待价格触发" : "等待交易时段",
+      nextAction: blocked ? "等待订单终态" : active && isTradable ? "等待价格触发" : "等待交易时段",
     };
   });
 }
@@ -843,7 +882,7 @@ function renderRun() {
   $("view-run").innerHTML = `<div class="subpage-grid">
     ${card("运行概览", overviewTiles(), { height: "h320" })}
     ${card("事件统计", eventStatsTable(), { height: "h320" })}
-    ${card("Manifest / Warnings", jsonPanel("manifestWarnings", { warnings: state.dashboard.warnings, manifest: state.dashboard.manifest }), { height: "h-json" })}
+    ${card("Manifest / Warnings", jsonPanel("manifestWarnings", { alerts: projection()?.alerts || {}, warnings: state.dashboard.warnings, optional_warnings: state.dashboard.optional_warnings, manifest: state.dashboard.manifest }), { height: "h-json" })}
     ${card("Plan 摘要", jsonPanel("planSummary", state.dashboard.plan), { height: "h-json" })}
   </div>`;
   wireJsonPanels();
@@ -853,6 +892,7 @@ function renderPortfolio() {
   $("view-portfolio").innerHTML = `<div class="subpage">
     ${card("组合资金指标", portfolioTable(), { height: "h320" })}
     ${card("持仓与关键价格", positionsTable(), { height: "h360" })}
+    ${card("待成交 / 挂单", pendingOrdersTable(), { height: "h360" })}
   </div>`;
 }
 
@@ -876,7 +916,7 @@ function renderRisk() {
 }
 
 function renderSwitch() {
-  const sw = state.dashboard.strategy_switch || {};
+  const sw = projectionStrategySwitch();
   $("view-switch").innerHTML = `<div class="subpage-grid">
     ${card("策略评分 TopN（含成本/风险惩罚）", strategyScoreDecisionTable(), { height: "h320" })}
     ${card("当前生效 / 推荐 / 审批", switchSummaryTable(sw), { height: "h320" })}
@@ -888,7 +928,7 @@ function renderSwitch() {
 
 function renderGates() {
   $("view-gates").innerHTML = `<div class="subpage">
-    ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(activeSymbolsForDisplay(), state.dashboard.enabled_strategies_by_symbol?.live || {}), { height: "h360" })}
+    ${card("候选开仓与执行门控（关键机会与阻断原因）", gatesTable(activeSymbolsForDisplay(), projectionEnabledStrategies()), { height: "h360" })}
   </div>`;
 }
 
@@ -903,10 +943,10 @@ function renderRoll() {
 
 function renderMarket() {
   $("view-market").innerHTML = `<div class="subpage-grid">
-    ${card("合约映射", contractsTable(), { height: "h320" })}
-    ${card("Rank / 行情可观测", rankTable(), { height: "h320" })}
+    ${card("合约与行情投影", contractsTable(), { height: "h320" })}
+    ${card("Active Symbols 投影", rankTable(), { height: "h320" })}
     ${card("合约规格与行情配置", jsonPanel("marketConfig", { instruments: planConfig().instruments, market_data: planConfig().adapters?.market_data }), { height: "h-json" })}
-    ${card("原始 rank_events", jsonPanel("rankEventsRaw", liveTails().rank_events || []), { height: "h-json" })}
+    ${card("行情投影 JSON", jsonPanel("quoteProjectionRaw", projectionLive("quotes")), { height: "h-json" })}
   </div>`;
   wireJsonPanels();
 }
@@ -928,7 +968,10 @@ function renderConfig() {
 }
 
 function renderAlerts() {
-  $("view-alerts").innerHTML = card("告警中心", alertsList(), { height: "h360" });
+  $("view-alerts").innerHTML = `<div class="subpage-grid">
+    ${card("告警中心", alertsList(), { height: "h360" })}
+    ${card("数据提示 / 可选产物状态", optionalWarningsTable(), { height: "h360" })}
+  </div>`;
   wireAlertLinks();
 }
 
@@ -958,6 +1001,7 @@ function overviewTable() {
 function overviewTiles() {
   const plan = planConfig();
   const execution = state.dashboard.execution || {};
+  const optionalWarnings = projection()?.alerts?.optional_warnings || [];
   const items = [
     ["runtime_id", state.dashboard.runtime_id],
     ["模式", zhMode(plan.runtime?.mode || plan.adapters?.market_data?.mode)],
@@ -967,7 +1011,8 @@ function overviewTiles() {
     ["TopN", topNEnabled() ? `启用 Top ${plan.runtime?.active_top_n}` : "未启用"],
     ["active_symbols", activeSymbolsLabel()],
     ["Universe", (plan.universe?.symbols || []).join(", ")],
-    ["Warnings", (state.dashboard.warnings || []).map(zhWarning).join(" / ") || "—"],
+    ["Alerts", (projection()?.alerts?.items || []).map((x) => zhReason(x.code)).join(" / ") || "—"],
+    ["Optional artifacts", optionalWarnings.map((x) => zhWarning(x.code)).join(" / ") || "—"],
   ];
   return `<div class="kv-grid scroll-area">${items.map(([k, v]) => `
     <div class="kv-item"><span>${esc(k)}</span><b title="${titleText(v)}">${esc(v)}</b></div>
@@ -1043,18 +1088,62 @@ function riskReasonBreakdown() {
   ]), { minWidth: "780px" });
 }
 
+function projectionStrategyRowsBySymbol() {
+  const proposal = projectionStrategySwitch().proposal || {};
+  const ranked = proposal.symbols || proposal.symbol_scores || [];
+  const enabled = projectionEnabledStrategies();
+  const out = {};
+  if (Array.isArray(ranked)) {
+    ranked.forEach((item) => {
+      if (!item || typeof item !== "object") return;
+      const symbol = item.symbol || "—";
+      const strategies = item.ranked_strategies || item.strategies || [];
+      if (Array.isArray(strategies) && strategies.length) {
+        out[symbol] = strategies.map((strategy) => ({
+          symbol,
+          strategy_id: strategy.strategy_id || strategy.strategy_name || strategy.name,
+          strategy_name: strategy.strategy_name || strategy.strategy_id || strategy.name,
+          final_score: strategy.final_score ?? strategy.score,
+        }));
+      }
+    });
+  } else if (ranked && typeof ranked === "object") {
+    Object.entries(ranked).forEach(([symbol, item]) => {
+      const strategies = item?.ranked_strategies || item?.strategies || [];
+      if (Array.isArray(strategies) && strategies.length) {
+        out[symbol] = strategies.map((strategy) => ({
+          symbol,
+          strategy_id: strategy.strategy_id || strategy.strategy_name || strategy.name,
+          strategy_name: strategy.strategy_name || strategy.strategy_id || strategy.name,
+          final_score: strategy.final_score ?? strategy.score,
+        }));
+      }
+    });
+  }
+  Object.entries(enabled).forEach(([symbol, names]) => {
+    if (out[symbol]) return;
+    out[symbol] = (Array.isArray(names) ? names : []).map((name) => ({
+      symbol,
+      strategy_id: name,
+      strategy_name: name,
+      final_score: null,
+    }));
+  });
+  return out;
+}
+
 function enabledStrategiesTable() {
-  const enabled = state.dashboard.enabled_strategies_by_symbol?.live || {};
+  const enabled = projectionEnabledStrategies();
   return table(["品种", "启用策略"], Object.entries(enabled).map(([sym, names]) => [sym, Array.isArray(names) ? names.join(" / ") : "—"]));
 }
 
 function strategyScoreDecisionTable() {
-  const enabled = state.dashboard.enabled_strategies_by_symbol?.live || {};
-  const approved = state.dashboard.strategy_switch?.approved || {};
+  const enabled = projectionEnabledStrategies();
+  const approved = projectionStrategySwitch()?.approved || {};
   const approvedSymbols = approved.enabled_strategies_by_symbol || approved.enabled || {};
-  const rows = latestScoreSnapshot()
+  const rows = Object.values(projectionStrategyRowsBySymbol()).flat()
     .slice()
-    .sort((a, b) => Number(b.final_score || b.score || 0) - Number(a.final_score || a.score || 0))
+    .sort((a, b) => Number(b.final_score || 0) - Number(a.final_score || 0))
     .slice(0, 80)
     .map((item) => {
       const symbol = item.symbol || "—";
@@ -1064,10 +1153,10 @@ function strategyScoreDecisionTable() {
       return [
         symbol,
         strategy,
-        scoreCell(item.final_score ?? item.score),
-        scoreCell(item.raw_score ?? item.score),
-        scoreCell(item.cost_penalty),
-        scoreCell(item.risk_penalty),
+        scoreCell(item.final_score),
+        "—",
+        "—",
+        "—",
         tag(enabledList.includes(strategy) ? "已启用" : "未启用", enabledList.includes(strategy) ? "green" : "gray"),
         tag(approvedList.includes(strategy) ? "已批准" : "未批准", approvedList.includes(strategy) ? "green" : "yellow"),
       ];
@@ -1076,7 +1165,7 @@ function strategyScoreDecisionTable() {
 }
 
 function switchSummaryTable(sw) {
-  const enabled = state.dashboard.enabled_strategies_by_symbol?.live || {};
+  const enabled = projectionEnabledStrategies();
   const proposal = sw.proposal || {};
   const approved = sw.approved || {};
   const recommended = proposal.recommended_strategies_by_symbol || proposal.enabled_strategies_by_symbol || {};
@@ -1132,18 +1221,41 @@ function rollConditionTable() {
 }
 
 function contractsTable() {
-  const contracts = planConfig().instruments?.roll_policy?.contracts || {};
-  return table(["品种", "执行合约", "来源"], Object.entries(contracts).map(([sym, contract]) => [sym, contract, "roll_policy.contracts"]), { emptyMessage: "暂无固定合约映射；fixed_main 或未配置 contracts 时不会显示映射。" });
+  const rows = projectionItems("quotes").map((item) => [
+    item.symbol || "—",
+    item.trade_instrument_id || "—",
+    item.latest_market_price == null ? `<span class="muted">${esc(quoteUnavailableLabel(item))}</span>` : fmtMaybe(item.latest_market_price),
+    item.last_execution_price == null ? `<span class="muted">暂无成交价</span>` : fmtMaybe(item.last_execution_price),
+    item.price_source || "—",
+    item.execution_price_source || "—",
+    zhReason(item.reason),
+  ]);
+  return table(["品种", "执行合约", "最新行情价", "最近成交价", "行情来源", "成交价来源", "状态"], rows, {
+    minWidth: "980px",
+    emptyMessage: "暂无行情/合约投影。",
+  });
 }
 
 function rankTable() {
-  const rows = liveTails().rank_events || [];
-  return table(["时间/tick", "active_top_n", "active_symbols", "excluded_count"], rows.map((x) => [
-    fmtEventTime(x.event_time ?? x.created_at ?? x.ts),
-    x.active_top_n ?? "—",
-    Array.isArray(x.active_symbols) ? x.active_symbols.join(", ") : "—",
-    x.excluded_symbols_count ?? "—",
-  ]), { emptyMessage: topNEnabled() ? "暂无 rank_events；等待运行 tick 产生排名事件。" : "未启用 TopN，rank_events 不会产生。" });
+  const active = projectionLive("active_symbols");
+  return table(["active_symbols", "source", "explanation"], [[
+    (active.symbols || []).join(", ") || "—",
+    active.source || "—",
+    active.explanation || "—",
+  ]], { emptyMessage: "暂无 active symbols 投影。" });
+}
+
+function optionalWarningsTable() {
+  const rows = (projection()?.alerts?.optional_warnings || []).map((item) => [
+    item.code || "—",
+    item.level || "info",
+    item.message || zhWarning(item.code),
+    item.source || "artifact",
+  ]);
+  return table(["code", "level", "message", "source"], rows, {
+    minWidth: "760px",
+    emptyMessage: "暂无可选产物提示。",
+  });
 }
 
 function timelineTable() {

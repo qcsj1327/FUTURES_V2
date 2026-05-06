@@ -7,6 +7,13 @@ from typing import Any
 from web.readmodel.models import RunListItem, RunReadModel
 from web.readmodel.repository import FileRepository
 
+OPTIONAL_ARTIFACT_WARNING_CODES = {
+    "missing_candidate_summary",
+    "missing_decision",
+    "missing_approved",
+    "missing_strategy_switch_approved",
+}
+
 
 def _manifest_ts(path_str: str) -> str:
     name = Path(path_str).name
@@ -61,6 +68,7 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
     artifacts = _as_dict(m.get("artifacts"))
     thresholds = _as_dict(m.get("thresholds"))
     warnings: list[str] = []
+    optional_warnings: list[str] = []
 
     cur_payload = _load_artifact_payload(
         repo,
@@ -96,6 +104,13 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
             warnings.append("missing_approved")
     else:
         warnings.append("missing_approved")
+    optional_warnings = [
+        code
+        for code in warnings
+        if code in OPTIONAL_ARTIFACT_WARNING_CODES
+        or code.startswith(tuple(f"{x}_file:" for x in OPTIONAL_ARTIFACT_WARNING_CODES))
+    ]
+    warnings = [code for code in warnings if code not in optional_warnings]
 
     # plan metadata
     plan = _as_dict(m.get("plan"))
@@ -117,6 +132,7 @@ def load_run_from_manifest(repo: FileRepository, manifest_path: Path) -> RunRead
         approved=approved_payload,
         thresholds=thresholds,
         warnings=warnings,
+        optional_warnings=optional_warnings,
     )
 
 
