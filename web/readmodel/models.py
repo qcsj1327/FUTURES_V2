@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -36,3 +36,4 @@ class RunReadModel:
 
     thresholds: dict[str, Any]
     warnings: list[str]
+    optional_warnings: list[str] = field(default_factory=list)

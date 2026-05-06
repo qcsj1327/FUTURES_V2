@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tools.dashboard_projection import (
+    OPTIONAL_ARTIFACT_WARNING_CODES,
+    build_dashboard_projection,
+)
+
 
 @dataclass(frozen=True)
 class StoreStats:
@@ -98,8 +103,9 @@ def _top_lifecycle_reasons(
     return [{"reason": reason, "count": count} for reason, count in counter.most_common()]
 
 
-def _portfolio_summary(store_dir: Path) -> dict[str, Any] | None:
-    portfolio = _latest_portfolio(store_dir)
+def _portfolio_summary(store_dir: Path, portfolio: Any | None = None) -> dict[str, Any] | None:
+    if portfolio is None:
+        portfolio = _latest_portfolio(store_dir)
     if portfolio is None:
         return None
     metadata = getattr(portfolio, "metadata", {})
@@ -333,6 +339,107 @@ def inspect_run(
 
     live_dir = store_root / "live" / runtime_id
     sandbox_dir = store_root / "sandbox" / runtime_id
+    live_portfolio = _latest_portfolio(live_dir)
+    sandbox_portfolio = _latest_portfolio(sandbox_dir)
+    live_portfolio_summary = _portfolio_summary(live_dir, live_portfolio)
+    sandbox_portfolio_summary = _portfolio_summary(sandbox_dir, sandbox_portfolio)
+    live_lifecycle_events = _tail_jsonl(live_dir / "order_lifecycle_events.jsonl", tail)
+    sandbox_lifecycle_events = _tail_jsonl(sandbox_dir / "order_lifecycle_events.jsonl", tail)
+    live_order_events = _tail_jsonl(live_dir / "order_events.jsonl", tail)
+    sandbox_order_events = _tail_jsonl(sandbox_dir / "order_events.jsonl", tail)
+    live_fill_events = _tail_jsonl(live_dir / "fill_events.jsonl", tail)
+    sandbox_fill_events = _tail_jsonl(sandbox_dir / "fill_events.jsonl", tail)
+    live_rank_events = _tail_jsonl(live_dir / "rank_events.jsonl", tail)
+    sandbox_rank_events = _tail_jsonl(sandbox_dir / "rank_events.jsonl", tail)
+    event_stats = {
+        "live": _store_stats(live_dir).__dict__,
+        "sandbox": _store_stats(sandbox_dir).__dict__,
+    }
+    lifecycle_stats = {
+        "live": {
+            "status_counts": _status_counts(live_dir / "order_lifecycle_events.jsonl"),
+            "top_reasons": _top_lifecycle_reasons(
+                live_dir / "order_lifecycle_events.jsonl",
+                5000,
+            )[:10],
+        },
+        "sandbox": {
+            "status_counts": _status_counts(sandbox_dir / "order_lifecycle_events.jsonl"),
+            "top_reasons": _top_lifecycle_reasons(
+                sandbox_dir / "order_lifecycle_events.jsonl",
+                5000,
+            )[:10],
+        },
+    }
+    risk_stats = {
+        "live": _risk_stats(live_dir, tail),
+        "sandbox": _risk_stats(sandbox_dir, tail),
+    }
+    top_lifecycle_reject_reasons = {
+        "live": _top_lifecycle_reasons(
+            live_dir / "order_lifecycle_events.jsonl",
+            tail,
+            rejected_only=True,
+        ),
+        "sandbox": _top_lifecycle_reasons(
+            sandbox_dir / "order_lifecycle_events.jsonl",
+            tail,
+            rejected_only=True,
+        ),
+    }
+    execution = _execution_observability(plan_cfg)
+    enabled_strategies_by_symbol = {
+        "live": _enabled_strategies(strategy_switch_approved, plan_cfg),
+        "sandbox": _enabled_strategies(strategy_switch_approved, plan_cfg),
+    }
+    dashboard_projection = build_dashboard_projection(
+        runtime_id=runtime_id,
+        plan_cfg=plan_cfg,
+        execution=execution,
+        portfolio={
+            "live": live_portfolio_summary,
+            "sandbox": sandbox_portfolio_summary,
+        },
+        latest_portfolios={
+            "live": live_portfolio,
+            "sandbox": sandbox_portfolio,
+        },
+        event_stats=event_stats,
+        lifecycle_events={
+            "live": _tail_jsonl(live_dir / "order_lifecycle_events.jsonl", 5000),
+            "sandbox": _tail_jsonl(sandbox_dir / "order_lifecycle_events.jsonl", 5000),
+        },
+        order_events={
+            "live": _tail_jsonl(live_dir / "order_events.jsonl", 5000),
+            "sandbox": _tail_jsonl(sandbox_dir / "order_events.jsonl", 5000),
+        },
+        fill_events={
+            "live": _tail_jsonl(live_dir / "fill_events.jsonl", 5000),
+            "sandbox": _tail_jsonl(sandbox_dir / "fill_events.jsonl", 5000),
+        },
+        rank_events={
+            "live": _tail_jsonl(live_dir / "rank_events.jsonl", 5000),
+            "sandbox": _tail_jsonl(sandbox_dir / "rank_events.jsonl", 5000),
+        },
+        lifecycle_stats=lifecycle_stats,
+        risk_stats=risk_stats,
+        top_lifecycle_reject_reasons=top_lifecycle_reject_reasons,
+        strategy_switch_proposal=strategy_switch_proposal,
+        strategy_switch_approved=strategy_switch_approved,
+        enabled_strategies_by_symbol=enabled_strategies_by_symbol,
+        warning_codes=warnings,
+    )
+    optional_warnings = [
+        code
+        for code in warnings
+        if code in OPTIONAL_ARTIFACT_WARNING_CODES
+        or code.startswith(tuple(f"{x}_file:" for x in OPTIONAL_ARTIFACT_WARNING_CODES))
+    ]
+    main_warnings = [
+        code
+        for code in warnings
+        if code not in optional_warnings
+    ]
 
     out: dict[str, Any] = {
         "runtime_id": runtime_id,
@@ -341,10 +448,7 @@ def inspect_run(
             "created_at": manifest.get("created_at"),
             "candidate_id": manifest.get("candidate_id"),
         },
-        "event_stats": {
-            "live": _store_stats(live_dir).__dict__,
-            "sandbox": _store_stats(sandbox_dir).__dict__,
-        },
+        "event_stats": event_stats,
         "event_statuses": {
             "live_order_lifecycle_statuses": _jsonl_statuses(
                 live_dir / "order_lifecycle_events.jsonl",
@@ -363,45 +467,25 @@ def inspect_run(
             "live": _pending_orders_count(live_dir / "order_lifecycle_events.jsonl"),
             "sandbox": _pending_orders_count(sandbox_dir / "order_lifecycle_events.jsonl"),
         },
-        "execution": _execution_observability(plan_cfg),
+        "execution": execution,
         "portfolio": {
-            "live": _portfolio_summary(live_dir),
-            "sandbox": _portfolio_summary(sandbox_dir),
+            "live": live_portfolio_summary,
+            "sandbox": sandbox_portfolio_summary,
         },
         "top_risk_reject_reasons": {
-            "live": _top_risk_reject_reasons(
-                live_dir / "order_lifecycle_events.jsonl",
-                tail,
-            ),
-            "sandbox": _top_risk_reject_reasons(
-                sandbox_dir / "order_lifecycle_events.jsonl",
-                tail,
-            ),
+            "live": _top_risk_reject_reasons(live_dir / "order_lifecycle_events.jsonl", tail),
+            "sandbox": _top_risk_reject_reasons(sandbox_dir / "order_lifecycle_events.jsonl", tail),
         },
-        "risk_stats": {
-            "live": _risk_stats(live_dir, tail),
-            "sandbox": _risk_stats(sandbox_dir, tail),
-        },
+        "risk_stats": risk_stats,
         "active_symbols": {
             "live": _active_symbols_from_rank_events(live_dir / "rank_events.jsonl"),
             "sandbox": _active_symbols_from_rank_events(sandbox_dir / "rank_events.jsonl"),
         },
         "enabled_strategies_by_symbol": {
-            "live": _enabled_strategies(strategy_switch_approved, plan_cfg),
-            "sandbox": _enabled_strategies(strategy_switch_approved, plan_cfg),
+            "live": enabled_strategies_by_symbol["live"],
+            "sandbox": enabled_strategies_by_symbol["sandbox"],
         },
-        "top_lifecycle_reject_reasons": {
-            "live": _top_lifecycle_reasons(
-                live_dir / "order_lifecycle_events.jsonl",
-                tail,
-                rejected_only=True,
-            ),
-            "sandbox": _top_lifecycle_reasons(
-                sandbox_dir / "order_lifecycle_events.jsonl",
-                tail,
-                rejected_only=True,
-            ),
-        },
+        "top_lifecycle_reject_reasons": top_lifecycle_reject_reasons,
         "live_top_lifecycle_reasons": _top_lifecycle_reasons(
             live_dir / "order_lifecycle_events.jsonl",
             5000,
@@ -410,31 +494,10 @@ def inspect_run(
             sandbox_dir / "order_lifecycle_events.jsonl",
             5000,
         )[:10],
-        "lifecycle_stats": {
-            "live": {
-                "status_counts": _status_counts(live_dir / "order_lifecycle_events.jsonl"),
-                "top_reasons": _top_lifecycle_reasons(
-                    live_dir / "order_lifecycle_events.jsonl",
-                    5000,
-                )[:10],
-            },
-            "sandbox": {
-                "status_counts": _status_counts(sandbox_dir / "order_lifecycle_events.jsonl"),
-                "top_reasons": _top_lifecycle_reasons(
-                    sandbox_dir / "order_lifecycle_events.jsonl",
-                    5000,
-                )[:10],
-            },
-        },
+        "lifecycle_stats": lifecycle_stats,
         "event_tail": {
-            "live_order_lifecycle_events": _tail_jsonl(
-                live_dir / "order_lifecycle_events.jsonl",
-                tail,
-            ),
-            "sandbox_order_lifecycle_events": _tail_jsonl(
-                sandbox_dir / "order_lifecycle_events.jsonl",
-                tail,
-            ),
+            "live_order_lifecycle_events": live_lifecycle_events,
+            "sandbox_order_lifecycle_events": sandbox_lifecycle_events,
         },
         "plan": {
             "path": plan_meta.get("path"),
@@ -450,42 +513,38 @@ def inspect_run(
             "proposal": strategy_switch_proposal,
             "approved": strategy_switch_approved,
         },
-        "warnings": warnings,
+        "warnings": main_warnings,
+        "optional_warnings": optional_warnings,
+        "dashboard_projection": dashboard_projection,
         "stores": {
             "live": {
                 "dir": str(live_dir),
                 "stats": _store_stats(live_dir).__dict__,
                 "tail": {
-                    "fill_events": _tail_jsonl(live_dir / "fill_events.jsonl", tail),
-                    "order_events": _tail_jsonl(live_dir / "order_events.jsonl", tail),
+                    "fill_events": live_fill_events,
+                    "order_events": live_order_events,
                     "roll_events": _tail_jsonl(live_dir / "roll_events.jsonl", tail),
-                    "rank_events": _tail_jsonl(live_dir / "rank_events.jsonl", tail),
+                    "rank_events": live_rank_events,
                     "strategy_score_events": _tail_jsonl(
                         live_dir / "strategy_score_events.jsonl",
                         tail,
                     ),
-                    "order_lifecycle_events": _tail_jsonl(
-                        live_dir / "order_lifecycle_events.jsonl",
-                        tail,
-                    ),
+                    "order_lifecycle_events": live_lifecycle_events,
                 },
             },
             "sandbox": {
                 "dir": str(sandbox_dir),
                 "stats": _store_stats(sandbox_dir).__dict__,
                 "tail": {
-                    "fill_events": _tail_jsonl(sandbox_dir / "fill_events.jsonl", tail),
-                    "order_events": _tail_jsonl(sandbox_dir / "order_events.jsonl", tail),
+                    "fill_events": sandbox_fill_events,
+                    "order_events": sandbox_order_events,
                     "roll_events": _tail_jsonl(sandbox_dir / "roll_events.jsonl", tail),
-                    "rank_events": _tail_jsonl(sandbox_dir / "rank_events.jsonl", tail),
+                    "rank_events": sandbox_rank_events,
                     "strategy_score_events": _tail_jsonl(
                         sandbox_dir / "strategy_score_events.jsonl",
                         tail,
                     ),
-                    "order_lifecycle_events": _tail_jsonl(
-                        sandbox_dir / "order_lifecycle_events.jsonl",
-                        tail,
-                    ),
+                    "order_lifecycle_events": sandbox_lifecycle_events,
                 },
             },
         },

@@ -34,6 +34,9 @@ def test_web_dashboard_routes_load_core_events_contract(
     assert "portfolio" in dashboard
     assert "lifecycle_stats" in dashboard
     assert "active_symbols" in dashboard
+    assert dashboard["dashboard_projection"]["schema_version"] == 1
+    assert "pending_orders" in dashboard["dashboard_projection"]
+    assert "quotes" in dashboard["dashboard_projection"]
 
     for event_type in ("order_lifecycle", "rank", "strategy_score", "roll"):
         response = client.get(

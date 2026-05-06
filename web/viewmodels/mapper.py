@@ -61,6 +61,7 @@ def run_to_vm(run: RunReadModel) -> dict[str, Any]:
         "approved": run.approved,
         "thresholds": run.thresholds,
         "warnings": run.warnings,
+        "optional_warnings": run.optional_warnings,
     }
 
 

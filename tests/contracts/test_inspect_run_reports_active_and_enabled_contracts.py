@@ -29,3 +29,13 @@ def test_inspect_run_reports_active_and_enabled_strategies_by_symbol(
     enabled = report["enabled_strategies_by_symbol"]["live"]
     assert enabled["au"] == ["simple_strategy", "volume_observer_guard"]
     assert enabled["rb"] == ["simple_strategy", "volume_observer_guard"]
+    projection_active = report["dashboard_projection"]["active_symbols"]["live"]
+    assert projection_active["symbols"] == ["ag", "au", "cu"]
+    assert projection_active["source"] in {"rank_events", "strategy_switch_proposal"}
+    projection_enabled = report["dashboard_projection"]["strategy_switch"][
+        "enabled_strategies_by_symbol"
+    ]
+    assert projection_enabled["au"] == [
+        "simple_strategy",
+        "volume_observer_guard",
+    ]
