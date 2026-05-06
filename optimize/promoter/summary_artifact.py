@@ -18,6 +18,7 @@ def write_summary_artifact(
     summary: Mapping[str, Any],
     output_dir: Path | None = None,
     filename: str | None = None,
+    status: str | None = None,
 ) -> Path:
     out_dir = output_dir or Path("data/artifacts/summaries")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -33,6 +34,8 @@ def write_summary_artifact(
         "role": role,
         "summary": dict(summary),
     }
+    if status is not None:
+        payload["status"] = status
 
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path

@@ -4,8 +4,8 @@ from __future__ import annotations
 import importlib
 from collections.abc import Iterable
 
+from core.services.reporting import RunReport
 from core.state.mark_to_market import MarkToMarket
-from research.run_report import RunReport
 
 # -- dynamic app bindings (avoid static layering imports) --
 Runtime = importlib.import_module("app.runtime").Runtime
@@ -14,8 +14,15 @@ RuntimeConfig = importlib.import_module("app.runtime_config").RuntimeConfig
 
 
 class MarketReplayRunner:
+    """Research-only replay runner.
+
+    This intentionally uses Runtime.run_market_once(), which is a non-canonical
+    local/research helper and must not be used by production, daemon, live/dryrun
+    or projection validation paths.
+    """
+
     def __init__(self, runtime: Runtime | None = None) -> None:
-        self.runtime = runtime or RuntimeFactory.build_simulated_runtime()
+        self.runtime = runtime or RuntimeFactory.build_local_runtime()
         self.mark_to_market = MarkToMarket()
         self._latest_prices: dict[str, float] = {}
 
@@ -65,7 +72,7 @@ class MarketReplayRunner:
         results: dict[str, RunReport] = {}
 
         for symbol in symbols:
-            runtime = RuntimeFactory.build_simulated_runtime(
+            runtime = RuntimeFactory.build_local_runtime(
                 RuntimeConfig(
                     symbol=symbol,
                     default_quantity=default_quantity,
@@ -110,7 +117,7 @@ class MarketReplayRunner:
 
         for index in range(cycles):
             symbol = symbols[index % len(symbols)]
-            runtime = RuntimeFactory.build_simulated_runtime(
+            runtime = RuntimeFactory.build_local_runtime(
                 RuntimeConfig(
                     symbol=symbol,
                     default_quantity=default_quantity,

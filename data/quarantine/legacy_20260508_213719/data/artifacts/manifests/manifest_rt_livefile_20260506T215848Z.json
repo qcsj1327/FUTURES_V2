@@ -1,0 +1,38 @@
+{
+  "artifacts": {
+    "approved": null,
+    "candidate_summary": null,
+    "current_summary": "data/artifacts/summaries/current_rt_livefile.json",
+    "decision": null,
+    "strategy_switch_approved": null,
+    "strategy_switch_proposal": "data/artifacts/strategy_switch/strategy_switch_proposal_rt_livefile.json"
+  },
+  "candidate_config": {
+    "env": "live"
+  },
+  "candidate_id": "cand_rt_livefile_daemon_20260506T215848Z",
+  "created_at": "2026-05-06T21:58:48+00:00",
+  "env": "live",
+  "kind": "promotion_manifest",
+  "plan": {
+    "effective_config_summary": {
+      "broker_mode": "simulated",
+      "datastore_scope": null,
+      "market_data_mode": "live_file",
+      "redaction_status": "legacy_manifest_config_redacted",
+      "runtime_profile": "live_file"
+    },
+    "path": "plans/dev.mode_live_file.json",
+    "redaction_status": "legacy_manifest_config_redacted",
+    "sha256": "a2359ee4110684b5e6c431ceac2ad9daab73c18b92318ee2cec41e919d7cbb23"
+  },
+  "run_mode": "daemon",
+  "runtime_id": "rt_livefile",
+  "schema_version": 1,
+  "status": "running",
+  "thresholds": {
+    "max_consecutive_failures": 99,
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0
+  }
+}

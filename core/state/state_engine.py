@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from core.state.application import FillApplication
 from core.state.capital_model import CapitalModel
 from core.state.position_lifecycle import PositionLifecycle
 from domain.enums import ExecutionStatus, OrderStatus
-from domain.event import OrderEvent
-from domain.execution import ExecutionOrder, ExecutionResult
-from domain.state import PortfolioState, PositionKey, PositionState
+from domain.event import FillEvent, OrderEvent
+from domain.state import OrderState, PortfolioState, PositionKey, PositionState
 
 
 class StateEngine:
@@ -22,55 +22,101 @@ class StateEngine:
         self.portfolio = PortfolioState(runtime_id=runtime_id)
         self.position_lifecycle = PositionLifecycle()
         self.capital_model = CapitalModel(commission_rate=commission_rate)
+        self.orders: dict[str, OrderState] = {}
 
-    def apply(
-        self,
-        order: ExecutionOrder | None,
-        result: ExecutionResult,
-        strategy_name: str = "default",
-    ) -> tuple[OrderEvent | None, PositionState]:
-        if order is None:
-            return None, self.position
-
-        if order.trade_instrument_id is None:
-            raise ValueError("ExecutionOrder.trade_instrument_id is required")
-
-        if result.ts is None:
-            raise ValueError("ExecutionResult.ts is required")
-
-        event = OrderEvent(
-            strategy_name=strategy_name,
-            instrument_id=order.instrument_id,
-            trade_instrument_id=order.trade_instrument_id,
-            order_id=self._resolve_order_id(result),
-            side=order.side,
-            position_side=order.position_side,
-            quantity=order.quantity,
-            status=self._order_status(result),
-            ts=result.ts,
-            reason=result.reason,
+    def apply_order_event(self, event: OrderEvent) -> OrderState:
+        state = OrderState(
+            order_id=event.order_id,
+            instrument_id=event.instrument_id,
+            trade_instrument_id=event.trade_instrument_id,
+            side=event.side,
+            position_side=event.position_side,
+            quantity=event.quantity,
+            status=event.status,
+            ts=event.ts,
+            filled_quantity=float(event.metadata.get("filled_quantity") or 0.0),
+            avg_fill_price=_float_or_none(event.metadata.get("avg_fill_price")),
+            client_order_id=event.client_order_id,
+            runtime_id=event.runtime_id,
+            strategy_name=event.strategy_name,
+            reason=event.reason,
+            metadata=dict(event.metadata),
         )
+        self.orders[event.order_id] = state
+        return state
 
-        if not result.success:
-            return event, self.position
+    def apply_fill_event(self, event: FillEvent) -> tuple[OrderState, PositionState]:
+        existing_order = self.orders.get(event.order_id)
+        order_quantity = existing_order.quantity if existing_order is not None else event.quantity
+        application = FillApplication(
+            order_id=event.order_id,
+            instrument_id=event.instrument_id,
+            trade_instrument_id=event.trade_instrument_id,
+            side=event.side,
+            position_side=event.position_side,
+            order_quantity=order_quantity,
+            filled_quantity=event.quantity,
+            fill_price=event.fill_price,
+            status=_execution_status_from_fill_event(event),
+            ts=event.ts,
+            client_order_id=event.client_order_id,
+            reason=str(event.metadata.get("reason") or "fill"),
+            remaining_quantity=_float_or_none(event.metadata.get("remaining_quantity")),
+            avg_fill_price=_float_or_none(event.metadata.get("avg_fill_price")) or event.fill_price,
+        )
+        position = self._apply_fill_to_portfolio(
+            application=application,
+            strategy_name=event.strategy_name,
+        )
+        filled_quantity = event.quantity
+        if existing_order is not None:
+            filled_quantity += existing_order.filled_quantity
+        status = (
+            OrderStatus.FILLED
+            if application.status == ExecutionStatus.FILLED
+            else OrderStatus.PARTIALLY_FILLED
+        )
+        order_state = OrderState(
+            order_id=event.order_id,
+            instrument_id=event.instrument_id,
+            trade_instrument_id=event.trade_instrument_id,
+            side=event.side,
+            position_side=event.position_side,
+            quantity=order_quantity,
+            status=status,
+            ts=event.ts,
+            filled_quantity=filled_quantity,
+            avg_fill_price=application.avg_fill_price,
+            client_order_id=event.client_order_id,
+            runtime_id=event.runtime_id,
+            strategy_name=event.strategy_name,
+            reason=application.reason,
+            metadata=dict(event.metadata),
+        )
+        self.orders[event.order_id] = order_state
+        return order_state, position
 
+    def _apply_fill_to_portfolio(
+        self,
+        *,
+        application: FillApplication,
+        strategy_name: str,
+    ) -> PositionState:
         key = PositionKey(
-            instrument_id=order.instrument_id,
-            trade_instrument_id=order.trade_instrument_id,
-            position_side=order.position_side,
+            instrument_id=application.instrument_id,
+            trade_instrument_id=application.trade_instrument_id,
+            position_side=application.position_side,
         )
 
         existing = self.portfolio.positions.get(key)
 
         self.capital_model.pre_validate(
             portfolio=self.portfolio,
-            order=order,
-            result=result,
+            application=application,
         )
 
         position = self.position_lifecycle.apply(
-            order=order,
-            result=result,
+            application=application,
             existing=existing,
             runtime_id=self.runtime_id,
             strategy_name=strategy_name,
@@ -78,11 +124,11 @@ class StateEngine:
 
         positions = dict(self.portfolio.positions)
         positions[key] = position
+        realized_pnl = sum(pos.realized_pnl for pos in positions.values())
 
         cash, equity = self.capital_model.apply(
             portfolio=self.portfolio,
-            order=order,
-            result=result,
+            application=application,
             position=position,
         )
 
@@ -91,28 +137,31 @@ class StateEngine:
             positions=positions,
             cash=cash,
             equity=equity,
-            realized_pnl=self.portfolio.realized_pnl,
+            realized_pnl=realized_pnl,
             unrealized_pnl=self.portfolio.unrealized_pnl,
-            updated_ts=result.ts,
+            updated_ts=application.ts,
             metadata=self.portfolio.metadata,
         )
         self.position = position
 
-        return event, position
+        return position
 
-    def _order_status(self, result: ExecutionResult) -> OrderStatus:
-        if not result.success:
-            return OrderStatus.REJECTED
 
-        if result.status == ExecutionStatus.PARTIALLY_FILLED:
-            return OrderStatus.PARTIALLY_FILLED
+def _float_or_none(value: object) -> float | None:
+    if value is None:
+        return None
+    if not isinstance(value, str | int | float):
+        return None
+    return float(value)
 
-        if result.status == ExecutionStatus.FILLED:
-            return OrderStatus.FILLED
 
-        return OrderStatus.SUBMITTED
-
-    def _resolve_order_id(self, result: ExecutionResult) -> str:
-        if result.order_id is None:
-            raise ValueError("ExecutionResult.order_id is required")
-        return result.order_id
+def _execution_status_from_fill_event(event: FillEvent) -> ExecutionStatus:
+    raw = event.metadata.get("execution_status")
+    if raw == ExecutionStatus.PARTIALLY_FILLED.value:
+        return ExecutionStatus.PARTIALLY_FILLED
+    if raw == ExecutionStatus.FILLED.value:
+        return ExecutionStatus.FILLED
+    remaining = _float_or_none(event.metadata.get("remaining_quantity"))
+    if remaining is not None and remaining > 0:
+        return ExecutionStatus.PARTIALLY_FILLED
+    return ExecutionStatus.FILLED

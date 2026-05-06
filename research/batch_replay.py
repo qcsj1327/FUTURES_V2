@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
+from core.services.reporting import RunReport
 from research.replay import ReplayRunner
-from research.run_report import RunReport
 
 
 class BatchReplayRunner:

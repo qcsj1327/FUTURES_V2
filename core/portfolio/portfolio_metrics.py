@@ -18,6 +18,7 @@ class PortfolioMetrics:
     realized_pnl: float
     notional_by_symbol: dict[str, float] = field(default_factory=dict)
     margin_by_symbol: dict[str, float] = field(default_factory=dict)
+    unrealized_pnl_by_symbol: dict[str, float] = field(default_factory=dict)
     cost_total_sum: float = 0.0
 
     def as_metadata(self) -> dict[str, object]:
@@ -30,6 +31,7 @@ class PortfolioMetrics:
             "realized_pnl": self.realized_pnl,
             "notional_by_symbol": dict(self.notional_by_symbol),
             "margin_by_symbol": dict(self.margin_by_symbol),
+            "unrealized_pnl_by_symbol": dict(self.unrealized_pnl_by_symbol),
             "cost_total_sum": self.cost_total_sum,
         }
 
@@ -46,6 +48,7 @@ def calculate_portfolio_metrics(
     unrealized_pnl = 0.0
     notional_by_symbol: dict[str, float] = {}
     margin_by_symbol: dict[str, float] = {}
+    unrealized_pnl_by_symbol: dict[str, float] = {}
 
     for position in portfolio.positions.values():
         if position.quantity <= 0:
@@ -66,10 +69,20 @@ def calculate_portfolio_metrics(
         margin_by_symbol[position.instrument_id] = (
             margin_by_symbol.get(position.instrument_id, 0.0) + margin
         )
+        position_unrealized_pnl = 0.0
         if position.position_side == PositionSide.LONG:
-            unrealized_pnl += (price - avg_price) * position.quantity * spec.multiplier
+            position_unrealized_pnl = (
+                (price - avg_price) * position.quantity * spec.multiplier
+            )
         elif position.position_side == PositionSide.SHORT:
-            unrealized_pnl += (avg_price - price) * position.quantity * spec.multiplier
+            position_unrealized_pnl = (
+                (avg_price - price) * position.quantity * spec.multiplier
+            )
+        unrealized_pnl += position_unrealized_pnl
+        unrealized_pnl_by_symbol[position.instrument_id] = (
+            unrealized_pnl_by_symbol.get(position.instrument_id, 0.0)
+            + position_unrealized_pnl
+        )
 
     realized_pnl = float(portfolio.realized_pnl)
     equity = initial_equity + realized_pnl + unrealized_pnl - cost_total_sum
@@ -84,5 +97,6 @@ def calculate_portfolio_metrics(
         realized_pnl=realized_pnl,
         notional_by_symbol=notional_by_symbol,
         margin_by_symbol=margin_by_symbol,
+        unrealized_pnl_by_symbol=unrealized_pnl_by_symbol,
         cost_total_sum=cost_total_sum,
     )

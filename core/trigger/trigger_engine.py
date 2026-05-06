@@ -28,7 +28,11 @@ class TriggerEngine:
                 confidence=decision.confidence,
                 strength=decision.strength,
                 reason=reason,
-                details={"source": "trigger_engine"},
+                details={
+                    "source": "trigger_engine",
+                    "stop_loss": decision.stop_loss,
+                    "take_profit": decision.take_profit,
+                },
             )
 
         return TriggerResult(
@@ -49,7 +53,11 @@ class TriggerEngine:
             confidence=decision.confidence,
             strength=decision.strength,
             reason=decision.reason,
-            details={"source": "trigger_engine"},
+            details={
+                "source": "trigger_engine",
+                "stop_loss": decision.stop_loss,
+                "take_profit": decision.take_profit,
+            },
         )
 
     def _blocked_reason(self, decision: SignalDecision) -> str | None:

@@ -60,4 +60,10 @@ class TradingCalendar:
 
 
 def base_symbol(symbol: str) -> str:
-    return symbol[:-5] if symbol.endswith("_main") else symbol
+    if symbol.startswith("KQ.m@"):
+        symbol = symbol.removeprefix("KQ.m@")
+    if symbol.endswith("_main"):
+        symbol = symbol[:-5]
+    if "." in symbol:
+        symbol = symbol.rsplit(".", 1)[1]
+    return "".join(ch for ch in symbol if ch.isalpha()) or symbol

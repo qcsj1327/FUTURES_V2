@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from core.instruments.calendar import base_symbol
+from core.services.runtime.event_codec import encode_datastore_event
 
 
 class RollEventSink(Protocol):
-    def append_roll_event(self, event: dict[str, object], *, env: str) -> None: ...
+    def append_roll_event(self, event: dict[str, object], *, scope: str) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,7 @@ class RollPolicy:
         mode: str,
         contracts: dict[str, str],
         runtime_id: str,
-        env: str,
+        scope: str,
         sink: RollEventSink | None = None,
         close_on_roll: bool = False,
         cooldown_ticks: int = 0,
@@ -53,7 +54,7 @@ class RollPolicy:
         self.mode = mode
         self.contracts = dict(contracts)
         self.runtime_id = runtime_id
-        self.env = env
+        self.scope = scope
         self.sink = sink
         self.close_on_roll = close_on_roll
         self.cooldown_ticks = cooldown_ticks
@@ -149,4 +150,21 @@ class RollPolicy:
     def _write_roll_event(self, event: RollEvent) -> None:
         if self.sink is None:
             return
-        self.sink.append_roll_event(event.to_dict(), env=self.env)
+        self.sink.append_roll_event(
+            encode_datastore_event(
+                base={
+                    "ts": event.ts,
+                    "runtime_id": self.runtime_id,
+                    "scope": self.scope,
+                    "symbol": event.base_symbol,
+                    "strategy_name": "roll_policy",
+                    "strategy_id": "roll_policy",
+                    "strategy_impl": "RollPolicy",
+                },
+                event_type="roll",
+                payload_type="roll",
+                source="roll_policy",
+                payload=event.to_dict(),
+            ),
+            scope=self.scope,
+        )

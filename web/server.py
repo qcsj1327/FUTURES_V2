@@ -108,7 +108,7 @@ def run_latest_manifest_route(runtime_id: str) -> dict[str, Any]:
 @app.get("/runs/{runtime_id}/events")
 def run_events_route(
     runtime_id: str,
-    env: str = Query(default="live"),
+    scope: str = Query(default="live"),
     tail: int = Query(default=50, ge=1, le=5000),
     since_ts: int = Query(default=-1),
     event_type: str = Query(default=""),
@@ -119,7 +119,7 @@ def run_events_route(
 ) -> dict[str, Any]:
     payload = get_run_events(
         runtime_id=runtime_id,
-        env=env,
+        scope=scope,
         tail=tail,
         since_ts=None if since_ts < 0 else since_ts,
         event_type=event_type.strip() or None,

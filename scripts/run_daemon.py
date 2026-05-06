@@ -6,46 +6,58 @@ import json
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
+from app.orchestration.daemon_artifacts import write_daemon_artifacts
 from app.orchestration.daemon_runner import DaemonSession, run_loop
 from app.orchestration.run_cleanup import clean_runtime_paths
-from app.orchestration.session_builder import Env, build_universe_session
+from app.orchestration.session_builder import RuntimeProfile, build_universe_session
 from config.defaults import default_plan
 from config.env import load_dotenv
 from config.loader import load_plan
 from config.models import RunPlan
+from optimize.promoter.manifest_artifact import (
+    manifest_safe_path,
+    redacted_effective_plan_summary,
+    redaction_status,
+)
 from optimize.promoter.promotion_gate import PromotionThresholds
 
 
 def _plan_meta_for(path: Path | None, *, plan_obj: RunPlan) -> dict[str, Any]:
+    plan_json = json.dumps(asdict(plan_obj), ensure_ascii=False, sort_keys=True, default=str)
+    effective_config = json.loads(plan_json)
+    effective_config_summary = redacted_effective_plan_summary(effective_config)
     if path is None:
-        plan_json = json.dumps(asdict(plan_obj), ensure_ascii=False, sort_keys=True, default=str)
         return {
             "path": None,
             "sha256": hashlib.sha256(plan_json.encode("utf-8")).hexdigest(),
-            "config": json.loads(plan_json),
+            "effective_config_summary": effective_config_summary,
+            "redaction_status": redaction_status(),
         }
 
     raw = path.read_bytes()
     return {
-        "path": str(path),
+        "path": manifest_safe_path(path),
         "sha256": hashlib.sha256(raw).hexdigest(),
-        "config": json.loads(raw.decode("utf-8")),
+        "effective_config_summary": effective_config_summary,
+        "redaction_status": redaction_status(),
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="run_daemon",
-        description="Run a long-running live/sandbox session (writes store + rolling summaries).",
+        description="Run a long-running local/dryrun/live session.",
     )
     parser.add_argument("--config", type=str, default="")
     parser.add_argument("--runtime-id", type=str, default="rt_daemon")
-    parser.add_argument("--env", type=str, default="live")  # live|sandbox
+    parser.add_argument("--profile", type=str, default="")
     parser.add_argument("--max-ticks", type=int, default=0)  # 0=forever
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--artifact-every", type=int, default=5)  # ticks; 0=disable
+    parser.add_argument("--audit-enabled", type=int, default=0)
+    parser.add_argument("--audit-interval-seconds", type=float, default=300.0)
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--stop-on-exception", type=int, default=1)
     args = parser.parse_args(argv)
@@ -57,13 +69,14 @@ def main(argv: list[str] | None = None) -> int:
         plan = load_plan(plan_path, runtime_id=args.runtime_id)
     else:
         plan = default_plan(runtime_id=args.runtime_id)
-    if plan.runtime.mode == "tqkq_sim":
-        raise ValueError("run_daemon does not support runtime.mode=tqkq_sim")
-
-    env = str(args.env).strip().lower()
-    if env not in {"live", "sandbox"}:
-        raise SystemExit("env must be live|sandbox")
-    env_typed = cast(Env, env)
+    profile = str(args.profile or plan.runtime.mode).strip().lower()
+    if profile not in {"local", "dryrun", "live"}:
+        raise SystemExit("profile must be local|dryrun|live")
+    if profile != plan.runtime.mode:
+        raise ValueError(
+            f"profile conflict: arg={profile!r} plan.runtime.mode={plan.runtime.mode!r}"
+        )
+    profile_typed: RuntimeProfile = profile
 
     if args.clean:
         clean_runtime_paths(
@@ -71,9 +84,6 @@ def main(argv: list[str] | None = None) -> int:
             store_root=plan.datastore.store_root,
             artifacts_root=plan.datastore.artifacts_root,
         )
-
-    # Session builder returns UniverseRuntime (single-env)
-    uni = build_universe_session(plan=plan, env=env_typed, runtime_id=args.runtime_id)
 
     # Daemon keeps stable candidate_id per boot for audit
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -85,17 +95,37 @@ def main(argv: list[str] | None = None) -> int:
         max_consecutive_failures=plan.promotion.max_consecutive_failures,
     )
 
-    plan_meta = _plan_meta_for(plan_path, plan_obj=plan)
+    uni = build_universe_session(
+        plan=plan,
+        profile=profile_typed,
+        runtime_id=args.runtime_id,
+    )
+    plan_meta = _plan_meta_for(plan_path, plan_obj=uni.plan)
+    write_daemon_artifacts(
+        runtime_id=args.runtime_id,
+        scope=profile,
+        store_root=plan.datastore.store_root,
+        artifacts_root=plan.datastore.artifacts_root,
+        candidate_id=candidate_id,
+        thresholds=thresholds,
+        plan_meta=plan_meta,
+        write_manifest=True,
+        write_summary=True,
+        status="booting",
+        include_strategy_switch=False,
+    )
 
     session = DaemonSession(
         runtime_id=args.runtime_id,
-        env=env,
+        scope=profile,
         universe_runtime=uni,
         store_root=plan.datastore.store_root,
         artifacts_root=plan.datastore.artifacts_root,
         candidate_id=candidate_id,
         thresholds=thresholds,
         plan_meta=plan_meta,
+        audit_enabled=int(args.audit_enabled) == 1,
+        audit_interval_seconds=float(args.audit_interval_seconds),
     )
 
     _ = run_loop(

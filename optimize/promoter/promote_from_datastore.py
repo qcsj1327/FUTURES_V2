@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from core.services.runtime.datastore import DataStore
+from core.services.runtime.execution_summary import (
+    replay_execution_events,
+    summarize_execution_events,
+)
 from optimize.promoter.promotion_gate import PromotionDecision, PromotionGate, PromotionThresholds
-from research.datastore_replay import replay_execution_events, summarize_execution_events
 
 
 def promote_from_datastore(
     *,
     current_store: DataStore,
-    current_env: str,
+    current_scope: str,
     candidate_store: DataStore,
-    candidate_env: str,
+    candidate_scope: str,
     thresholds: PromotionThresholds | None = None,
 ) -> PromotionDecision:
     """
@@ -20,8 +23,8 @@ def promote_from_datastore(
     """
     gate = PromotionGate(thresholds=thresholds)
 
-    cur_events = replay_execution_events(current_store, env=current_env)
-    cand_events = replay_execution_events(candidate_store, env=candidate_env)
+    cur_events = replay_execution_events(current_store, scope=current_scope)
+    cand_events = replay_execution_events(candidate_store, scope=candidate_scope)
 
     cur_summary = summarize_execution_events(cur_events)
     cand_summary = summarize_execution_events(cand_events)

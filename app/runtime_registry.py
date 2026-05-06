@@ -22,4 +22,4 @@ class RuntimeRegistry:
 
     def build_from_configs(self, configs: Iterable[RuntimeConfig]) -> None:
         for cfg in configs:
-            self.register(RuntimeFactory.build_simulated_runtime(cfg))
+            self.register(RuntimeFactory.build_local_runtime(cfg))

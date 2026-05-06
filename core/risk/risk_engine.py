@@ -6,7 +6,7 @@ from core.risk.position_limit import PositionLimit
 from core.risk.risk_budget import RiskBudget
 from domain.enums import Decision, Side
 from domain.risk import RiskDecision
-from domain.state import PortfolioState
+from domain.state import PortfolioState, PositionState
 
 
 class RiskEngine:
@@ -106,11 +106,44 @@ class RiskEngine:
             position_side=trigger.position_side,
             lifecycle=trigger.lifecycle,
             quantity=adjusted_quantity,
-            stop_loss=None,
-            take_profit=None,
+            stop_loss=_number_or_none(trigger.details.get("stop_loss")),
+            take_profit=_number_or_none(trigger.details.get("take_profit")),
             risk_budget=None,
             reason=allocation.reason or trigger.reason,
             details={"source": "risk_engine"},
+        )
+
+    def authorize_close_position(
+        self,
+        *,
+        position: PositionState,
+        side: Side,
+        reason: str,
+    ) -> RiskDecision:
+        if position.quantity <= 0:
+            return RiskDecision(
+                instrument_id=position.instrument_id,
+                trade_instrument_id=position.trade_instrument_id,
+                allowed=False,
+                decision=Decision.CLOSE,
+                side=side,
+                position_side=position.position_side,
+                lifecycle=None,
+                quantity=None,
+                reason="invalid_quantity",
+                details={"source": "risk_engine", "close_reason": reason},
+            )
+        return RiskDecision(
+            instrument_id=position.instrument_id,
+            trade_instrument_id=position.trade_instrument_id,
+            allowed=True,
+            decision=Decision.CLOSE,
+            side=side,
+            position_side=position.position_side,
+            lifecycle=None,
+            quantity=position.quantity,
+            reason=reason,
+            details={"source": "risk_engine", "close_reason": reason},
         )
 
     def _exceeds_position_limit(
@@ -142,3 +175,11 @@ class RiskEngine:
             reason=reason,
             details={"source": "risk_engine"},
         )
+
+
+def _number_or_none(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None

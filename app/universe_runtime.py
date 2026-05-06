@@ -5,6 +5,7 @@ from collections import deque
 from adapters.marketdata.base import MarketDataAdapter, MarketQuote, base_symbol
 from app.runtime import Runtime
 from core.instruments.cost_model import calculate_trade_cost
+from core.services.runtime.event_codec import encode_datastore_event
 from core.signal_router.router import RouterConfig, route
 from domain.enums import Decision, SignalStrength
 from strategies.strategy_set import StrategySet, TaggedDecision
@@ -92,34 +93,18 @@ class UniverseRuntime:
             )
 
         # optional exit per position (best-effort symbol mapping)
-        cfg = self.executor.config
-        stop_loss = getattr(cfg, "stop_loss", None)
-        take_profit = getattr(cfg, "take_profit", None)
-
         for pos in list(self.executor.state.portfolio.positions.values()):
             sym = getattr(pos, "instrument_id", None) or getattr(pos, "trade_instrument_id", None)
             if not isinstance(sym, str) or sym not in quotes:
-                continue
-            if base_symbol(sym) not in active_symbols:
                 continue
             raw_quote_ts = quotes[sym].ts
             quote_ts: int = raw_quote_ts if raw_quote_ts is not None else self.executor._tick
             if not self.executor.trading_calendar.is_trading_time(sym, quote_ts):
                 continue
 
-            exit_order = self.executor.exit_service.create_exit_order(
+            self.executor.execute_exit_for_position(
                 position=pos,
                 current_price=quotes[sym].price,
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-            )
-            if exit_order is None:
-                continue
-
-            exit_result = self.executor.execution.broker.submit_order(exit_order)
-            self.executor.record_broker_result(
-                exit_order,
-                exit_result,
                 strategy_name="exit",
                 strategy_impl="ExitService",
                 symbol=sym,
@@ -262,25 +247,33 @@ class UniverseRuntime:
         for reason in self._last_excluded_symbols.values():
             excluded_reasons_count[reason] = excluded_reasons_count.get(reason, 0) + 1
         self.executor.datastore.append_rank_event(
-            {
-                "event_type": "rank",
-                "ts": self._tick,
-                "runtime_id": self.executor.runtime_id,
-                "env": self.executor.environment,
-                "active_top_n": self.active_top_n,
-                "active_symbols": sorted(active_symbols),
-                "scores": [
-                    {"symbol": sym, "score": score}
-                    for sym, score in active_ranked[: self.active_top_n]
-                ],
-                "excluded_symbols_count": max(0, len(self.symbols) - len(active_symbols)),
-                "excluded_symbols": [
-                    {"symbol": sym, "reason": reason}
-                    for sym, reason in sorted(self._last_excluded_symbols.items())
-                ],
-                "excluded_reasons_count": excluded_reasons_count,
-            },
-            env=self.executor.environment,
+            encode_datastore_event(
+                base=self._event_base(
+                    ts=self._tick,
+                    symbol="universe",
+                    strategy_name="rank",
+                    strategy_impl="UniverseRuntime",
+                ),
+                event_type="rank",
+                payload_type="rank",
+                source="universe_runtime",
+                payload={
+                    "ts": self._tick,
+                    "active_top_n": self.active_top_n,
+                    "active_symbols": sorted(active_symbols),
+                    "scores": [
+                        {"symbol": sym, "score": score}
+                        for sym, score in active_ranked[: self.active_top_n]
+                    ],
+                    "excluded_symbols_count": max(0, len(self.symbols) - len(active_symbols)),
+                    "excluded_symbols": [
+                        {"symbol": sym, "reason": reason}
+                        for sym, reason in sorted(self._last_excluded_symbols.items())
+                    ],
+                    "excluded_reasons_count": excluded_reasons_count,
+                },
+            ),
+            scope=self.executor.scope,
         )
 
     def _emit_strategy_score_events(
@@ -297,30 +290,67 @@ class UniverseRuntime:
             if not sym:
                 continue
             raw_score = self._score_tagged_decision(td)
-            cost_penalty = self._cost_penalty(td, quotes.get(sym))
+            quote = quotes.get(sym)
+            cost_penalty = self._cost_penalty(td, quote)
             final_score = raw_score - cost_penalty - risk_penalty
+            payload = {
+                "ts": self._tick,
+                "symbol": sym,
+                "strategy_name": td.strategy_name,
+                "strategy_id": td.strategy_name,
+                "strategy_impl": td.strategy_impl,
+                "decision": td.decision.decision.name,
+                "strength": td.decision.strength.name,
+                "confidence": float(td.decision.confidence),
+                "raw_score": raw_score,
+                "cost_penalty": cost_penalty,
+                "risk_penalty": risk_penalty,
+                "final_score": final_score,
+                "score": final_score,
+                "scoring_model": "cost_risk_v2",
+            }
+            if quote is not None:
+                payload.update(
+                    {
+                        "latest_market_price": quote.price,
+                        "market_price": quote.price,
+                        "market_volume": quote.volume,
+                        "market_ts": quote.ts,
+                    }
+                )
             self.executor.datastore.append_strategy_score_event(
-                {
-                    "event_type": "strategy_score",
-                    "ts": self._tick,
-                    "runtime_id": self.executor.runtime_id,
-                    "env": self.executor.environment,
-                    "symbol": sym,
-                    "strategy_name": td.strategy_name,
-                    "strategy_id": td.strategy_name,
-                    "strategy_impl": td.strategy_impl,
-                    "decision": td.decision.decision.name,
-                    "strength": td.decision.strength.name,
-                    "confidence": float(td.decision.confidence),
-                    "raw_score": raw_score,
-                    "cost_penalty": cost_penalty,
-                    "risk_penalty": risk_penalty,
-                    "final_score": final_score,
-                    "score": final_score,
-                    "scoring_model": "cost_risk_v2",
-                },
-                env=self.executor.environment,
+                encode_datastore_event(
+                    base=self._event_base(
+                        ts=self._tick,
+                        symbol=sym,
+                        strategy_name=td.strategy_name,
+                        strategy_impl=td.strategy_impl,
+                    ),
+                    event_type="strategy_score",
+                    payload_type="strategy_score",
+                    source="universe_runtime",
+                    payload=payload,
+                ),
+                scope=self.executor.scope,
             )
+
+    def _event_base(
+        self,
+        *,
+        ts: int,
+        symbol: str,
+        strategy_name: str,
+        strategy_impl: str,
+    ) -> dict[str, object]:
+        return {
+            "ts": ts,
+            "runtime_id": self.executor.runtime_id,
+            "scope": self.executor.scope,
+            "symbol": symbol,
+            "strategy_name": strategy_name,
+            "strategy_id": strategy_name,
+            "strategy_impl": strategy_impl,
+        }
 
     def _cost_penalty(self, td: TaggedDecision, quote: MarketQuote | None) -> float:
         if quote is None or td.decision.decision == Decision.HOLD:

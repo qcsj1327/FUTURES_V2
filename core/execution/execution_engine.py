@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.execution.broker_port import BrokerPort
+from core.execution.execution_request import ExecutionRequest
 from domain.enums import Decision, ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.risk import RiskDecision
@@ -11,6 +12,23 @@ class ExecutionEngine:
         self.broker = broker
 
     def execute(self, decision: RiskDecision) -> tuple[ExecutionOrder | None, ExecutionResult]:
+        return self._execute_decision(decision, order_price=None)
+
+    def execute_request(
+        self,
+        request: ExecutionRequest,
+    ) -> tuple[ExecutionOrder | None, ExecutionResult]:
+        return self._execute_decision(
+            request.risk_decision,
+            order_price=request.order_price,
+        )
+
+    def _execute_decision(
+        self,
+        decision: RiskDecision,
+        *,
+        order_price: float | None,
+    ) -> tuple[ExecutionOrder | None, ExecutionResult]:
         if not decision.allowed:
             return None, self._rejected(decision.reason or "risk_not_allowed")
 
@@ -50,6 +68,7 @@ class ExecutionEngine:
             position_side=decision.position_side,
             quantity=decision.quantity,
             order_type="market",
+            price=order_price,
             stop_loss=decision.stop_loss,
             take_profit=decision.take_profit,
         )

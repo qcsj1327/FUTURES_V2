@@ -5,7 +5,15 @@ from dataclasses import dataclass, replace
 from adapters.broker.base import BrokerAdapter
 from adapters.marketdata.base import MarketDataAdapter
 from app.runtime_config import RuntimeConfig
+from app.runtime_observations import build_portfolio_metrics_observation
+from config.instrument_universe import (
+    default_symbols,
+    local_quote_profiles_for,
+    trade_contracts_for,
+)
+from core.execution.event_translator import translate_execution_result
 from core.execution.execution_engine import ExecutionEngine
+from core.execution.execution_request import ExecutionRequest
 from core.execution.lifecycle_reasons import (
     BLOCKED_BY_PENDING_ORDER,
     CANCELED,
@@ -34,7 +42,8 @@ from core.risk.symbol_position_limit import SymbolPositionLimit
 from core.services.runtime.datastore import DataStore
 from core.services.runtime.event_codec import (
     build_base_event,
-    encode_execution_event,
+    encode_datastore_event,
+    encode_fill_event,
     encode_order_event,
 )
 from core.services.trade.exit_service import ExitService
@@ -44,7 +53,7 @@ from domain.enums import Decision, ExecutionStatus, PositionSide, Side
 from domain.execution import ExecutionOrder, ExecutionResult
 from domain.risk import RiskDecision
 from domain.signal import SignalDecision
-from domain.state import PortfolioState
+from domain.state import PositionKey, PositionState
 from strategies.base.simple_strategy import StrategyEngine
 from strategies.base.strategy import Strategy
 
@@ -60,6 +69,10 @@ class _PendingOrderContext:
     remaining_quantity: float | None = None
 
 
+_PositionExitKey = tuple[str, str | None, str]
+SIMULATED_INITIAL_EQUITY = 1_000_000.0
+
+
 class Runtime:
     def __init__(
         self,
@@ -69,7 +82,7 @@ class Runtime:
         broker: BrokerAdapter,
         state: StateEngine | None = None,
         strategy: Strategy | None = None,
-        environment: str = "live",
+        scope: str = "live",
         datastore: DataStore | None = None,
         runtime_id: str | None = None,
         trading_calendar: TradingCalendar | None = None,
@@ -87,23 +100,19 @@ class Runtime:
         self.strategy = strategy or StrategyEngine()
         self.market_data = market_data
         self.trading_calendar = trading_calendar or TradingCalendar(sessions_by_symbol={})
+        symbols = default_symbols()
         default_policy = RollPolicy(
             mode="fixed_contract",
-            contracts={
-                self.config.symbol: f"{self.config.symbol}_main",
-                "au": "au_main",
-                "ag": "ag_main",
-                "rb": "rb_main",
-            },
+            contracts=trade_contracts_for(symbols),
             runtime_id=self.runtime_id,
-            env=environment,
+            scope=scope,
             sink=datastore,
         )
         self.instrument_resolver = instrument_resolver or InstrumentResolver(
             roll_policy=default_policy
         )
 
-        self.environment = environment
+        self.scope = scope
         self.datastore = datastore
         self.orders_submitted = 0
         self._tick = 0
@@ -111,7 +120,7 @@ class Runtime:
         self.max_pending_ticks: int | None = None
         self.symbol_position_limit = SymbolPositionLimit()
         self.portfolio_risk_limits = PortfolioRiskLimits()
-        self.initial_equity = 1_000_000.0
+        self.initial_equity = SIMULATED_INITIAL_EQUITY
         self._cost_total_sum = 0.0
         self._max_risk_ratio_seen = 0.0
         self._order_keys_by_tick: dict[int, set[tuple[str, str, str, str | None]]] = {}
@@ -124,7 +133,11 @@ class Runtime:
         self._halt_until_tick: int | None = None
         self._last_order_tick_by_symbol: dict[str, int] = {}
         self._last_portfolio_sync: dict[str, object] = {}
+        self._portfolio_metrics_snapshot: dict[str, object] = {}
         self._roll_cooldown_until_tick: dict[str, int] = {}
+        self._exit_levels_by_position: dict[
+            _PositionExitKey, tuple[float | None, float | None]
+        ] = {}
 
     def run_market_once(
         self,
@@ -132,6 +145,11 @@ class Runtime:
         stop_loss: float | None = None,
         take_profit: float | None = None,
     ) -> None:
+        """Non-canonical local/research helper.
+
+        Production, daemon, live/dryrun and projection validation paths must enter through
+        UniverseRuntime.run_tick() or a SessionBuilder-created UniverseSession.
+        """
         quote = self.market_data.get_last_quote(self.config.symbol)
         quote_ts = quote.ts if quote.ts is not None else self._tick
         if not self.trading_calendar.is_trading_time(self.config.symbol, quote_ts):
@@ -141,19 +159,11 @@ class Runtime:
         self.run(decision, market_ts=quote_ts)
 
         for position in list(self.state.portfolio.positions.values()):
-            exit_order = self.exit_service.create_exit_order(
+            self.execute_exit_for_position(
                 position=position,
                 current_price=quote.price,
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-            )
-            if exit_order is None:
-                continue
-
-            exit_result = self.execution.broker.submit_order(exit_order)
-            self.record_broker_result(
-                exit_order,
-                exit_result,
+                fallback_stop_loss=stop_loss,
+                fallback_take_profit=take_profit,
                 strategy_name="exit",
                 strategy_impl="ExitService",
                 symbol=position.instrument_id,
@@ -182,6 +192,9 @@ class Runtime:
             strategy_impl=strategy_impl,
         ):
             return
+        if self._is_open_decision(decision) and self._has_active_position(base):
+            self._maybe_save_snapshot()
+            return
         prepared = self._inject_instrument(decision, base_symbol=base, ts=int(ts))
         self._run_decision(prepared, strategy_name=strategy_name, strategy_impl=strategy_impl)
 
@@ -200,7 +213,7 @@ class Runtime:
     ) -> SignalDecision:
         trade_id = self.instrument_resolver.resolve_trade_instrument_id(base_symbol, ts)
         return replace(
-            decision,
+            self._enrich_exit_prices(decision, base_symbol=base_symbol),
             symbol=base_symbol,
             instrument_id=base_symbol,
             trade_instrument_id=trade_id,
@@ -208,6 +221,137 @@ class Runtime:
             ts=decision.ts if decision.ts is not None else ts,
             bar_ts=decision.bar_ts if decision.bar_ts is not None else ts,
         )
+
+    def _enrich_exit_prices(
+        self,
+        decision: SignalDecision,
+        *,
+        base_symbol: str,
+    ) -> SignalDecision:
+        if not self._is_open_decision(decision):
+            return decision
+        quote = None
+        reference = decision.expected_price
+        if reference is None:
+            try:
+                quote = self.market_data.get_last_quote(base_symbol)
+                reference = quote.price
+            except Exception:
+                reference = None
+        elif self.config.dynamic_exit_enabled:
+            try:
+                quote = self.market_data.get_last_quote(base_symbol)
+            except Exception:
+                quote = None
+        if reference is None or reference <= 0:
+            return decision
+        stop_loss = decision.stop_loss
+        take_profit = decision.take_profit
+        if stop_loss is None:
+            stop_loss = self.config.stop_loss
+        if take_profit is None:
+            take_profit = self.config.take_profit
+        if stop_loss is None and self.config.stop_loss_pct is not None:
+            stop_loss = self._price_offset(
+                reference,
+                pct=self.config.stop_loss_pct,
+                decision=decision,
+                target="stop_loss",
+            )
+        if take_profit is None and self.config.take_profit_pct is not None:
+            take_profit = self._price_offset(
+                reference,
+                pct=self.config.take_profit_pct,
+                decision=decision,
+                target="take_profit",
+            )
+        if self.config.dynamic_exit_enabled:
+            if stop_loss is None:
+                stop_loss = self._price_offset(
+                    reference,
+                    pct=self._dynamic_exit_pct(
+                        base_symbol=base_symbol,
+                        quote=quote,
+                        target="stop_loss",
+                    ),
+                    decision=decision,
+                    target="stop_loss",
+                )
+            if take_profit is None:
+                take_profit = self._price_offset(
+                    reference,
+                    pct=self._dynamic_exit_pct(
+                        base_symbol=base_symbol,
+                        quote=quote,
+                        target="take_profit",
+                    ),
+                    decision=decision,
+                    target="take_profit",
+                )
+        if stop_loss == decision.stop_loss and take_profit == decision.take_profit:
+            return decision
+        return replace(decision, stop_loss=stop_loss, take_profit=take_profit)
+
+    def _dynamic_exit_pct(
+        self,
+        *,
+        base_symbol: str,
+        quote: object | None,
+        target: str,
+    ) -> float:
+        if target == "stop_loss":
+            multiplier = self.config.dynamic_stop_loss_vol_mult
+            min_pct = self.config.dynamic_min_stop_loss_pct
+            max_pct = self.config.dynamic_max_stop_loss_pct
+        else:
+            multiplier = self.config.dynamic_take_profit_vol_mult
+            min_pct = self.config.dynamic_min_take_profit_pct
+            max_pct = self.config.dynamic_max_take_profit_pct
+        vol_pct = self._quote_range_pct(quote)
+        if vol_pct is None:
+            profile = local_quote_profiles_for(default_symbols()).get(base_symbol, {})
+            vol_pct = float(profile.get("price_vol", 0.0))
+        raw_pct = vol_pct * multiplier
+        return min(max_pct, max(min_pct, raw_pct))
+
+    def _quote_range_pct(self, quote: object | None) -> float | None:
+        if quote is None:
+            return None
+        price = float(getattr(quote, "price", 0.0) or 0.0)
+        if price <= 0:
+            return None
+        bars = getattr(quote, "bars", None)
+        if not isinstance(bars, dict) or not bars:
+            return None
+        ranges: list[float] = []
+        for timeframe in ("5m", "15m", "1h", "1d"):
+            bar = bars.get(timeframe)
+            if bar is None:
+                continue
+            high = getattr(bar, "high", None)
+            low = getattr(bar, "low", None)
+            if isinstance(high, (int, float)) and isinstance(low, (int, float)) and high >= low:
+                ranges.append(float(high - low) / price)
+        if not ranges:
+            return None
+        return max(ranges)
+
+    def _price_offset(
+        self,
+        reference: float,
+        *,
+        pct: float,
+        decision: SignalDecision,
+        target: str,
+    ) -> float:
+        if pct < 0:
+            raise ValueError(f"{target}_pct must be non-negative")
+        is_short = decision.decision == Decision.OPEN_SHORT
+        if target == "stop_loss":
+            multiplier = 1.0 + pct if is_short else 1.0 - pct
+        else:
+            multiplier = 1.0 - pct if is_short else 1.0 + pct
+        return round(reference * multiplier, 6)
 
     def _handle_roll_policy_b(
         self,
@@ -266,6 +410,12 @@ class Runtime:
     def _is_open_decision(self, decision: SignalDecision) -> bool:
         return decision.decision in {Decision.OPEN_LONG, Decision.OPEN_SHORT}
 
+    def _has_active_position(self, base_symbol: str) -> bool:
+        return any(
+            position.instrument_id == base_symbol and position.quantity > 0
+            for position in self.state.portfolio.positions.values()
+        )
+
     def _reject_roll_open(
         self,
         decision: SignalDecision,
@@ -312,6 +462,7 @@ class Runtime:
             position_side=position_side,
             quantity=self.config.default_quantity,
             order_type="market",
+            price=self._order_limit_price(base_symbol, decision.expected_price),
             stop_loss=decision.stop_loss,
             take_profit=decision.take_profit,
         )
@@ -360,25 +511,14 @@ class Runtime:
                 continue
             if position.quantity <= 0:
                 continue
-            side = Side.BUY if position.position_side == PositionSide.SHORT else Side.SELL
-            order = ExecutionOrder(
-                instrument_id=base_symbol,
-                trade_instrument_id=old_contract,
-                side=side,
-                position_side=position.position_side,
-                quantity=position.quantity,
-                order_type="market",
-            )
-            result = self.execution.broker.submit_order(order)
-            roll_result = replace(result, reason=ROLL_CLOSE_POSITION)
-            self.record_broker_result(
-                order,
-                roll_result,
+            closed = self.execute_close_position(
+                position=position,
+                current_price=self._order_limit_price(base_symbol, None),
                 strategy_name="roll_policy_B",
                 strategy_impl="RollPolicy",
                 symbol=base_symbol,
-            )
-            closed = True
+                reason=ROLL_CLOSE_POSITION,
+            ) or closed
         return closed
 
     def _run_decision(
@@ -402,7 +542,14 @@ class Runtime:
             or "main"
         )
         risk_decision = self.risk.evaluate(allocation, portfolio=self.state.portfolio)
-        candidate_order = self._candidate_order_from_risk_decision(risk_decision)
+        order_price = self._order_limit_price(
+            risk_decision.instrument_id,
+            decision.expected_price,
+        )
+        candidate_order = self._candidate_order_from_risk_decision(
+            risk_decision,
+            order_price=order_price,
+        )
         if candidate_order is not None:
             if self._is_halted():
                 self._append_guard_rejection(
@@ -466,7 +613,9 @@ class Runtime:
                 )
                 return
 
-        order, exec_result = self.execution.execute(risk_decision)
+        order, exec_result = self.execution.execute_request(
+            ExecutionRequest(risk_decision=risk_decision, order_price=order_price)
+        )
 
         if order is None:
             self._maybe_append_events(
@@ -476,7 +625,6 @@ class Runtime:
                 strategy_impl=strategy_impl,
                 symbol=decision.symbol,
             )
-            self.state.apply(order, exec_result)
             self._maybe_save_snapshot()
             return
 
@@ -487,6 +635,115 @@ class Runtime:
             strategy_impl=strategy_impl,
             symbol=decision.symbol,
         )
+
+    def create_exit_order_for_position(
+        self,
+        *,
+        position: PositionState,
+        current_price: float,
+        fallback_stop_loss: float | None = None,
+        fallback_take_profit: float | None = None,
+    ) -> ExecutionOrder | None:
+        stop_loss, take_profit = self._exit_levels_for_position(
+            position,
+            fallback_stop_loss=fallback_stop_loss,
+            fallback_take_profit=fallback_take_profit,
+        )
+        exit_order = self.exit_service.create_exit_order(
+            position=position,
+            current_price=current_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
+        if exit_order is None:
+            return None
+        return replace(
+            exit_order,
+            price=current_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
+
+    def execute_exit_for_position(
+        self,
+        *,
+        position: PositionState,
+        current_price: float,
+        fallback_stop_loss: float | None = None,
+        fallback_take_profit: float | None = None,
+        strategy_name: str = "exit",
+        strategy_impl: str | None = "ExitService",
+        symbol: str | None = None,
+        reason: str = "exit_position",
+    ) -> bool:
+        exit_order = self.create_exit_order_for_position(
+            position=position,
+            current_price=current_price,
+            fallback_stop_loss=fallback_stop_loss,
+            fallback_take_profit=fallback_take_profit,
+        )
+        if exit_order is None:
+            return False
+        return self.execute_close_position(
+            position=position,
+            current_price=current_price,
+            strategy_name=strategy_name,
+            strategy_impl=strategy_impl,
+            symbol=symbol,
+            reason=reason,
+            side=exit_order.side,
+        )
+
+    def execute_close_position(
+        self,
+        *,
+        position: PositionState,
+        current_price: float | None,
+        strategy_name: str,
+        strategy_impl: str | None,
+        symbol: str | None,
+        reason: str,
+        side: Side | None = None,
+    ) -> bool:
+        close_side = side or self._close_side_for_position(position)
+        risk_decision = self.risk.authorize_close_position(
+            position=position,
+            side=close_side,
+            reason=reason,
+        )
+        order, result = self.execution.execute_request(
+            ExecutionRequest(
+                risk_decision=risk_decision,
+                order_price=current_price,
+            )
+        )
+        if result.reason is None:
+            result = replace(result, reason=reason)
+        if order is None:
+            self._maybe_append_events(
+                order,
+                result,
+                strategy_name=strategy_name,
+                strategy_impl=strategy_impl,
+                symbol=symbol or position.instrument_id,
+            )
+            self._maybe_save_snapshot()
+            return False
+        self.record_broker_result(
+            order,
+            result,
+            strategy_name=strategy_name,
+            strategy_impl=strategy_impl,
+            symbol=symbol or position.instrument_id,
+        )
+        return True
+
+    def _close_side_for_position(self, position: PositionState) -> Side:
+        if position.position_side == PositionSide.LONG:
+            return Side.SELL
+        if position.position_side == PositionSide.SHORT:
+            return Side.BUY
+        return Side.NONE
 
     def record_broker_result(
         self,
@@ -576,7 +833,12 @@ class Runtime:
             self._record_order_tick(order)
 
         self._record_execution_cost(exec_result.order_id)
-        self.state.apply(order, exec_result)
+        self._apply_translated_execution_events(
+            order,
+            exec_result,
+            strategy_name=strategy_name,
+        )
+        self._sync_exit_levels_after_result(order, exec_result)
         self._maybe_save_snapshot()
 
     def poll_order_lifecycle(self, tick: int) -> None:
@@ -601,6 +863,27 @@ class Runtime:
                 symbol=symbol,
             )
             if result.status == ExecutionStatus.PARTIALLY_FILLED:
+                previous = float(ctx.filled_quantity if ctx is not None else 0.0)
+                cumulative = float(result.filled_quantity or 0.0)
+                fill_delta = max(0.0, cumulative - previous)
+                if fill_delta > 0:
+                    self._maybe_append_events(
+                        order,
+                        result,
+                        strategy_name=strategy_name,
+                        strategy_impl=strategy_impl,
+                        symbol=symbol,
+                        write_order_event=False,
+                        fill_quantity=fill_delta,
+                    )
+                    self._apply_translated_execution_events(
+                        order,
+                        result,
+                        strategy_name=strategy_name,
+                        fill_quantity=fill_delta,
+                    )
+                    self._sync_exit_levels_after_result(order, result)
+                    self._maybe_save_snapshot()
                 if order_id is not None and ctx is not None:
                     self._pending_order_contexts[order_id] = replace(
                         ctx,
@@ -611,6 +894,9 @@ class Runtime:
             if result.status == ExecutionStatus.FILLED:
                 self.orders_submitted += 1
                 self._record_execution_cost(result.order_id)
+                previous = float(ctx.filled_quantity if ctx is not None else 0.0)
+                cumulative = float(result.filled_quantity or order.quantity)
+                fill_delta = max(0.0, cumulative - previous)
                 self._maybe_append_events(
                     order,
                     result,
@@ -618,8 +904,15 @@ class Runtime:
                     strategy_impl=strategy_impl,
                     symbol=symbol,
                     write_order_event=False,
+                    fill_quantity=fill_delta,
                 )
-                self.state.apply(order, result, strategy_name=strategy_name)
+                self._apply_translated_execution_events(
+                    order,
+                    result,
+                    strategy_name=strategy_name,
+                    fill_quantity=fill_delta,
+                )
+                self._sync_exit_levels_after_result(order, result)
                 self._maybe_save_snapshot()
             if order_id is not None:
                 self._pending_order_contexts.pop(order_id, None)
@@ -633,6 +926,7 @@ class Runtime:
         strategy_impl: str | None = None,
         symbol: str | None = None,
         write_order_event: bool = True,
+        fill_quantity: float | None = None,
     ) -> None:
         if self.datastore is None:
             return
@@ -640,29 +934,73 @@ class Runtime:
         base = build_base_event(
             ts=self._tick,
             runtime_id=self.runtime_id,
-            env=self.environment,
+            scope=self.scope,
             strategy_name=strategy_name,
             symbol=symbol or self.config.symbol,
             strategy_impl=strategy_impl,
         )
 
-        order_payload = encode_order_event(order)
-        if write_order_event and order_payload:
-            self.datastore.append_order_event(
-                {**base, **order_payload},
-                env=self.environment,
-            )
-
-        if getattr(exec_result, "status", None) == ExecutionStatus.SUBMITTED:
+        if not isinstance(exec_result, ExecutionResult):
+            return
+        if not isinstance(order, ExecutionOrder):
             return
 
-        exec_payload = encode_execution_event(exec_result)
-        order_id = getattr(exec_result, "order_id", None)
+        translated = translate_execution_result(
+            order=order,
+            result=exec_result,
+            strategy_name=strategy_name,
+            runtime_id=self.runtime_id,
+            fill_quantity=fill_quantity,
+        )
+
+        order_payload = encode_order_event(translated.order_event)
+        if write_order_event and translated.order_event is not None and order_payload:
+            self.datastore.append_order_event(
+                encode_datastore_event(
+                    base=base,
+                    event_type="order",
+                    payload_type="order_event",
+                    source="runtime",
+                    payload={**order_payload, **self._order_market_payload(order)},
+                ),
+                scope=self.scope,
+            )
+
+        if translated.fill_event is None:
+            return
+        exec_payload = encode_fill_event(translated.fill_event)
+        order_id = translated.fill_event.order_id
         cost_payload = self._cost_payload(order_id)
         self.datastore.append_fill_event(
-            {**base, **exec_payload, **cost_payload},
-            env=self.environment,
+            encode_datastore_event(
+                base=base,
+                event_type="fill",
+                payload_type="fill_event",
+                source="runtime",
+                payload={**exec_payload, **cost_payload},
+            ),
+            scope=self.scope,
         )
+
+    def _apply_translated_execution_events(
+        self,
+        order: ExecutionOrder,
+        exec_result: ExecutionResult,
+        *,
+        strategy_name: str,
+        fill_quantity: float | None = None,
+    ) -> None:
+        translated = translate_execution_result(
+            order=order,
+            result=exec_result,
+            strategy_name=strategy_name,
+            runtime_id=self.runtime_id,
+            fill_quantity=fill_quantity,
+        )
+        if translated.order_event is not None:
+            self.state.apply_order_event(translated.order_event)
+        if translated.fill_event is not None:
+            self.state.apply_fill_event(translated.fill_event)
 
     def _maybe_append_order_lifecycle_event(
         self,
@@ -685,30 +1023,52 @@ class Runtime:
         base = build_base_event(
             ts=exec_result.ts if exec_result.ts is not None else self._tick,
             runtime_id=self.runtime_id,
-            env=self.environment,
+            scope=self.scope,
             strategy_name=strategy_name,
             symbol=symbol or order.instrument_id,
             strategy_impl=strategy_impl,
         )
         self.datastore.append_order_lifecycle_event(
-            {
-                **base,
-                "event_type": "order_lifecycle",
-                "order_id": exec_result.order_id,
-                "status": status,
-                "instrument_id": order.instrument_id,
-                "trade_instrument_id": order.trade_instrument_id,
-                "side": getattr(order.side, "value", order.side),
-                "position_side": getattr(order.position_side, "value", order.position_side),
-                "quantity": order.quantity,
-                "filled_quantity": exec_result.filled_quantity,
-                "remaining_quantity": exec_result.remaining_quantity,
-                "avg_fill_price": exec_result.avg_fill_price,
-                "reason": reason,
-                **self._cost_payload(exec_result.order_id),
-            },
-            env=self.environment,
+            encode_datastore_event(
+                base=base,
+                event_type="order_lifecycle",
+                payload_type="order_lifecycle",
+                source="runtime",
+                payload={
+                    "order_id": exec_result.order_id,
+                    "status": status,
+                    "instrument_id": order.instrument_id,
+                    "trade_instrument_id": order.trade_instrument_id,
+                    "side": getattr(order.side, "value", order.side),
+                    "position_side": getattr(order.position_side, "value", order.position_side),
+                    "quantity": order.quantity,
+                    "filled_quantity": exec_result.filled_quantity,
+                    "remaining_quantity": exec_result.remaining_quantity,
+                    "avg_fill_price": exec_result.avg_fill_price,
+                    "price": order.price,
+                    "stop_loss": order.stop_loss,
+                    "take_profit": order.take_profit,
+                    "reason": reason,
+                    **self._order_market_payload(order),
+                    **self._cost_payload(exec_result.order_id),
+                },
+            ),
+            scope=self.scope,
         )
+
+    def _order_market_payload(self, order: object | None) -> dict[str, object]:
+        instrument_id = getattr(order, "instrument_id", None)
+        if not isinstance(instrument_id, str) or not instrument_id:
+            return {}
+        try:
+            quote = self.market_data.get_last_quote(instrument_id)
+        except Exception:
+            return {}
+        return {
+            "market_price": quote.price,
+            "market_volume": quote.volume,
+            "market_ts": quote.ts,
+        }
 
     def _cost_payload(self, order_id: object | None) -> dict[str, object]:
         if not isinstance(order_id, str) or not order_id:
@@ -753,6 +1113,8 @@ class Runtime:
     def _candidate_order_from_risk_decision(
         self,
         decision: RiskDecision,
+        *,
+        order_price: float | None,
     ) -> ExecutionOrder | None:
         if not decision.allowed:
             return None
@@ -769,9 +1131,22 @@ class Runtime:
             position_side=decision.position_side,
             quantity=decision.quantity,
             order_type="market",
+            price=order_price,
             stop_loss=decision.stop_loss,
             take_profit=decision.take_profit,
         )
+
+    def _order_limit_price(
+        self,
+        base_symbol: str,
+        expected_price: float | None,
+    ) -> float | None:
+        if expected_price is not None:
+            return expected_price
+        try:
+            return self.market_data.get_last_quote(base_symbol).price
+        except Exception:
+            return None
 
     def _pending_context_for_order(
         self,
@@ -901,31 +1276,26 @@ class Runtime:
             self._tick += 1
             return
 
-        self._refresh_portfolio_metrics()
+        metrics = self._refresh_portfolio_metrics()
         self.datastore.save_portfolio_snapshot(
             ts=self._tick,
             portfolio=self.state.portfolio,
-            env=self.environment,
+            scope=self.scope,
+        )
+        self.datastore.append_metrics(
+            ts=self._tick,
+            metrics=self._portfolio_metrics_snapshot or metrics.as_metadata(),
+            scope=self.scope,
         )
         self._tick += 1
 
     def _refresh_portfolio_metrics(self) -> PortfolioMetrics:
         metrics = self._current_portfolio_metrics()
         self._max_risk_ratio_seen = max(self._max_risk_ratio_seen, metrics.risk_ratio)
-        metadata = dict(self.state.portfolio.metadata)
-        metadata.update(metrics.as_metadata())
-        metadata["max_risk_ratio_seen"] = self._max_risk_ratio_seen
-        if self._last_portfolio_sync:
-            metadata["portfolio_sync"] = dict(self._last_portfolio_sync)
-        self.state.portfolio = PortfolioState(
-            runtime_id=self.state.portfolio.runtime_id,
-            positions=self.state.portfolio.positions,
-            cash=metrics.cash,
-            equity=metrics.equity,
-            realized_pnl=metrics.realized_pnl,
-            unrealized_pnl=metrics.unrealized_pnl,
-            updated_ts=self.state.portfolio.updated_ts,
-            metadata=metadata,
+        self._portfolio_metrics_snapshot = build_portfolio_metrics_observation(
+            metrics=metrics,
+            max_risk_ratio_seen=self._max_risk_ratio_seen,
+            broker_portfolio_sync=self._last_portfolio_sync,
         )
         return metrics
 
@@ -937,33 +1307,19 @@ class Runtime:
             initial_equity=self.initial_equity,
             cost_total_sum=self._cost_total_sum,
         )
-        return self._apply_broker_portfolio_sync(metrics)
+        self._apply_broker_portfolio_sync()
+        return metrics
 
-    def _apply_broker_portfolio_sync(self, metrics: PortfolioMetrics) -> PortfolioMetrics:
+    def _apply_broker_portfolio_sync(self) -> None:
         snapshot_fn = getattr(self.execution.broker, "portfolio_snapshot", None)
         if not callable(snapshot_fn):
             self._last_portfolio_sync = {}
-            return metrics
+            return
         raw = snapshot_fn()
         if not isinstance(raw, dict):
             self._last_portfolio_sync = {}
-            return metrics
+            return
         self._last_portfolio_sync = dict(raw)
-        equity = _float_or(metrics.equity, raw.get("equity"))
-        cash = _float_or(metrics.cash, raw.get("cash"))
-        margin_used = _float_or(metrics.margin_used, raw.get("margin_used"))
-        risk_ratio = margin_used / equity if equity > 0 else 0.0
-        return PortfolioMetrics(
-            cash=cash,
-            equity=equity,
-            margin_used=margin_used,
-            risk_ratio=risk_ratio,
-            unrealized_pnl=metrics.unrealized_pnl,
-            realized_pnl=metrics.realized_pnl,
-            notional_by_symbol=metrics.notional_by_symbol,
-            margin_by_symbol=metrics.margin_by_symbol,
-            cost_total_sum=metrics.cost_total_sum,
-        )
 
     def _portfolio_prices(self) -> dict[str, float]:
         symbols = {position.instrument_id for position in self.state.portfolio.positions.values()}
@@ -984,6 +1340,75 @@ class Runtime:
             return specs
         return InstrumentSpecRegistry()
 
+    def _sync_exit_levels_after_result(
+        self,
+        order: ExecutionOrder,
+        result: ExecutionResult,
+    ) -> None:
+        if result.status not in {ExecutionStatus.PARTIALLY_FILLED, ExecutionStatus.FILLED}:
+            return
+        key = self._position_exit_key_for_order(order)
+        if self._is_open_order(order):
+            if order.stop_loss is not None or order.take_profit is not None:
+                self._exit_levels_by_position[key] = (order.stop_loss, order.take_profit)
+            return
+        if self._is_close_order(order):
+            if order.trade_instrument_id is None:
+                return
+            position_key = PositionKey(
+                instrument_id=order.instrument_id,
+                trade_instrument_id=order.trade_instrument_id,
+                position_side=order.position_side,
+            )
+            position = self.state.portfolio.positions.get(position_key)
+            if position is None or position.quantity <= 0:
+                self._exit_levels_by_position.pop(key, None)
 
-def _float_or(default: float, value: object) -> float:
-    return float(value) if isinstance(value, (int, float)) else default
+    def _exit_levels_for_position(
+        self,
+        position: PositionState,
+        *,
+        fallback_stop_loss: float | None = None,
+        fallback_take_profit: float | None = None,
+    ) -> tuple[float | None, float | None]:
+        stored = self._exit_levels_by_position.get(
+            self._position_exit_key_for_position(position)
+        )
+        if stored is not None:
+            return stored
+        return (
+            fallback_stop_loss if fallback_stop_loss is not None else self.config.stop_loss,
+            fallback_take_profit if fallback_take_profit is not None else self.config.take_profit,
+        )
+
+    def _position_exit_key_for_order(self, order: ExecutionOrder) -> _PositionExitKey:
+        return (
+            order.instrument_id,
+            order.trade_instrument_id,
+            self._enum_value(order.position_side),
+        )
+
+    def _position_exit_key_for_position(self, position: PositionState) -> _PositionExitKey:
+        return (
+            position.instrument_id,
+            position.trade_instrument_id,
+            self._enum_value(position.position_side),
+        )
+
+    def _is_open_order(self, order: ExecutionOrder) -> bool:
+        side = self._enum_value(order.side)
+        position_side = self._enum_value(order.position_side)
+        return (side == "buy" and position_side == "long") or (
+            side == "sell" and position_side == "short"
+        )
+
+    def _is_close_order(self, order: ExecutionOrder) -> bool:
+        side = self._enum_value(order.side)
+        position_side = self._enum_value(order.position_side)
+        return (side == "sell" and position_side == "long") or (
+            side == "buy" and position_side == "short"
+        )
+
+    def _enum_value(self, value: object) -> str:
+        raw = getattr(value, "value", value)
+        return str(raw)

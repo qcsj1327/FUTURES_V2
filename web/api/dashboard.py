@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from tools.inspect_run import inspect_run
+from web.readmodel.dashboard import inspect_run
 
 
 def get_run_dashboard(

@@ -1,9 +1,16 @@
-v0.9-multisymbol-multistrategy Release Notes
+# v0.9-multisymbol-multistrategy Release Notes
+
+
+> 注意：
+> 本文是 v0.9 阶段历史发布说明，不作为当前结构契约。
+> 文中的 runtime mode、sandbox、路径结构、部分命名属于 v0.9 时期历史语义。
+> 当前规则以 `docs/README.md` 当前权威规范索引、`docs/architecture/structure.md`
+> 和各专项契约为准。
 
 概览
 
 v0.9 将 futures_v2 从“单品种单策略 + 审计闭环”升级为 多品种、多策略、配置驱动、可审计可复现的期货交易系统。
-核心目标是：生产链路 + 学习链路 + 晋升链路三平面贯通，且 live/sandbox 数据不污染，晋升只输出产物，不自动改生产。
+核心目标是：生产链路 + 学习链路 + 晋升链路三平面贯通，且 local / dryrun / live 数据与 artifact scope 不污染，晋升只输出产物，不自动改生产。
 
 Tag：v0.9-multisymbol-multistrategy
 
@@ -48,7 +55,7 @@ Tag：v0.9-multisymbol-multistrategy
 
 * scripts/run_plan.py：
     * python -m scripts.run_plan --config plan.json --runtime-id <id> --clean
-    * 端到端：live → sandbox → promote → artifacts
+    * 历史链路：live → sandbox → promote → artifacts
     * runtime_id 作为 session 参数贯穿（不再依赖 RuntimeConfig 可写）
 
 1.6 审计闭环增强：manifest 自包含 plan metadata
@@ -92,13 +99,15 @@ python -m scripts.run_plan --runtime-id r_default --clean
 
 3.1 DataStore（append-only source of truth）
 
+* data/store/local/<runtime_id>/...
+* data/store/dryrun/<runtime_id>/...
 * data/store/live/<runtime_id>/...
-* data/store/sandbox/<runtime_id>/...
+> v0.9 时期的 sandbox 概念已被后续版本中的 local / dryrun profile 替代。
 
 内容：
 
 * order_events.jsonl
-* fill_events.jsonl（每 tick 必写 execution event）
+* fill_events.jsonl（记录 execution/fill 相关事件；fill fact 必须来自 execution result）
 * portfolio_snapshots.jsonl
 * snapshots/portfolio_<ts>.pkl（可回读）
 

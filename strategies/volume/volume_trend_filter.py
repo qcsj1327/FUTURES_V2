@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from adapters.marketdata.base import MarketQuote
+from core.services.marketdata.types import MarketQuote
 from domain.enums import Decision, SignalStrength
 from domain.signal import SignalDecision
 from strategies.base.strategy import Strategy

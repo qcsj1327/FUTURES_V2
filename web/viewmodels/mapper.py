@@ -48,7 +48,7 @@ def run_to_vm(run: RunReadModel) -> dict[str, Any]:
         "plan": {
             "path": run.plan_path,
             "sha256": run.plan_sha256,
-            "config": run.plan_config,
+            "effective_config_summary": run.plan_config,
         },
         "router_mode": router_mode,
         "router_mode_zh": zh_router_mode(router_mode),
@@ -109,7 +109,7 @@ def events_to_vm(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "runtime_id": payload.get("runtime_id"),
-        "env": payload.get("env"),
+        "scope": payload.get("scope"),
         "tail": payload.get("tail"),
         "paths": payload.get("paths"),
         "fill_events": [_annotate(x) for x in fill_events],

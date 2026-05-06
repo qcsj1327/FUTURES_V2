@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Any
 
-from adapters.marketdata.base import MarketQuote
+from core.services.marketdata.types import MarketQuote
 from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
 

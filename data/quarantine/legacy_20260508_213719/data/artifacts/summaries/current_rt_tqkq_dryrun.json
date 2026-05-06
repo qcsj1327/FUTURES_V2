@@ -1,0 +1,25 @@
+{
+  "kind": "promotion_summary",
+  "schema_version": 1,
+  "created_at": "2026-05-06T21:59:22+00:00",
+  "runtime_id": "rt_tqkq_dryrun",
+  "role": "current",
+  "summary": {
+    "total_events": 0,
+    "success_count": 0,
+    "failure_count": 0,
+    "success_rate": 0.0,
+    "top_failure_reasons": [],
+    "failure_reason_counts": {},
+    "filled_quantity_sum": 0.0,
+    "filled_quantity_mean": 0.0,
+    "avg_fill_price_mean": 0.0,
+    "commission_sum": 0.0,
+    "slippage_sum": 0.0,
+    "cost_total_sum": 0.0,
+    "notional_sum": 0.0,
+    "event_count_by_strategy_name": {},
+    "max_consecutive_failures": 0
+  },
+  "status": "running"
+}

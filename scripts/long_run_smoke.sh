@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${DEV_START_MODE:-live_file}"
+MODE="${DEV_START_MODE:-local}"
 RUNTIME_ID="${DEV_RUNTIME_ID:-}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 SMOKE_SECONDS="${SMOKE_SECONDS:-180}"
@@ -10,9 +10,9 @@ PYTHON_BIN="${PYTHON:-python}"
 
 default_runtime_id() {
   case "$1" in
-    live_file) echo "rt_livefile" ;;
-    tqkq_dryrun) echo "rt_tqkq_dryrun" ;;
-    tqkq_live_submit) echo "rt_tqkq_live_submit" ;;
+    local) echo "rt_local" ;;
+    dryrun) echo "rt_dryrun" ;;
+    live) echo "rt_live" ;;
     *) echo "unsupported DEV_START_MODE=$1" >&2; return 1 ;;
   esac
 }
@@ -55,7 +55,7 @@ sleep "$SMOKE_SECONDS"
 
 "$PYTHON_BIN" -m tools.inspect_run "$RUNTIME_ID" --tail 5 > "$after"
 curl -fsS "$BASE_URL/runs/$RUNTIME_ID" >/dev/null
-curl -fsS "$BASE_URL/runs/$RUNTIME_ID/events?env=live&tail=20" >/dev/null
+curl -fsS "$BASE_URL/runs/$RUNTIME_ID/events?scope=$MODE&tail=20" >/dev/null
 
 "$PYTHON_BIN" - "$before" "$after" <<'PY'
 from __future__ import annotations

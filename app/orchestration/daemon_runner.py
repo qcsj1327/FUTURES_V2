@@ -6,27 +6,29 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from app.orchestration.audit_runner import (
+    broker_snapshot_provider_from_universe,
+    portfolio_snapshot_from_universe,
+    run_audit_sidecar,
+)
 from app.orchestration.daemon_artifacts import write_daemon_artifacts
+from core.services.audit.contracts import AuditThresholds
 from optimize.promoter.promotion_gate import PromotionThresholds
 
 
 @dataclass(frozen=True)
 class DaemonSession:
-    """
-    Optional typed wrapper for daemon run_loop.
-
-    run_loop() remains permissive (accepts object), but scripts may import this
-    type and/or wrap UniverseSession into DaemonSession for extra metadata.
-    """
-
     universe_runtime: Any
     runtime_id: str
-    env: str
+    scope: str
     store_root: Path
     artifacts_root: Path
     thresholds: PromotionThresholds
     plan_meta: dict[str, Any] | None = None
     candidate_id: str | None = None
+    audit_enabled: bool = False
+    audit_interval_seconds: float = 300.0
+    audit_thresholds: AuditThresholds | None = None
 
 
 def _now_tag() -> str:
@@ -49,16 +51,11 @@ def run_loop(
     stop_on_exception: bool,
     artifact_every: int = 5,
 ) -> int:
-    """
-    Backward compatible:
-    - session can be UniverseSession (from session_builder) OR DaemonSession OR UniverseRuntime.
-    - artifact_every defaults to 5 so older tests don't need to pass it.
-    """
-    s = session  # Any-like access via getattr
+    s = cast(Any, session)
 
-    universe_runtime = cast(Any, getattr(s, "universe_runtime", s))
-    runtime_id = str(getattr(s, "runtime_id", ""))
-    env = str(getattr(s, "env", "live"))
+    universe_runtime = cast(Any, s.universe_runtime)
+    runtime_id = str(s.runtime_id)
+    scope = str(s.scope)
 
     store_root = _coerce_path(getattr(s, "store_root", None), Path("data/store"))
     artifacts_root = _coerce_path(getattr(s, "artifacts_root", None), Path("data/artifacts"))
@@ -73,6 +70,9 @@ def run_loop(
         ),
     )
     plan_meta = getattr(s, "plan_meta", None)
+    audit_enabled = bool(getattr(s, "audit_enabled", False))
+    audit_interval_seconds = float(getattr(s, "audit_interval_seconds", 300.0) or 0.0)
+    audit_thresholds = getattr(s, "audit_thresholds", None)
 
     candidate_id = getattr(s, "candidate_id", None)
     if not isinstance(candidate_id, str) or not candidate_id:
@@ -81,7 +81,7 @@ def run_loop(
     # Start: ensure inspect_run has a manifest immediately
     write_daemon_artifacts(
         runtime_id=runtime_id,
-        env=env,
+        scope=scope,
         store_root=store_root,
         artifacts_root=artifacts_root,
         candidate_id=candidate_id,
@@ -89,9 +89,11 @@ def run_loop(
         plan_meta=plan_meta,
         write_manifest=True,
         write_summary=True,
+        status="running",
     )
 
     tick = 0
+    last_audit_at: float | None = None
     try:
         while True:
             if max_ticks > 0 and tick >= max_ticks:
@@ -103,7 +105,7 @@ def run_loop(
                 if stop_on_exception:
                     write_daemon_artifacts(
                         runtime_id=runtime_id,
-                        env=env,
+                        scope=scope,
                         store_root=store_root,
                         artifacts_root=artifacts_root,
                         candidate_id=candidate_id,
@@ -111,14 +113,30 @@ def run_loop(
                         plan_meta=plan_meta,
                         write_manifest=False,
                         write_summary=True,
+                        status="error",
                     )
                     raise
             tick += 1
 
+            if _audit_due(
+                enabled=audit_enabled,
+                now=time.monotonic(),
+                last_audit_at=last_audit_at,
+                interval_seconds=audit_interval_seconds,
+            ):
+                last_audit_at = time.monotonic()
+                _run_audit_sidecar_best_effort(
+                    universe_runtime=universe_runtime,
+                    runtime_id=runtime_id,
+                    scope=scope,
+                    artifacts_root=artifacts_root,
+                    thresholds=audit_thresholds,
+                )
+
             if artifact_every > 0 and tick % artifact_every == 0:
                 write_daemon_artifacts(
                     runtime_id=runtime_id,
-                    env=env,
+                    scope=scope,
                     store_root=store_root,
                     artifacts_root=artifacts_root,
                     candidate_id=candidate_id,
@@ -126,6 +144,7 @@ def run_loop(
                     plan_meta=plan_meta,
                     write_manifest=False,
                     write_summary=True,
+                    status="running",
                 )
 
             if interval_s > 0:
@@ -138,7 +157,7 @@ def run_loop(
     # End: final refresh
     write_daemon_artifacts(
         runtime_id=runtime_id,
-        env=env,
+        scope=scope,
         store_root=store_root,
         artifacts_root=artifacts_root,
         candidate_id=candidate_id,
@@ -146,5 +165,44 @@ def run_loop(
         plan_meta=plan_meta,
         write_manifest=False,
         write_summary=True,
+        status="final",
     )
     return tick
+
+
+def _audit_due(
+    *,
+    enabled: bool,
+    now: float,
+    last_audit_at: float | None,
+    interval_seconds: float,
+) -> bool:
+    if not enabled:
+        return False
+    if last_audit_at is None:
+        return True
+    return interval_seconds <= 0 or now - last_audit_at >= interval_seconds
+
+
+def _run_audit_sidecar_best_effort(
+    *,
+    universe_runtime: Any,
+    runtime_id: str,
+    scope: str,
+    artifacts_root: Path,
+    thresholds: AuditThresholds | None,
+) -> None:
+    try:
+        run_audit_sidecar(
+            runtime_id=runtime_id,
+            runtime_profile=scope,
+            datastore_scope=scope,
+            portfolio_snapshot=portfolio_snapshot_from_universe(universe_runtime),
+            broker_snapshot_provider=broker_snapshot_provider_from_universe(universe_runtime),
+            artifacts_root=artifacts_root,
+            thresholds=thresholds,
+            store_scope=scope,
+            artifact_scope=scope,
+        )
+    except Exception:
+        return

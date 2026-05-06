@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from adapters.marketdata.base import MarketQuote
+from core.services.marketdata.types import MarketQuote
 from domain.enums import Decision, PositionSide, Side, SignalStrength
 from domain.signal import SignalDecision
 from strategies.base.strategy import Strategy

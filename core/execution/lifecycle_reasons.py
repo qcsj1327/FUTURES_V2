@@ -4,10 +4,9 @@ NEW = "new"
 ORDER_SUBMITTED = "order_submitted"
 SIMULATED_PARTIAL_FILL = "simulated_partial_fill"
 SIMULATED_FILL = "simulated_fill"
-TQKQ_SIM_FILL = "tqkq_sim_fill"
-TQKQ_LIVE_PARTIAL_FILL = "tqkq_live_partial_fill"
-TQKQ_LIVE_FILL = "tqkq_live_fill"
-TQKQ_LIVE_REJECTED = "tqkq_live_rejected"
+BROKER_FILL = "broker_fill"
+BROKER_PARTIAL_FILL = "broker_partial_fill"
+BROKER_REJECTED = "broker_rejected"
 CANCELED = "canceled"
 EXPIRED = "expired"
 RISK_POSITION_LIMIT = "risk_position_limit"
@@ -35,10 +34,9 @@ ALLOWED_LIFECYCLE_REASONS = frozenset(
         ORDER_SUBMITTED,
         SIMULATED_PARTIAL_FILL,
         SIMULATED_FILL,
-        TQKQ_SIM_FILL,
-        TQKQ_LIVE_PARTIAL_FILL,
-        TQKQ_LIVE_FILL,
-        TQKQ_LIVE_REJECTED,
+        BROKER_FILL,
+        BROKER_PARTIAL_FILL,
+        BROKER_REJECTED,
         CANCELED,
         EXPIRED,
         RISK_POSITION_LIMIT,

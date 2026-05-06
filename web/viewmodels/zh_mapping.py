@@ -30,12 +30,9 @@ POSITION_SIDE_ZH: dict[str, str] = {
 }
 
 MODE_ZH: dict[str, str] = {
-    "simulated_v2": "模拟行情",
-    "simulated": "模拟行情",
-    "live_file": "本地行情",
-    "tqkq_sim": "天勤模拟",
-    "tqkq_live": "天勤实盘",
-    "dry_run": "仅演练",
+    "local": "本地模拟",
+    "simulated": "模拟提交",
+    "dryrun": "实盘演练",
     "live": "真实下单",
 }
 
@@ -63,15 +60,14 @@ REASON_ZH: dict[str, str] = {
     "order_submitted": "已提交",
     "simulated_fill": "模拟成交",
     "simulated_partial_fill": "模拟部分成交",
-    "tqkq_sim_fill": "天勤模拟成交",
-    "tqkq_live_partial_fill": "天勤实盘部分成交",
-    "tqkq_live_fill": "天勤实盘成交",
+    "broker_fill": "柜台成交",
+    "broker_partial_fill": "柜台部分成交",
     "blocked_by_pending_order": "待处理订单阻塞",
     "duplicate_same_tick": "同 tick 重复下单",
     "expired": "订单过期",
     "canceled": "已撤单",
     "risk_position_limit": "超过持仓数量上限",
-    "risk_max_notional": "超过名义金额上限",
+    "risk_max_notional": "超过持仓规模上限",
     "risk_max_risk_ratio": "超过风险度上限",
     "risk_max_margin_used": "超过保证金占用上限",
     "rate_limited": "触发限频",
@@ -87,7 +83,7 @@ REASON_ZH: dict[str, str] = {
     "missing_candidate_summary": "缺少候选摘要",
     "missing_decision": "缺少决策结果",
     "missing_approved": "缺少审批结果",
-    "missing_strategy_switch_approved": "缺少策略切换审批",
+    "missing_strategy_switch_approved": "缺少策略切换晋升结果",
     # promotion gate (typical)
     "insufficient_events": "样本不足",
     "insufficient_success_rate_improvement": "胜率提升不足",

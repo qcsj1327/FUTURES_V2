@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from adapters.marketdata.base import MarketQuote
+from core.services.marketdata.types import MarketQuote
 from domain.signal import SignalDecision
 from strategies.registry import StrategyRegistry
 

@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from config.defaults import default_plan
+from config.instrument_universe import (
+    main_quotes_for,
+    trade_contracts_for,
+)
 from config.models import (
     AdaptersSpec,
     BrokerSpec,
@@ -20,11 +24,12 @@ from config.models import (
     RunPlan,
     RuntimeSpec,
     StrategySpec,
+    StrategySwitchSpec,
     TradingSessionSpec,
     UniverseSpec,
 )
 
-RuntimeMode = Literal["simulated_v2", "live_file", "tqkq_sim", "tqkq_live"]
+RuntimeMode = Literal["local", "dryrun", "live"]
 
 
 def _assert_keys(obj: dict[str, Any], allowed: set[str], *, where: str) -> None:
@@ -54,6 +59,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             "datastore",
             "promotion",
             "router",
+            "strategy_switch",
             "adapters",
             "instruments",
             "execution",
@@ -100,7 +106,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         params = sraw.get("params", {})
         if not isinstance(params, dict):
             raise ValueError(f"strategy[{i}].params must be object")
-        ss = sraw.get("symbols", [])
+        ss = sraw.get("symbols", universe.symbols)
         if not isinstance(ss, list) or not all(isinstance(x, str) for x in ss):
             raise ValueError(f"strategy[{i}].symbols must be list[str]")
         if any(x.endswith("_main") for x in ss):
@@ -119,6 +125,59 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     if not strategies:
         strategies = list(base.strategies)
 
+    strategy_switch_raw = raw.get("strategy_switch", {})
+    if not isinstance(strategy_switch_raw, dict):
+        raise ValueError("strategy_switch must be an object")
+    _assert_keys(
+        strategy_switch_raw,
+        {
+            "enabled_by_symbol",
+            "approval_required",
+            "min_score",
+            "max_enabled_strategies_per_symbol",
+        },
+        where="strategy_switch",
+    )
+    configured_strategy_names = {strategy.name for strategy in strategies}
+    enabled_raw = strategy_switch_raw.get("enabled_by_symbol")
+    if enabled_raw is None:
+        enabled_by_symbol = _default_enabled_by_symbol(strategies, list(universe.symbols))
+    else:
+        if not isinstance(enabled_raw, dict):
+            raise ValueError("strategy_switch.enabled_by_symbol must be object")
+        enabled_by_symbol = _parse_enabled_by_symbol(
+            enabled_raw,
+            universe_symbols=list(universe.symbols),
+            strategy_names=configured_strategy_names,
+        )
+    max_enabled = int(
+        strategy_switch_raw.get(
+            "max_enabled_strategies_per_symbol",
+            base.strategy_switch.max_enabled_strategies_per_symbol,
+        )
+    )
+    if max_enabled <= 0:
+        raise ValueError("strategy_switch.max_enabled_strategies_per_symbol must be positive")
+    for sym, names in enabled_by_symbol.items():
+        if len(names) > max_enabled:
+            raise ValueError(
+                "strategy_switch.enabled_by_symbol exceeds "
+                f"max_enabled_strategies_per_symbol for {sym}"
+            )
+    strategy_switch = StrategySwitchSpec(
+        enabled_by_symbol=enabled_by_symbol,
+        approval_required=bool(
+            strategy_switch_raw.get(
+                "approval_required",
+                base.strategy_switch.approval_required,
+            )
+        ),
+        min_score=float(
+            strategy_switch_raw.get("min_score", base.strategy_switch.min_score)
+        ),
+        max_enabled_strategies_per_symbol=max_enabled,
+    )
+
     # runtime (runtime_id is always overridden by function arg)
     runtime_raw = raw.get("runtime", {})
     if not isinstance(runtime_raw, dict):
@@ -129,10 +188,19 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             "mode",
             "warmup_seconds",
             "ticks_live",
-            "ticks_sandbox",
+            "ticks_dryrun",
             "default_quantity",
             "stop_loss",
             "take_profit",
+            "stop_loss_pct",
+            "take_profit_pct",
+            "dynamic_exit_enabled",
+            "dynamic_stop_loss_vol_mult",
+            "dynamic_take_profit_vol_mult",
+            "dynamic_min_stop_loss_pct",
+            "dynamic_min_take_profit_pct",
+            "dynamic_max_stop_loss_pct",
+            "dynamic_max_take_profit_pct",
             "active_top_n",
             "rank_window",
             "rank_metric",
@@ -141,18 +209,58 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         },
         where="runtime",
     )
-    runtime_mode_explicit = "mode" in runtime_raw
     runtime_mode_raw = str(runtime_raw.get("mode", base.runtime.mode))
-    if runtime_mode_raw not in {"simulated_v2", "live_file", "tqkq_sim", "tqkq_live"}:
+    if runtime_mode_raw not in {"local", "dryrun", "live"}:
         raise ValueError(f"invalid runtime.mode: {runtime_mode_raw}")
     runtime_mode = cast(RuntimeMode, runtime_mode_raw)
     warmup_raw = runtime_raw.get("warmup_seconds", base.runtime.warmup_seconds)
     warmup_seconds = None if warmup_raw is None else float(warmup_raw)
     ticks_live = int(runtime_raw.get("ticks_live", base.runtime.ticks_live))
-    ticks_sandbox = int(runtime_raw.get("ticks_sandbox", base.runtime.ticks_sandbox))
+    ticks_dryrun = int(runtime_raw.get("ticks_dryrun", base.runtime.ticks_dryrun))
     default_quantity = float(runtime_raw.get("default_quantity", base.runtime.default_quantity))
     stop_loss = runtime_raw.get("stop_loss", base.runtime.stop_loss)
     take_profit = runtime_raw.get("take_profit", base.runtime.take_profit)
+    stop_loss_pct = runtime_raw.get("stop_loss_pct", base.runtime.stop_loss_pct)
+    take_profit_pct = runtime_raw.get("take_profit_pct", base.runtime.take_profit_pct)
+    dynamic_exit_enabled = bool(
+        runtime_raw.get("dynamic_exit_enabled", base.runtime.dynamic_exit_enabled)
+    )
+    dynamic_stop_loss_vol_mult = float(
+        runtime_raw.get(
+            "dynamic_stop_loss_vol_mult",
+            base.runtime.dynamic_stop_loss_vol_mult,
+        )
+    )
+    dynamic_take_profit_vol_mult = float(
+        runtime_raw.get(
+            "dynamic_take_profit_vol_mult",
+            base.runtime.dynamic_take_profit_vol_mult,
+        )
+    )
+    dynamic_min_stop_loss_pct = float(
+        runtime_raw.get(
+            "dynamic_min_stop_loss_pct",
+            base.runtime.dynamic_min_stop_loss_pct,
+        )
+    )
+    dynamic_min_take_profit_pct = float(
+        runtime_raw.get(
+            "dynamic_min_take_profit_pct",
+            base.runtime.dynamic_min_take_profit_pct,
+        )
+    )
+    dynamic_max_stop_loss_pct = float(
+        runtime_raw.get(
+            "dynamic_max_stop_loss_pct",
+            base.runtime.dynamic_max_stop_loss_pct,
+        )
+    )
+    dynamic_max_take_profit_pct = float(
+        runtime_raw.get(
+            "dynamic_max_take_profit_pct",
+            base.runtime.dynamic_max_take_profit_pct,
+        )
+    )
     active_top_n = int(runtime_raw.get("active_top_n", base.runtime.active_top_n))
     rank_window = int(runtime_raw.get("rank_window", base.runtime.rank_window))
     rank_metric = str(runtime_raw.get("rank_metric", base.runtime.rank_metric))
@@ -168,15 +276,45 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         raise ValueError("runtime.rank_refresh_every must be >= 1")
     if rank_emit_events not in {0, 1}:
         raise ValueError("runtime.rank_emit_events must be 0 or 1")
+    if stop_loss_pct is not None and float(stop_loss_pct) < 0:
+        raise ValueError("runtime.stop_loss_pct must be >= 0")
+    if take_profit_pct is not None and float(take_profit_pct) < 0:
+        raise ValueError("runtime.take_profit_pct must be >= 0")
+    dynamic_values = {
+        "dynamic_stop_loss_vol_mult": dynamic_stop_loss_vol_mult,
+        "dynamic_take_profit_vol_mult": dynamic_take_profit_vol_mult,
+        "dynamic_min_stop_loss_pct": dynamic_min_stop_loss_pct,
+        "dynamic_min_take_profit_pct": dynamic_min_take_profit_pct,
+        "dynamic_max_stop_loss_pct": dynamic_max_stop_loss_pct,
+        "dynamic_max_take_profit_pct": dynamic_max_take_profit_pct,
+    }
+    for key, value in dynamic_values.items():
+        if value < 0:
+            raise ValueError(f"runtime.{key} must be >= 0")
+    if dynamic_min_stop_loss_pct > dynamic_max_stop_loss_pct:
+        raise ValueError("runtime.dynamic_min_stop_loss_pct must be <= dynamic_max_stop_loss_pct")
+    if dynamic_min_take_profit_pct > dynamic_max_take_profit_pct:
+        raise ValueError(
+            "runtime.dynamic_min_take_profit_pct must be <= dynamic_max_take_profit_pct"
+        )
     runtime = RuntimeSpec(
         runtime_id=runtime_id,
         ticks_live=ticks_live,
-        ticks_sandbox=ticks_sandbox,
+        ticks_dryrun=ticks_dryrun,
         default_quantity=default_quantity,
         mode=runtime_mode,
         warmup_seconds=warmup_seconds,
         stop_loss=stop_loss if stop_loss is None else float(stop_loss),
         take_profit=take_profit if take_profit is None else float(take_profit),
+        stop_loss_pct=stop_loss_pct if stop_loss_pct is None else float(stop_loss_pct),
+        take_profit_pct=take_profit_pct if take_profit_pct is None else float(take_profit_pct),
+        dynamic_exit_enabled=dynamic_exit_enabled,
+        dynamic_stop_loss_vol_mult=dynamic_stop_loss_vol_mult,
+        dynamic_take_profit_vol_mult=dynamic_take_profit_vol_mult,
+        dynamic_min_stop_loss_pct=dynamic_min_stop_loss_pct,
+        dynamic_min_take_profit_pct=dynamic_min_take_profit_pct,
+        dynamic_max_stop_loss_pct=dynamic_max_stop_loss_pct,
+        dynamic_max_take_profit_pct=dynamic_max_take_profit_pct,
         active_top_n=active_top_n,
         rank_window=rank_window,
         rank_metric=rank_metric,
@@ -438,6 +576,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         {
             "mode",
             "contracts",
+            "resolve_from_market_data",
             "close_on_roll",
             "cooldown_ticks",
             "main_contract_schedule",
@@ -447,7 +586,18 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     roll_mode = str(roll_raw.get("mode", base.instruments.roll_policy.mode))
     if roll_mode not in {"fixed_contract", "fixed_main"}:
         raise ValueError(f"invalid instruments.roll_policy.mode: {roll_mode}")
-    contracts_raw = roll_raw.get("contracts", base.instruments.roll_policy.contracts)
+    resolve_from_market_data_raw = roll_raw.get(
+        "resolve_from_market_data",
+        base.instruments.roll_policy.resolve_from_market_data,
+    )
+    if not isinstance(resolve_from_market_data_raw, bool):
+        raise ValueError("instruments.roll_policy.resolve_from_market_data must be bool")
+    resolve_from_market_data = resolve_from_market_data_raw
+    contracts_raw = (
+        {}
+        if resolve_from_market_data
+        else roll_raw.get("contracts", trade_contracts_for(list(universe.symbols)))
+    )
     if not isinstance(contracts_raw, dict):
         raise ValueError("instruments.roll_policy.contracts must be object")
     contracts: dict[str, str] = {}
@@ -457,9 +607,14 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         if not isinstance(contract, str) or not contract:
             raise ValueError(f"instruments.roll_policy.contracts.{sym} must be non-empty str")
         contracts[sym] = contract
-    for sym in universe.symbols:
-        if sym not in contracts:
-            raise ValueError(f"missing instruments.roll_policy.contracts.{sym}")
+    if resolve_from_market_data and roll_mode != "fixed_contract":
+        raise ValueError(
+            "instruments.roll_policy.resolve_from_market_data requires mode=fixed_contract"
+        )
+    if not resolve_from_market_data:
+        for sym in universe.symbols:
+            if sym not in contracts:
+                raise ValueError(f"missing instruments.roll_policy.contracts.{sym}")
     close_on_roll_raw = roll_raw.get(
         "close_on_roll",
         base.instruments.roll_policy.close_on_roll,
@@ -528,6 +683,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         roll_policy=RollPolicySpec(
             mode=roll_mode,
             contracts=contracts,
+            resolve_from_market_data=resolve_from_market_data,
             close_on_roll=close_on_roll,
             cooldown_ticks=cooldown_ticks,
             main_contract_schedule=main_contract_schedule,
@@ -562,14 +718,12 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
             prices_path = str(pp)
     if prices_path is not None and not isinstance(prices_path, str):
         raise ValueError("adapters.market_data.prices_path must be str")
-    if md_mode not in {"tqkq", "simulated", "simulated_v2", "live_file"}:
+    if md_mode not in {"local_file", "tqkq"}:
         raise ValueError(f"invalid adapters.market_data.mode: {md_mode}")
-    if md_mode == "live_file" and not prices_path:
-        raise ValueError("adapters.market_data.prices_path required for live_file")
 
     adapters = AdaptersSpec(
         market_data=MarketDataSpec(
-            mode=md_mode,
+            mode=cast(Literal["local_file", "tqkq"], md_mode),
             prices_path=prices_path,
             params=dict(md_params),
         ),
@@ -582,7 +736,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     _assert_keys(broker_raw, {"mode", "params"}, where="adapters.broker")
     broker_mode = str(broker_raw.get("mode", "simulated"))
     broker_mode_explicit = "mode" in broker_raw
-    if broker_mode not in {"simulated", "tqkq_sim", "tqkq_live"}:
+    if broker_mode not in {"simulated", "tqkq"}:
         raise ValueError(f"invalid adapters.broker.mode: {broker_mode}")
     broker_params = broker_raw.get("params", {})
     if not isinstance(broker_params, dict):
@@ -594,7 +748,6 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
     )
     runtime, adapters, instruments = _normalize_runtime_mode(
         runtime=runtime,
-        runtime_mode_explicit=runtime_mode_explicit,
         md_mode=md_mode,
         md_mode_explicit=md_mode_explicit,
         prices_path=prices_path,
@@ -604,6 +757,7 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         broker_params=dict(broker_params),
         instruments=instruments,
         spec_source_explicit="spec_source" in instruments_raw,
+        universe_symbols=list(universe.symbols),
         base_dir=base_dir,
     )
 
@@ -617,16 +771,53 @@ def load_plan(path: Path | None, *, runtime_id: str) -> RunPlan:
         datastore=datastore,
         promotion=promotion,
         router=router,
+        strategy_switch=strategy_switch,
         execution=execution,
         risk=risk,
         instruments=instruments,
     )
 
 
+def _default_enabled_by_symbol(
+    strategies: list[StrategySpec],
+    universe_symbols: list[str],
+) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for symbol in universe_symbols:
+        for strategy in sorted(strategies, key=lambda s: (s.priority, s.name)):
+            if symbol in strategy.symbols:
+                out[symbol] = [strategy.name]
+                break
+    return out
+
+
+def _parse_enabled_by_symbol(
+    raw: dict[str, Any],
+    *,
+    universe_symbols: list[str],
+    strategy_names: set[str],
+) -> dict[str, list[str]]:
+    universe = set(universe_symbols)
+    out: dict[str, list[str]] = {}
+    for sym, names in raw.items():
+        if not isinstance(sym, str) or sym not in universe:
+            raise ValueError("strategy_switch.enabled_by_symbol keys must be universe symbols")
+        if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+            raise ValueError("strategy_switch.enabled_by_symbol values must be list[str]")
+        unknown = [name for name in names if name not in strategy_names]
+        if unknown:
+            raise ValueError(
+                f"strategy_switch.enabled_by_symbol references unknown strategies: {unknown}"
+            )
+        parsed = sorted(set(names))
+        if parsed:
+            out[sym] = parsed
+    return out
+
+
 def _normalize_runtime_mode(
     *,
     runtime: RuntimeSpec,
-    runtime_mode_explicit: bool,
     md_mode: str,
     md_mode_explicit: bool,
     prices_path: str | None,
@@ -636,85 +827,87 @@ def _normalize_runtime_mode(
     broker_params: dict[str, Any],
     instruments: InstrumentsSpec,
     spec_source_explicit: bool,
+    universe_symbols: list[str],
     base_dir: Path,
 ) -> tuple[RuntimeSpec, AdaptersSpec, InstrumentsSpec]:
-    if runtime_mode_explicit:
-        mode = runtime.mode
-        expected_md = {
-            "simulated_v2": "simulated_v2",
-            "live_file": "live_file",
-            "tqkq_sim": "tqkq",
-            "tqkq_live": "tqkq",
-        }[mode]
-        expected_broker = (
-            "tqkq_live"
-            if mode == "tqkq_live"
-            else "tqkq_sim"
-            if mode == "tqkq_sim"
-            else "simulated"
-        )
-        expected_spec_source = "tqkq" if mode in {"tqkq_sim", "tqkq_live"} else "static"
-        _reject_conflict(
-            field="adapters.market_data.mode",
-            expected=expected_md,
-            actual=md_mode,
-            explicit=md_mode_explicit,
-            runtime_mode=mode,
-        )
-        _reject_conflict(
-            field="adapters.broker.mode",
-            expected=expected_broker,
-            actual=broker_mode,
-            explicit=broker_mode_explicit,
-            runtime_mode=mode,
-        )
-        _reject_conflict(
-            field="instruments.spec_source",
-            expected=expected_spec_source,
-            actual=instruments.spec_source,
-            explicit=spec_source_explicit,
-            runtime_mode=mode,
-        )
-        md_mode = expected_md
-        broker_mode = expected_broker
-        instruments = _replace_instruments_spec_source(instruments, expected_spec_source)
-        if mode == "live_file" and prices_path is None:
+    mode = runtime.mode
+    expected_md = "local_file" if mode == "local" else "tqkq"
+    expected_broker = "simulated" if mode == "local" else "tqkq"
+    expected_spec_source = "static" if mode == "local" else "tqkq"
+    _reject_conflict(
+        field="adapters.market_data.mode",
+        expected=expected_md,
+        actual=md_mode,
+        explicit=md_mode_explicit,
+        runtime_mode=mode,
+    )
+    _reject_conflict(
+        field="adapters.broker.mode",
+        expected=expected_broker,
+        actual=broker_mode,
+        explicit=broker_mode_explicit,
+        runtime_mode=mode,
+    )
+    _reject_conflict(
+        field="instruments.spec_source",
+        expected=expected_spec_source,
+        actual=instruments.spec_source,
+        explicit=spec_source_explicit,
+        runtime_mode=mode,
+    )
+    md_mode = expected_md
+    broker_mode = expected_broker
+    instruments = _replace_instruments_spec_source(instruments, expected_spec_source)
+
+    if mode == "local":
+        if prices_path is None:
             prices_path = str((base_dir / "prices.json").resolve())
-        if mode in {"tqkq_sim", "tqkq_live"}:
-            warmup = runtime.warmup_seconds if runtime.warmup_seconds is not None else 8.0
-            params_warmup = md_params.get("warmup_seconds")
-            if params_warmup is not None and float(params_warmup) != float(warmup):
-                raise ValueError(
-                    "runtime.mode=tqkq_sim conflict: field=adapters.market_data.params."
-                    f"warmup_seconds expected={warmup!r} actual={params_warmup!r}"
-                )
-            md_params["warmup_seconds"] = warmup
-            runtime = _replace_runtime_warmup(runtime, warmup)
-            tq_symbols = md_params.get("tq_symbols")
-            if tq_symbols is None:
-                md_params["tq_symbols"] = dict(instruments.roll_policy.contracts)
-
     else:
-        if broker_mode == "tqkq_sim" and md_mode != "tqkq":
-            raise ValueError("tqkq_sim requires adapters.market_data.mode=tqkq")
-        runtime = _replace_runtime_mode(runtime, _derive_runtime_mode(md_mode, broker_mode))
+        warmup = runtime.warmup_seconds if runtime.warmup_seconds is not None else 8.0
+        params_warmup = md_params.get("warmup_seconds")
+        if params_warmup is not None and float(params_warmup) != float(warmup):
+            raise ValueError(
+                "runtime.mode conflict: field=adapters.market_data.params."
+                f"warmup_seconds expected={warmup!r} actual={params_warmup!r}"
+            )
+        md_params["warmup_seconds"] = warmup
+        runtime = _replace_runtime_warmup(runtime, warmup)
+        if md_params.get("tq_symbols") is None:
+            md_params["tq_symbols"] = (
+                main_quotes_for(universe_symbols)
+                if instruments.roll_policy.resolve_from_market_data
+                else dict(instruments.roll_policy.contracts)
+            )
+        desired_submit_mode = "dryrun" if mode == "dryrun" else "live"
+        submit_mode = broker_params.get("submit_mode")
+        if submit_mode is not None and submit_mode != desired_submit_mode:
+            raise ValueError(
+                f"runtime.mode={mode} conflict: field=adapters.broker.params.submit_mode "
+                f"expected={desired_submit_mode!r} actual={submit_mode!r}"
+            )
+        broker_params["submit_mode"] = desired_submit_mode
+        _validate_broker_params(
+            broker_mode="tqkq",
+            params=broker_params,
+            runtime_id=runtime.runtime_id,
+        )
 
-    if md_mode == "live_file" and not prices_path:
-        raise ValueError("adapters.market_data.prices_path required for live_file")
+    if md_mode == "local_file" and not prices_path:
+        raise ValueError("adapters.market_data.prices_path required for local_file")
 
     adapters = AdaptersSpec(
         market_data=MarketDataSpec(
-            mode=md_mode,
+            mode=cast(Literal["local_file", "tqkq"], md_mode),
             prices_path=prices_path,
             params=md_params,
         ),
         broker=BrokerSpec(
-            mode=cast(Literal["simulated", "tqkq_sim", "tqkq_live"], broker_mode),
+            mode=cast(Literal["simulated", "tqkq"], broker_mode),
             params=broker_params,
         ),
     )
 
-    if adapters.broker.mode in {"tqkq_sim", "tqkq_live"}:
+    if adapters.broker.mode == "tqkq":
         _validate_tqkq_contracts(mode=adapters.broker.mode, instruments=instruments)
 
     return runtime, adapters, instruments
@@ -733,20 +926,6 @@ def _reject_conflict(
             f"runtime.mode={runtime_mode} conflict: field={field} "
             f"expected={expected!r} actual={actual!r}"
         )
-
-
-def _derive_runtime_mode(md_mode: str, broker_mode: str) -> RuntimeMode:
-    if broker_mode == "tqkq_live":
-        return "tqkq_live"
-    if broker_mode == "tqkq_sim":
-        return "tqkq_sim"
-    if md_mode == "live_file":
-        return "live_file"
-    return "simulated_v2"
-
-
-def _replace_runtime_mode(runtime: RuntimeSpec, mode: RuntimeMode) -> RuntimeSpec:
-    return RuntimeSpec(**{**runtime.__dict__, "mode": mode})
 
 
 def _replace_runtime_warmup(runtime: RuntimeSpec, warmup_seconds: float) -> RuntimeSpec:
@@ -768,10 +947,12 @@ def _replace_instruments_spec_source(
 def _validate_tqkq_contracts(*, mode: str, instruments: InstrumentsSpec) -> None:
     if instruments.roll_policy.mode != "fixed_contract":
         raise ValueError(f"adapters.broker.mode={mode} requires fixed_contract roll_policy")
+    if instruments.roll_policy.resolve_from_market_data:
+        return
     invalid_contracts = {
         sym: contract
         for sym, contract in instruments.roll_policy.contracts.items()
-        if contract.endswith("_main") or "." not in contract
+        if contract.startswith("KQ.") or contract.endswith("_main") or "." not in contract
     }
     if invalid_contracts:
         raise ValueError(
@@ -786,18 +967,18 @@ def _validate_broker_params(
     params: dict[str, Any],
     runtime_id: str,
 ) -> None:
-    if broker_mode == "tqkq_live":
+    if broker_mode == "tqkq":
         allowed = {"submit_mode", "confirm_live", "confirm_live_token"}
-        submit_mode = params.get("submit_mode", "dry_run")
-        if submit_mode not in {"dry_run", "live"}:
-            raise ValueError("adapters.broker.params.submit_mode must be dry_run or live")
+        submit_mode = params.get("submit_mode", "dryrun")
+        if submit_mode not in {"dryrun", "live"}:
+            raise ValueError("adapters.broker.params.submit_mode must be dryrun or live")
         if submit_mode == "live":
             confirm_live = params.get("confirm_live")
             token_raw = params.get("confirm_live_token")
             token = token_raw if isinstance(token_raw, str) else ""
             if confirm_live is not True or token != runtime_id:
                 raise ValueError(
-                    "tqkq_live live submit hard gate failed: "
+                    "live submit hard gate failed: "
                     "confirm_live must be true and confirm_live_token must match runtime_id; "
                     f"submit_mode={submit_mode!r}, "
                     f"confirm_live={confirm_live is True}, "
@@ -805,10 +986,9 @@ def _validate_broker_params(
                     f"expected_token=runtime_id:{runtime_id}, "
                     f"actual_token={_masked_token(token)}"
                 )
-    elif broker_mode == "tqkq_sim":
-        allowed = {"no_fill"}
     else:
         allowed = {
+            "order_id_prefix",
             "fill_delay_ticks",
             "partial_fill_ratio",
             "max_partial_steps",

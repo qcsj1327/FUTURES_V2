@@ -1,0 +1,38 @@
+{
+  "artifacts": {
+    "approved": null,
+    "candidate_summary": null,
+    "current_summary": "data/artifacts/summaries/current_rt_tqkq_dryrun.json",
+    "decision": null,
+    "strategy_switch_approved": null,
+    "strategy_switch_proposal": null
+  },
+  "candidate_config": {
+    "env": "live"
+  },
+  "candidate_id": "cand_rt_tqkq_dryrun_daemon_20260506T215904Z",
+  "created_at": "2026-05-06T21:59:04+00:00",
+  "env": "live",
+  "kind": "promotion_manifest",
+  "plan": {
+    "effective_config_summary": {
+      "broker_mode": "tqkq_live",
+      "datastore_scope": null,
+      "market_data_mode": "tqkq",
+      "redaction_status": "legacy_manifest_config_redacted",
+      "runtime_profile": "tqkq_live"
+    },
+    "path": "plans/dev.tqkq_live_dryrun.json",
+    "redaction_status": "legacy_manifest_config_redacted",
+    "sha256": "ff7e8c1f0f13c78183f9148a2cbfdeeb8ece1d2f75ad17d880573f83ce8d0fa5"
+  },
+  "run_mode": "daemon",
+  "runtime_id": "rt_tqkq_dryrun",
+  "schema_version": 1,
+  "status": "booting",
+  "thresholds": {
+    "max_consecutive_failures": 99,
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0
+  }
+}

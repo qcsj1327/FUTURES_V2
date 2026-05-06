@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from research.run_report import RunReport
+from core.services.reporting import RunReport
 
 
 class ReportAnalyzer:

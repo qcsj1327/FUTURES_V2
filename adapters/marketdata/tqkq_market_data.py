@@ -74,7 +74,7 @@ class TqKqMarketData(MarketDataAdapter):
             api_factory = _API_FACTORY_OVERRIDE
 
         if api_factory is None:
-            # Lazy import so tests can inject fake api without having tqsdk installed.
+            # Lazy import so tests can inject a test API without having tqsdk installed.
             from tqsdk import TqApi, TqAuth
 
             def _factory() -> Any:
@@ -248,3 +248,41 @@ class TqKqMarketData(MarketDataAdapter):
             if sym == tq_symbol:
                 return self._quotes[base]
         raise KeyError(f"unknown tqkq symbol: {tq_symbol}")
+
+    def resolved_trade_symbols(self) -> dict[str, str]:
+        """
+        Return real trade contracts for configured base symbols.
+
+        TqSdk main continuous quotes such as KQ.m@SHFE.au are market-data symbols.
+        They must be resolved through quote.underlying_symbol before any broker
+        submit path uses them as trade_instrument_id.
+        """
+        out: dict[str, str] = {}
+        for base, tq_sym in self._tq_symbols.items():
+            if tq_sym.startswith("KQ.m@"):
+                quote = self._quotes.get(base)
+                underlying = getattr(quote, "underlying_symbol", None)
+                if not _is_real_trade_symbol(underlying):
+                    raise ValueError(
+                        "tqkq main contract unresolved: "
+                        f"base={base}, tq_symbol={tq_sym}, underlying_symbol={underlying!r}"
+                    )
+                out[base] = str(underlying)
+            else:
+                if not _is_real_trade_symbol(tq_sym):
+                    raise ValueError(
+                        "tqkq trade symbol is not a real contract: "
+                        f"base={base}, tq_symbol={tq_sym}"
+                    )
+                out[base] = tq_sym
+        return out
+
+
+def _is_real_trade_symbol(value: object) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    if value.startswith("KQ."):
+        return False
+    if value.endswith("_main"):
+        return False
+    return "." in value

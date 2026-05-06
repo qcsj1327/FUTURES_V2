@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.inspect_run import inspect_run
+from web.readmodel.dashboard_projection import RUNTIME_SCOPES
 
 
 def _as_dict(v: Any) -> dict[str, Any]:
@@ -14,33 +15,18 @@ def _as_dict(v: Any) -> dict[str, Any]:
 
 def _fmt_line(report: dict[str, Any]) -> str:
     rid = str(report.get("runtime_id", ""))
-
     man = _as_dict(report.get("manifest"))
     created = str(man.get("created_at", ""))
-
-    decision_root = _as_dict(report.get("decision"))
-    decision_obj = _as_dict(decision_root.get("decision"))
-    approved = decision_obj.get("approved")
-    reasons = decision_obj.get("reasons")
-
     stores = _as_dict(report.get("stores"))
-    live = _as_dict(stores.get("live"))
-    sandbox = _as_dict(stores.get("sandbox"))
-
-    live_stats = _as_dict(live.get("stats"))
-    sb_stats = _as_dict(sandbox.get("stats"))
-    live_fill = live_stats.get("fill_events_lines")
-    sb_fill = sb_stats.get("fill_events_lines")
-
+    fills = []
+    for scope in RUNTIME_SCOPES:
+        stats = _as_dict(_as_dict(stores.get(scope)).get("stats"))
+        fills.append(f"{scope}.fill={stats.get('fill_events_lines')}")
     plan = _as_dict(report.get("plan"))
-    router = _as_dict(plan.get("router"))
-    router_mode = router.get("mode")
+    runtime = _as_dict(_as_dict(plan.get("config")).get("runtime"))
+    mode = runtime.get("mode")
 
-    return (
-        f"{created} rid={rid} router={router_mode} "
-        f"approved={approved} reasons={reasons} "
-        f"live.fill={live_fill} sandbox.fill={sb_fill}"
-    )
+    return f"{created} rid={rid} profile={mode} " + " ".join(fills)
 
 
 def main(argv: list[str] | None = None) -> int:

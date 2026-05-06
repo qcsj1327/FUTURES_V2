@@ -1,0 +1,138 @@
+{
+  "kind": "strategy_switch_proposal",
+  "runtime_id": "rt_tqkq_dryrun",
+  "env": "live",
+  "created_at": "2026-05-06T21:59:22.836896+00:00",
+  "active_top_n_symbols": [
+    "ag",
+    "au",
+    "cu",
+    "rb",
+    "zn"
+  ],
+  "thresholds": {
+    "min_score": 1.0,
+    "max_enabled_strategies_per_symbol": 1,
+    "scoring_model": "cost_risk_v2",
+    "approval_required": true
+  },
+  "symbols": {
+    "ag": {
+      "active": true,
+      "ranked_strategies": [
+        {
+          "strategy_name": "simple_strategy",
+          "score": 3.9998978188269674,
+          "raw_score": 4.0,
+          "cost_penalty": 0.00010218117303276977,
+          "risk_penalty": 0.0,
+          "final_score": 3.9998978188269674,
+          "decision": "OPEN_LONG",
+          "strength": "STRONG",
+          "confidence": 1.0
+        }
+      ],
+      "recommended_enabled_strategies": [
+        "simple_strategy"
+      ],
+      "reason": "highest_final_score_cost_risk_adjusted"
+    },
+    "au": {
+      "active": true,
+      "ranked_strategies": [
+        {
+          "strategy_name": "simple_strategy",
+          "score": 3.999970953874753,
+          "raw_score": 4.0,
+          "cost_penalty": 2.9046125246874456e-05,
+          "risk_penalty": 0.0,
+          "final_score": 3.999970953874753,
+          "decision": "OPEN_LONG",
+          "strength": "STRONG",
+          "confidence": 1.0
+        }
+      ],
+      "recommended_enabled_strategies": [
+        "simple_strategy"
+      ],
+      "reason": "highest_final_score_cost_risk_adjusted"
+    },
+    "cu": {
+      "active": true,
+      "ranked_strategies": [
+        {
+          "strategy_name": "simple_strategy",
+          "score": 3.9998530725986234,
+          "raw_score": 4.0,
+          "cost_penalty": 0.0001469274013763691,
+          "risk_penalty": 0.0,
+          "final_score": 3.9998530725986234,
+          "decision": "OPEN_LONG",
+          "strength": "STRONG",
+          "confidence": 1.0
+        }
+      ],
+      "recommended_enabled_strategies": [
+        "simple_strategy"
+      ],
+      "reason": "highest_final_score_cost_risk_adjusted"
+    },
+    "rb": {
+      "active": true,
+      "ranked_strategies": [
+        {
+          "strategy_name": "simple_strategy",
+          "score": 3.999594096053839,
+          "raw_score": 4.0,
+          "cost_penalty": 0.0004059039461609055,
+          "risk_penalty": 0.0,
+          "final_score": 3.999594096053839,
+          "decision": "OPEN_LONG",
+          "strength": "STRONG",
+          "confidence": 1.0
+        }
+      ],
+      "recommended_enabled_strategies": [
+        "simple_strategy"
+      ],
+      "reason": "highest_final_score_cost_risk_adjusted"
+    },
+    "zn": {
+      "active": true,
+      "ranked_strategies": [
+        {
+          "strategy_name": "simple_strategy",
+          "score": 3.999743473771169,
+          "raw_score": 4.0,
+          "cost_penalty": 0.00025652622883106155,
+          "risk_penalty": 0.0,
+          "final_score": 3.999743473771169,
+          "decision": "OPEN_LONG",
+          "strength": "STRONG",
+          "confidence": 1.0
+        }
+      ],
+      "recommended_enabled_strategies": [
+        "simple_strategy"
+      ],
+      "reason": "highest_final_score_cost_risk_adjusted"
+    }
+  },
+  "enabled_strategies_by_symbol": {
+    "ag": [
+      "simple_strategy"
+    ],
+    "au": [
+      "simple_strategy"
+    ],
+    "cu": [
+      "simple_strategy"
+    ],
+    "rb": [
+      "simple_strategy"
+    ],
+    "zn": [
+      "simple_strategy"
+    ]
+  }
+}

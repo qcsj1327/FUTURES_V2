@@ -817,6 +817,31 @@ select {
   font-size: 12px;
 }
 
+.small-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.small-btn.danger {
+  border-color: rgba(255, 77, 79, 0.5);
+  color: #ff8b8d;
+}
+
+.approval-panel {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+
 .json-details {
   min-height: 0;
   overflow: hidden;

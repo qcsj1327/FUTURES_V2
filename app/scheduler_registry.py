@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from app.runtime_registry import RuntimeRegistry
+from core.services.reporting import RunReport
 from domain.signal import SignalDecision
-from tools.run_report import RunReport
 
 
 class RegistryScheduler:

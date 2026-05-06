@@ -7,7 +7,6 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from app.orchestration.run_plan_orchestrator import resolve_plan
 from config.loader import load_plan
 
 
@@ -39,11 +38,9 @@ def main(argv: list[str] | None = None) -> int:
             "config": json.loads(plan_json),
         }
 
-    resolved = resolve_plan(plan=plan, plan_meta=plan_meta)
-
     payload = {
-        "runtime_id": resolved.runtime_id,
-        "env": resolved.env,
+        "runtime_id": plan.runtime.runtime_id,
+        "runtime_profile": plan.runtime.mode,
         "router": asdict(plan.router),
         "universe": asdict(plan.universe),
         "strategies": [asdict(s) for s in plan.strategies],
@@ -58,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
             "summaries_dir": str(plan.datastore.summaries_dir),
             "manifests_dir": str(plan.datastore.manifests_dir),
         },
-        "plan_meta": resolved.plan_meta,
+        "plan_meta": plan_meta,
     }
 
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))

@@ -25,17 +25,17 @@ gate before a mainline merge.
 
 - Start the local loop with `scripts/dev_up.sh`.
 - Stop it with `scripts/dev_down.sh` before starting another loop.
-- `scripts/dev_up.sh` prompts for a local mode unless `DEV_START_MODE` is set:
-  - `live_file`: starts web, `mock_prices_writer`, and daemon.
-  - `tqkq_dryrun`: starts web and daemon with the TqKq live-broker dry-run plan.
-  - `tqkq_live_submit`: starts web and daemon only after the runtime-id hard gate
-    token is confirmed; this is the real submit path.
-- `tqkq_sim` is intentionally not in the daemon menu because
-  `scripts.run_daemon` rejects `runtime.mode=tqkq_sim`.
+- `scripts/dev_up.sh` prompts for a canonical runtime profile unless
+  `DEV_START_MODE` is set:
+  - `local`: starts web, local quote writer, and daemon with simulated submit.
+  - `dryrun`: starts web and daemon with TQKQ market data and broker dry-run.
+  - `live`: starts web and daemon only after the runtime-id hard gate token is
+    confirmed; this is the real submit path.
+- Old mode names are not supported by the current contract.
 - `scripts/dev_up.sh` records pids in `logs/`:
   - `web`: `logs/web.pid`, `logs/web.log`, listens on `127.0.0.1:8000`
   - `prices`: `logs/prices.pid`, `logs/prices.log`, writes `plans/prices.json`
-    only in `live_file` mode
+    only in `local` mode
   - `daemon`: `logs/daemon.pid`, `logs/daemon.log`
 - If the web port is already occupied, stop the existing loop first:
   `scripts/dev_down.sh`.
@@ -59,8 +59,8 @@ and checks the web endpoints with `curl`.
 Examples:
 
 ```bash
-DEV_START_MODE=live_file SMOKE_SECONDS=60 scripts/long_run_smoke.sh
-DEV_START_MODE=tqkq_dryrun SMOKE_SECONDS=60 scripts/long_run_smoke.sh
+DEV_START_MODE=local SMOKE_SECONDS=60 scripts/long_run_smoke.sh
+DEV_START_MODE=dryrun SMOKE_SECONDS=60 scripts/long_run_smoke.sh
 ```
 
 Expected growth signals:
@@ -81,9 +81,9 @@ Expected growth signals:
 Useful manual checks:
 
 ```bash
-python -m tools.inspect_run rt_livefile --tail 5
-curl -fsS http://127.0.0.1:8000/runs/rt_livefile
-curl -fsS 'http://127.0.0.1:8000/runs/rt_livefile/events?env=live&tail=20'
+python -m tools.inspect_run rt_local --tail 5
+curl -fsS http://127.0.0.1:8000/runs/rt_local
+curl -fsS 'http://127.0.0.1:8000/runs/rt_local/events?scope=local&tail=20'
 tail -n 40 logs/daemon.log
 tail -n 40 logs/web.log
 ```

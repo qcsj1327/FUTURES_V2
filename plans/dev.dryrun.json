@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "env": "dev",
+  "runtime": {
+    "mode": "dryrun",
+    "warmup_seconds": 8,
+    "ticks_live": 3,
+    "ticks_dryrun": 0,
+    "active_top_n": 3,
+    "default_quantity": 1.0,
+    "dynamic_exit_enabled": true,
+    "dynamic_stop_loss_vol_mult": 3.0,
+    "dynamic_take_profit_vol_mult": 5.0,
+    "dynamic_min_stop_loss_pct": 0.006,
+    "dynamic_min_take_profit_pct": 0.012,
+    "dynamic_max_stop_loss_pct": 0.03,
+    "dynamic_max_take_profit_pct": 0.06
+  },
+  "adapters": {
+    "market_data": {
+      "mode": "tqkq",
+      "params": {
+        "warmup_seconds": 8
+      }
+    },
+    "broker": {
+      "mode": "tqkq",
+      "params": {
+        "submit_mode": "dryrun"
+      }
+    }
+  },
+  "execution": {
+    "min_order_interval_ticks": 1,
+    "max_pending_ticks": 2
+  },
+  "risk": {
+    "max_risk_ratio": 0.8
+  },
+  "instruments": {
+    "roll_policy": {
+      "mode": "fixed_contract",
+      "resolve_from_market_data": true
+    }
+  },
+  "strategies": [
+    {
+      "name": "volume_trend_filter",
+      "symbols": [
+        "au",
+        "ag",
+        "cu",
+        "rb",
+        "zn"
+      ],
+      "params": {
+        "momentum_window": 3,
+        "vol_window": 5,
+        "min_vol_mult": 0.8,
+        "direction": "both",
+        "timeframe": "spot"
+      },
+      "priority": 10,
+      "weight": 1.0
+    },
+    {
+      "name": "volume_spike_breakout",
+      "symbols": [
+        "au",
+        "ag",
+        "cu",
+        "rb",
+        "zn"
+      ],
+      "params": {
+        "window": 5,
+        "spike_mult": 1.4,
+        "breakout_lookback": 3,
+        "direction": "both",
+        "timeframe": "spot"
+      },
+      "priority": 20,
+      "weight": 1.0
+    },
+    {
+      "name": "volume_ma_reversion",
+      "symbols": [
+        "au",
+        "ag",
+        "cu",
+        "rb",
+        "zn"
+      ],
+      "params": {
+        "window": 5,
+        "z_entry": 1.0,
+        "z_exit": 0.2,
+        "low_vol_mult": 0.9,
+        "timeframe": "spot"
+      },
+      "priority": 30,
+      "weight": 1.0
+    },
+    {
+      "name": "simple_strategy",
+      "symbols": [
+        "rb"
+      ],
+      "params": {},
+      "priority": 40,
+      "weight": 1.0
+    },
+    {
+      "name": "volume_observer_guard",
+      "symbols": [
+        "zn"
+      ],
+      "params": {
+        "vol_window": 5,
+        "min_vol_mult": 0.8,
+        "timeframe": "spot"
+      },
+      "priority": 50,
+      "weight": 1.0
+    }
+  ],
+  "promotion": {
+    "min_events": 1,
+    "min_success_rate_improvement": -1.0,
+    "max_consecutive_failures": 99
+  },
+  "strategy_switch": {
+    "enabled_by_symbol": {
+      "au": [
+        "volume_trend_filter"
+      ],
+      "ag": [
+        "volume_spike_breakout"
+      ],
+      "cu": [
+        "volume_ma_reversion"
+      ],
+      "rb": [
+        "simple_strategy"
+      ],
+      "zn": [
+        "volume_observer_guard"
+      ]
+    },
+    "approval_required": false,
+    "min_score": 1.0,
+    "max_enabled_strategies_per_symbol": 1
+  },
+  "router": {
+    "mode": "priority",
+    "tie_breaker": "priority"
+  }
+}

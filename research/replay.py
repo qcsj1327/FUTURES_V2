@@ -7,8 +7,8 @@ from pathlib import Path
 
 from adapters.storage.csv_report_writer import CSVReportWriter
 from adapters.storage.csv_signal_loader import CSVSignalLoader
+from core.services.reporting import RunReport
 from domain.signal import SignalDecision
-from research.run_report import RunReport
 
 # -- dynamic app bindings (avoid static layering imports) --
 Runtime = importlib.import_module("app.runtime").Runtime
@@ -18,7 +18,7 @@ Scheduler = importlib.import_module("app.scheduler").Scheduler
 
 class ReplayRunner:
     def __init__(self, runtime: Runtime | None = None) -> None:
-        self.runtime = runtime or RuntimeFactory.build_simulated_runtime()
+        self.runtime = runtime or RuntimeFactory.build_local_runtime()
         self.scheduler = Scheduler(self.runtime)
 
     def run(self, decisions: Iterable[SignalDecision]) -> RunReport:

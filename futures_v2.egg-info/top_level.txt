@@ -1,11 +1,9 @@
 adapters
 app
-bootstrap
 config
 core
 domain
 optimize
 research
 strategies
-utils
 web

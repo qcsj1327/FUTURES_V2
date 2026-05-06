@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
 from adapters.broker.base import BrokerAdapter
 from adapters.broker.simulated_broker import SimulatedBroker
-from adapters.broker.tqkq_broker import TqKqBroker
-from adapters.broker.tqkq_live_broker import TqKqLiveBroker
+from adapters.broker.tqkq_adapter import TqKqBrokerAdapter
 from adapters.marketdata.base import MarketDataAdapter
 from adapters.marketdata.live_market_data import LiveFileMarketData
-from adapters.marketdata.simulated_market_data import SimulatedMarketData
-from adapters.marketdata.simulated_market_data_v2 import SimulatedMarketDataV2
 from adapters.storage.datastore_fs import JSONLFileDataStore
+from app.orchestration.spec_artifacts import write_specs_snapshot
 from app.orchestration.strategy_switch import load_approved_strategy_map
 from app.runtime_config import RuntimeConfig
 from app.runtime_factory import RuntimeFactory
@@ -23,7 +21,6 @@ from core.instruments.calendar import TradingCalendar, TradingSession
 from core.instruments.resolver import InstrumentResolver
 from core.instruments.roll_policy import RollPolicy
 from core.instruments.spec_provider import StaticSpecProvider, TqKqSpecProvider, deep_merge
-from core.instruments.spec_snapshot import write_specs_snapshot
 from core.instruments.specs import InstrumentSpecRegistry
 from core.risk.portfolio_risk_limits import PortfolioRiskLimits
 from core.risk.symbol_position_limit import SymbolPositionLimit
@@ -31,90 +28,7 @@ from core.signal_router.router import RouterConfig
 from strategies.registry import create_strategy
 from strategies.strategy_set import StrategyEntry, StrategySet
 
-Env = Literal["live", "sandbox"]
-
-
-@dataclass
-class _FakeTqKqQuote:
-    last_price: float
-    volume: float
-    datetime: str
-    price_tick: float = 0.2
-    volume_multiple: float = 1000.0
-
-
-class _FakeTqKqApi:
-    def __init__(self, *, fake_quotes: dict[str, _FakeTqKqQuote]) -> None:
-        self._quotes = fake_quotes
-
-    def get_quote(self, symbol: str) -> _FakeTqKqQuote:
-        quote = self._quotes.get(symbol)
-        if quote is None:
-            raise KeyError(f"fake tqkq quote missing for {symbol}")
-        return quote
-
-    def wait_update(self, deadline: float | None = None) -> bool:
-        _ = deadline
-        for quote in self._quotes.values():
-            quote.volume += 1.0
-        return True
-
-    def get_account(self) -> dict[str, float]:
-        return {"cash": 990000.0, "equity": 1000000.0, "margin_used": 10000.0}
-
-    def get_position(self) -> list[dict[str, object]]:
-        return []
-
-    def close(self) -> None:
-        return
-
-
-def _fake_tqkq_quotes(params: dict[str, Any]) -> dict[str, _FakeTqKqQuote] | None:
-    raw = params.get("fake_quotes")
-    if raw is None:
-        return None
-    if not isinstance(raw, dict):
-        raise ValueError("adapters.market_data.params.fake_quotes must be object")
-    quotes: dict[str, _FakeTqKqQuote] = {}
-    for symbol, payload in raw.items():
-        if not isinstance(symbol, str) or not symbol:
-            raise ValueError("adapters.market_data.params.fake_quotes keys must be str")
-        if not isinstance(payload, dict):
-            raise ValueError(f"adapters.market_data.params.fake_quotes.{symbol} must be object")
-        price = payload.get("price")
-        volume = payload.get("volume", 1000.0)
-        ts = payload.get("datetime", "2026-05-04 10:00:00.000000")
-        tick = payload.get("price_tick", 0.2)
-        multiplier = payload.get("volume_multiple", 1000.0)
-        if not isinstance(price, (int, float)) or isinstance(price, bool):
-            raise ValueError(
-                f"adapters.market_data.params.fake_quotes.{symbol}.price must be number"
-            )
-        if not isinstance(volume, (int, float)) or isinstance(volume, bool):
-            raise ValueError(
-                f"adapters.market_data.params.fake_quotes.{symbol}.volume must be number"
-            )
-        if not isinstance(ts, str):
-            raise ValueError(
-                f"adapters.market_data.params.fake_quotes.{symbol}.datetime must be str"
-            )
-        if not isinstance(tick, (int, float)) or isinstance(tick, bool):
-            raise ValueError(
-                f"adapters.market_data.params.fake_quotes.{symbol}.price_tick must be number"
-            )
-        if not isinstance(multiplier, (int, float)) or isinstance(multiplier, bool):
-            raise ValueError(
-                "adapters.market_data.params.fake_quotes."
-                f"{symbol}.volume_multiple must be number"
-            )
-        quotes[symbol] = _FakeTqKqQuote(
-            last_price=float(price),
-            volume=float(volume),
-            datetime=ts,
-            price_tick=float(tick),
-            volume_multiple=float(multiplier),
-        )
-    return quotes
+RuntimeProfile = Literal["local", "dryrun", "live"]
 
 
 def _call_with_supported_kwargs(fn: Any, /, *args: Any, **kwargs: Any) -> Any:
@@ -138,10 +52,9 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
         if not mapping:
             raise ValueError("tqkq requires non-empty tq_symbols mapping")
         import os
-        fake_quotes = _fake_tqkq_quotes(params)
         user = os.environ.get("TQKQ_USER", "").strip()
         passwd = os.environ.get("TQKQ_PASS", "").strip()
-        if fake_quotes is None and (not user or not passwd):
+        if not user or not passwd:
             raise ValueError("TQKQ_USER/TQKQ_PASS must be set in environment")
         from adapters.marketdata.tqkq_market_data import TqKqMarketData
         warmup_raw = plan.runtime.warmup_seconds
@@ -152,12 +65,8 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
             tq_symbols=mapping,
             auth_user=user,
             auth_pass=passwd,
-            api_factory=(
-                None
-                if fake_quotes is None
-                else lambda: _FakeTqKqApi(fake_quotes=fake_quotes)
-            ),
-            start_background=fake_quotes is None,
+            api_factory=None,
+            start_background=True,
         )
         try:
             md.warmup(list(plan.universe.symbols), timeout_s=warmup_seconds)
@@ -169,57 +78,62 @@ def build_market_data(plan: RunPlan) -> MarketDataAdapter:
             ) from exc
         return md
 
-    if mode == "live_file":
+    if mode == "local_file":
         prices_path = plan.adapters.market_data.prices_path
         if prices_path is None:
-            raise ValueError("live_file requires prices_path")
+            raise ValueError("local_file requires prices_path")
         return LiveFileMarketData(Path(prices_path))
 
-    if mode == "simulated_v2":
-        params = plan.adapters.market_data.params
-
-        seed_raw = params.get("seed", 1)
-        seed = int(seed_raw) if isinstance(seed_raw, (int, float)) else 1
-
-        drift_raw = params.get("drift", 0.0)
-        drift = float(drift_raw) if isinstance(drift_raw, (int, float)) else 0.0
-
-        vol_raw = params.get("vol", 0.01)
-        vol = float(vol_raw) if isinstance(vol_raw, (int, float)) else 0.01
-
-        start = params.get("start_prices", {})
-        start_prices: dict[str, float] = {}
-        if isinstance(start, dict):
-            for k, v in start.items():
-                if isinstance(k, str) and isinstance(v, (int, float)):
-                    start_prices[k] = float(v)
-
-        volumes = params.get("start_volumes", {})
-        start_volumes: dict[str, float] = {}
-        if isinstance(volumes, dict):
-            for k, v in volumes.items():
-                if isinstance(k, str) and isinstance(v, (int, float)):
-                    start_volumes[k] = float(v)
-
-        symbols: list[str] = list(plan.universe.symbols)
-        for s in list(symbols):
-            if not s.endswith("_main"):
-                symbols.append(f"{s}_main")
-
-        return SimulatedMarketDataV2(
-            symbols=symbols,
-            seed=seed,
-            drift=drift,
-            vol=vol,
-            start_prices=start_prices,
-            start_volumes=start_volumes,
-        )
-
-    return SimulatedMarketData()
+    raise ValueError(f"unsupported market_data mode: {mode}")
 
 
 def build_broker(plan: RunPlan, market_data: MarketDataAdapter) -> BrokerAdapter:
     return build_broker_with_specs(plan, market_data, instrument_specs=None)
+
+
+def plan_with_resolved_trade_contracts(
+    *,
+    plan: RunPlan,
+    market_data: MarketDataAdapter,
+) -> RunPlan:
+    required = bool(plan.instruments.roll_policy.resolve_from_market_data)
+    resolver = getattr(market_data, "resolved_trade_symbols", None)
+    if not callable(resolver):
+        if required:
+            raise ValueError(
+                "instruments.roll_policy.resolve_from_market_data requires market data "
+                "adapter to resolve trade contracts"
+            )
+        return plan
+    contracts = resolver()
+    if not isinstance(contracts, dict) or not contracts:
+        if required:
+            raise ValueError("market data did not resolve any trade contracts")
+        return plan
+    normalized = {
+        symbol: contract
+        for symbol, contract in contracts.items()
+        if isinstance(symbol, str) and isinstance(contract, str)
+    }
+    missing = [sym for sym in plan.universe.symbols if sym not in normalized]
+    bad_contracts = {
+        sym: contract
+        for sym, contract in normalized.items()
+        if contract.startswith("KQ.") or contract.endswith("_main") or "." not in contract
+    }
+    if required and missing:
+        raise ValueError(f"market data did not resolve trade contracts for symbols: {missing}")
+    if required and bad_contracts:
+        raise ValueError(f"market data resolved invalid trade contracts: {bad_contracts}")
+    if normalized == plan.instruments.roll_policy.contracts and not required:
+        return plan
+    roll_policy = replace(
+        plan.instruments.roll_policy,
+        contracts=normalized,
+        resolve_from_market_data=False,
+    )
+    instruments = replace(plan.instruments, roll_policy=roll_policy)
+    return replace(plan, instruments=instruments)
 
 
 def build_broker_with_specs(
@@ -228,20 +142,20 @@ def build_broker_with_specs(
     *,
     instrument_specs: InstrumentSpecRegistry | None,
 ) -> BrokerAdapter:
-    if plan.adapters.broker.mode == "tqkq_live":
+    if plan.adapters.broker.mode == "tqkq":
         if plan.instruments.roll_policy.mode != "fixed_contract":
-            raise ValueError("adapters.broker.mode=tqkq_live requires fixed_contract roll_policy")
+            raise ValueError("adapters.broker.mode=tqkq requires fixed_contract roll_policy")
         bad_contracts = {
             sym: contract
             for sym, contract in plan.instruments.roll_policy.contracts.items()
-            if contract.endswith("_main") or "." not in contract
+            if contract.startswith("KQ.") or contract.endswith("_main") or "." not in contract
         }
         if bad_contracts:
             raise ValueError(
-                "adapters.broker.mode=tqkq_live requires real trade contracts: "
+                "adapters.broker.mode=tqkq requires real trade contracts: "
                 f"{bad_contracts}"
             )
-        submit_mode = str(plan.adapters.broker.params.get("submit_mode", "dry_run"))
+        submit_mode = str(plan.adapters.broker.params.get("submit_mode", "dryrun"))
         token = plan.adapters.broker.params.get("confirm_live_token")
         if (
             submit_mode == "live"
@@ -251,48 +165,23 @@ def build_broker_with_specs(
             )
         ):
             raise ValueError(
-                "tqkq_live live submit hard gate failed in session_builder: "
+                "live submit hard gate failed in session_builder: "
                 f"submit_mode={submit_mode!r}, "
                 f"confirm_live={plan.adapters.broker.params.get('confirm_live') is True}, "
                 f"token_present={isinstance(token, str) and bool(token)}, "
                 f"expected_token=runtime_id:{plan.runtime.runtime_id}"
             )
-        return TqKqLiveBroker(
+        return TqKqBrokerAdapter(
             market_data=market_data,
             instrument_specs=(
                 instrument_specs
                 or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
             ),
-            dry_run=submit_mode == "dry_run",
-        )
-
-    if plan.adapters.broker.mode == "tqkq_sim":
-        if plan.adapters.market_data.mode != "tqkq":
-            raise ValueError(
-                "adapters.broker.mode=tqkq_sim requires adapters.market_data.mode=tqkq"
-            )
-        if plan.instruments.roll_policy.mode != "fixed_contract":
-            raise ValueError("adapters.broker.mode=tqkq_sim requires fixed_contract roll_policy")
-        bad_contracts = {
-            sym: contract
-            for sym, contract in plan.instruments.roll_policy.contracts.items()
-            if contract.endswith("_main") or "." not in contract
-        }
-        if bad_contracts:
-            raise ValueError(
-                "adapters.broker.mode=tqkq_sim requires real trade contracts: "
-                f"{bad_contracts}"
-            )
-        return TqKqBroker(
-            market_data=market_data,
-            instrument_specs=(
-                instrument_specs
-                or InstrumentSpecRegistry.with_overrides(plan.instruments.specs)
-            ),
-            no_fill=bool(plan.adapters.broker.params.get("no_fill", False)),
+            dry_run=submit_mode == "dryrun",
         )
 
     params = plan.adapters.broker.params
+    order_id_prefix = str(params.get("order_id_prefix", "LOCAL-SIM"))
     fill_delay_ticks = int(params.get("fill_delay_ticks", 0))
     partial_fill_ratio = float(params.get("partial_fill_ratio", 1.0))
     max_partial_steps = int(params.get("max_partial_steps", 1))
@@ -301,6 +190,7 @@ def build_broker_with_specs(
     no_fill = bool(params.get("no_fill", False))
     return SimulatedBroker(
         market_data,
+        order_id_prefix=order_id_prefix,
         fill_delay_ticks=fill_delay_ticks,
         partial_fill_ratio=partial_fill_ratio,
         max_partial_steps=max_partial_steps,
@@ -336,19 +226,23 @@ def build_instrument_services(
     *,
     plan: RunPlan,
     runtime_id: str,
-    env: Env,
+    scope: RuntimeProfile,
     datastore: JSONLFileDataStore,
 ) -> tuple[TradingCalendar, InstrumentResolver]:
-    sessions = {
-        sym: [TradingSession(start=s.start, end=s.end) for s in items]
-        for sym, items in plan.instruments.trading_sessions.items()
-    }
+    sessions = (
+        {}
+        if scope == "local"
+        else {
+            sym: [TradingSession(start=s.start, end=s.end) for s in items]
+            for sym, items in plan.instruments.trading_sessions.items()
+        }
+    )
     calendar = TradingCalendar(sessions_by_symbol=sessions)
     policy = RollPolicy(
         mode=plan.instruments.roll_policy.mode,
         contracts=dict(plan.instruments.roll_policy.contracts),
         runtime_id=runtime_id,
-        env=env,
+        scope=scope,
         sink=datastore,
         close_on_roll=plan.instruments.roll_policy.close_on_roll,
         cooldown_ticks=plan.instruments.roll_policy.cooldown_ticks,
@@ -417,8 +311,9 @@ def make_universe_runtime(
 
 @dataclass
 class UniverseSession:
-    env: Env
+    scope: RuntimeProfile
     runtime_id: str
+    plan: RunPlan
     executor: Any
     universe: UniverseRuntime
     market_data: MarketDataAdapter
@@ -440,93 +335,91 @@ class UniverseSession:
                     pass
 
 
-def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> UniverseSession:
+def build_universe_session(
+    *,
+    plan: RunPlan,
+    profile: RuntimeProfile,
+    runtime_id: str,
+) -> UniverseSession:
     store_root = plan.datastore.store_root
-    env_root = store_root / env
-    env_root.mkdir(parents=True, exist_ok=True)
+    scope_root = store_root / profile
+    scope_root.mkdir(parents=True, exist_ok=True)
 
     market_data = build_market_data(plan)
+    trade_plan = plan_with_resolved_trade_contracts(plan=plan, market_data=market_data)
     instrument_specs = build_instrument_specs_registry(plan=plan, market_data=market_data)
-    broker = build_broker_with_specs(plan, market_data, instrument_specs=instrument_specs)
+    broker = build_broker_with_specs(trade_plan, market_data, instrument_specs=instrument_specs)
 
     # Write a deterministic snapshot for audit/replay.
-    # (One file per runtime_id; safe to overwrite between env sessions.)
+    # One file per runtime_id; safe to overwrite between scoped sessions.
     write_specs_snapshot(
         runtime_id=runtime_id,
+        runtime_profile=profile,
+        datastore_scope=profile,
         specs=instrument_specs.specs_for(list(plan.universe.symbols)),
-        output_dir=plan.datastore.artifacts_root / "specs",
+        output_dir=plan.datastore.artifacts_root / profile / "specs",
     )
 
-    datastore = JSONLFileDataStore(root_dir=env_root, env=env, runtime_id=runtime_id)
-    cfg = RuntimeConfig()
-    calendar, resolver = build_instrument_services(
-        plan=plan,
+    datastore = JSONLFileDataStore(root_dir=scope_root, scope=profile, runtime_id=runtime_id)
+    cfg = RuntimeConfig(
         runtime_id=runtime_id,
-        env=env,
+        default_quantity=trade_plan.runtime.default_quantity,
+        stop_loss=trade_plan.runtime.stop_loss,
+        take_profit=trade_plan.runtime.take_profit,
+        stop_loss_pct=trade_plan.runtime.stop_loss_pct,
+        take_profit_pct=trade_plan.runtime.take_profit_pct,
+        dynamic_exit_enabled=trade_plan.runtime.dynamic_exit_enabled,
+        dynamic_stop_loss_vol_mult=trade_plan.runtime.dynamic_stop_loss_vol_mult,
+        dynamic_take_profit_vol_mult=trade_plan.runtime.dynamic_take_profit_vol_mult,
+        dynamic_min_stop_loss_pct=trade_plan.runtime.dynamic_min_stop_loss_pct,
+        dynamic_min_take_profit_pct=trade_plan.runtime.dynamic_min_take_profit_pct,
+        dynamic_max_stop_loss_pct=trade_plan.runtime.dynamic_max_stop_loss_pct,
+        dynamic_max_take_profit_pct=trade_plan.runtime.dynamic_max_take_profit_pct,
+    )
+    calendar, resolver = build_instrument_services(
+        plan=trade_plan,
+        runtime_id=runtime_id,
+        scope=profile,
         datastore=datastore,
     )
 
-    live_store = JSONLFileDataStore(
-        root_dir=store_root / "live",
-        env="live",
-        runtime_id=runtime_id,
-    )
-    live_runtime = _call_with_supported_kwargs(
-        RuntimeFactory.build_live_runtime,
+    executor = _call_with_supported_kwargs(
+        RuntimeFactory.build_runtime,
         config=cfg,
         runtime_id=runtime_id,
         market_data=market_data,
         broker=broker,
-        datastore=live_store,
+        datastore=datastore,
+        scope=profile,
         trading_calendar=calendar,
         instrument_resolver=resolver,
     )
-    live_runtime.max_pending_ticks = plan.execution.max_pending_ticks
-    live_runtime.max_rejects_in_window = plan.execution.max_rejects_in_window
-    live_runtime.reject_window_ticks = plan.execution.reject_window_ticks
-    live_runtime.halt_ticks = plan.execution.halt_ticks
-    live_runtime.min_order_interval_ticks = plan.execution.min_order_interval_ticks
-    live_runtime.symbol_position_limit = SymbolPositionLimit(
+    executor.max_pending_ticks = plan.execution.max_pending_ticks
+    executor.max_rejects_in_window = plan.execution.max_rejects_in_window
+    executor.reject_window_ticks = plan.execution.reject_window_ticks
+    executor.halt_ticks = plan.execution.halt_ticks
+    executor.min_order_interval_ticks = plan.execution.min_order_interval_ticks
+    executor.symbol_position_limit = SymbolPositionLimit(
         plan.risk.max_position_qty_by_symbol
     )
-    live_runtime.portfolio_risk_limits = PortfolioRiskLimits(
+    executor.portfolio_risk_limits = PortfolioRiskLimits(
         max_risk_ratio=plan.risk.max_risk_ratio,
         max_margin_used=plan.risk.max_margin_used,
         max_notional_by_symbol=plan.risk.max_notional_by_symbol,
     )
 
-    if env == "live":
-        executor = live_runtime
-    else:
-        executor = _call_with_supported_kwargs(
-            RuntimeFactory.build_sandbox_runtime_from_live,
-            live_runtime,
-            runtime_id=runtime_id,
-            market_data=market_data,
-            broker=broker,
-            datastore=datastore,
-            trading_calendar=calendar,
-            instrument_resolver=resolver,
-        )
-        executor.max_pending_ticks = plan.execution.max_pending_ticks
-        executor.max_rejects_in_window = plan.execution.max_rejects_in_window
-        executor.reject_window_ticks = plan.execution.reject_window_ticks
-        executor.halt_ticks = plan.execution.halt_ticks
-        executor.min_order_interval_ticks = plan.execution.min_order_interval_ticks
-        executor.symbol_position_limit = SymbolPositionLimit(
-            plan.risk.max_position_qty_by_symbol
-        )
-        executor.portfolio_risk_limits = PortfolioRiskLimits(
-            max_risk_ratio=plan.risk.max_risk_ratio,
-            max_margin_used=plan.risk.max_margin_used,
-            max_notional_by_symbol=plan.risk.max_notional_by_symbol,
-        )
-
     strategy_set, priorities, weights = build_strategy_set(plan)
+    strategy_switch_diagnostics: list[str] = []
     enabled = load_approved_strategy_map(
         runtime_id=runtime_id,
         artifacts_root=plan.datastore.artifacts_root,
+        expected_runtime_profile=profile,
+        expected_datastore_scope=profile,
+        diagnostics=strategy_switch_diagnostics,
     )
+    executor.strategy_switch_artifact_diagnostics = strategy_switch_diagnostics
+    if enabled is None:
+        enabled = dict(plan.strategy_switch.enabled_by_symbol)
     universe = make_universe_runtime(
         executor=executor,
         market_data=market_data,
@@ -538,8 +431,9 @@ def build_universe_session(*, plan: RunPlan, env: Env, runtime_id: str) -> Unive
     )
 
     return UniverseSession(
-        env=env,
+        scope=profile,
         runtime_id=runtime_id,
+        plan=trade_plan,
         executor=executor,
         universe=universe,
         market_data=market_data,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from adapters.marketdata.base import MarketQuote
+from core.services.marketdata.types import MarketQuote
 from domain.signal import SignalDecision
 
 

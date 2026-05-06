@@ -35,6 +35,7 @@ class TradingSessionSpec:
 class RollPolicySpec:
     mode: str = "fixed_contract"
     contracts: dict[str, str] = field(default_factory=dict)
+    resolve_from_market_data: bool = False
     close_on_roll: bool = False
     cooldown_ticks: int = 0
     main_contract_schedule: dict[str, list[str]] = field(default_factory=dict)
@@ -50,14 +51,14 @@ class InstrumentsSpec:
 
 @dataclass(frozen=True)
 class MarketDataSpec:
-    mode: str = "simulated"  # simulated | simulated_v2 | live_file | tqkq
+    mode: Literal["local_file", "tqkq"] = "local_file"
     prices_path: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class BrokerSpec:
-    mode: Literal["simulated", "tqkq_sim", "tqkq_live"] = "simulated"
+    mode: Literal["simulated", "tqkq"] = "simulated"
     params: dict[str, Any] = field(default_factory=dict)
 
 
@@ -71,12 +72,21 @@ class AdaptersSpec:
 class RuntimeSpec:
     runtime_id: str
     ticks_live: int
-    ticks_sandbox: int
+    ticks_dryrun: int
     default_quantity: float
-    mode: Literal["simulated_v2", "live_file", "tqkq_sim", "tqkq_live"] = "simulated_v2"
+    mode: Literal["local", "dryrun", "live"] = "local"
     warmup_seconds: float | None = None
     stop_loss: float | None = None
     take_profit: float | None = None
+    stop_loss_pct: float | None = None
+    take_profit_pct: float | None = None
+    dynamic_exit_enabled: bool = True
+    dynamic_stop_loss_vol_mult: float = 3.0
+    dynamic_take_profit_vol_mult: float = 5.0
+    dynamic_min_stop_loss_pct: float = 0.006
+    dynamic_min_take_profit_pct: float = 0.012
+    dynamic_max_stop_loss_pct: float = 0.03
+    dynamic_max_take_profit_pct: float = 0.06
     active_top_n: int = 0
     rank_window: int = 20
     rank_metric: str = "signal_strength"
@@ -123,6 +133,14 @@ class PromotionSpec:
 
 
 @dataclass(frozen=True)
+class StrategySwitchSpec:
+    enabled_by_symbol: dict[str, list[str]] = field(default_factory=dict)
+    approval_required: bool = False
+    min_score: float = 1.0
+    max_enabled_strategies_per_symbol: int = 1
+
+
+@dataclass(frozen=True)
 class RunPlan:
     schema_version: int
     env: str
@@ -133,6 +151,7 @@ class RunPlan:
     datastore: DataStoreSpec
     promotion: PromotionSpec
     router: RouterSpec
+    strategy_switch: StrategySwitchSpec = field(default_factory=StrategySwitchSpec)
     execution: ExecutionSpec = field(default_factory=ExecutionSpec)
     risk: RiskSpec = field(default_factory=RiskSpec)
     instruments: InstrumentsSpec = field(default_factory=InstrumentsSpec)
